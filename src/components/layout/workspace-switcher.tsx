@@ -22,6 +22,11 @@ export function WorkspaceSwitcher() {
     const [open, setOpen] = React.useState(false)
     const [showNewWorkspaceDialog, setShowNewWorkspaceDialog] = React.useState(false)
 
+    // DEBUG: Verify new deployment
+    React.useEffect(() => {
+        console.log("Running WorkspaceSwitcher v0.1.1 (2-Card UI)")
+    }, [])
+
     return (
         <>
             <CreateWorkspaceDialog
