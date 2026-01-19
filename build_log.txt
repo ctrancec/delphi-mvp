@@ -1,0 +1,46 @@
+
+> delphi@0.1.0 build
+> next build
+
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\curti\.gemini\antigravity\playground\harmonic-exoplanet\package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\curti\.gemini\antigravity\playground\harmonic-exoplanet\delphi\package-lock.json
+
+▲ Next.js 16.1.2 (Turbopack)
+- Environments: .env.local
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 1 errors:
+./delphi/src/app/dashboard/shifts/page.tsx:5:1
+Module not found: Can't resolve '@/components/ui/avatar'
+  3 | import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+  4 | import { Button } from "@/components/ui/button"
+> 5 | import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  6 | import { Badge } from "@/components/ui/badge"
+  7 | import { Calendar, ChevronLeft, ChevronRight, Clock, Plus, Users } from "lucide-react"
+  8 |
+
+Import map: aliased to relative './src/components/ui/avatar' inside of [project]/delphi
+
+
+Import traces:
+  Client Component Browser:
+    ./delphi/src/app/dashboard/shifts/page.tsx [Client Component Browser]
+    ./delphi/src/app/dashboard/shifts/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./delphi/src/app/dashboard/shifts/page.tsx [Client Component SSR]
+    ./delphi/src/app/dashboard/shifts/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+    at <unknown> (./delphi/src/app/dashboard/shifts/page.tsx:5:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)

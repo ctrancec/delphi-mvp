@@ -1,0 +1,130 @@
+export const VENDORS_DATA = [
+    {
+        id: 1,
+        name: "Sysco Foods",
+        type: "Inventory Supplier",
+        category: "Inventory",
+        status: "Active",
+        email: "orders@sysco.com",
+        phone: "+1 (800) 555-0123",
+        address: "123 Distribution Blvd, Logistics City",
+        website: "https://sysco.com",
+        balance: 1250.00,
+        lastPayment: "2024-01-15",
+        lastPaymentAmount: 3200.00,
+        annual: 45200,
+        monthly: 3800,
+        trend: "+2.4%"
+    },
+    {
+        id: 2,
+        name: "AWS Web Services",
+        type: "Technology",
+        category: "Tech",
+        status: "Active",
+        email: "billing@aws.amazon.com",
+        phone: "N/A",
+        address: "410 Terry Ave N, Seattle, WA",
+        website: "https://aws.amazon.com",
+        balance: 145.00,
+        lastPayment: "2024-01-01",
+        lastPaymentAmount: 145.00,
+        annual: 12500,
+        monthly: 1100,
+        trend: "+0.5%"
+    },
+    {
+        id: 3,
+        name: "Uline Packaging",
+        type: "Supplies",
+        category: "Supplies",
+        status: "Active",
+        email: "support@uline.com",
+        phone: "+1 (800) 295-5510",
+        address: "12575 Uline Dr, Pleasant Prairie, WI",
+        website: "https://uline.com",
+        balance: 0.00,
+        lastPayment: "2023-12-28",
+        lastPaymentAmount: 540.50,
+        annual: 8400,
+        monthly: 650,
+        trend: "-1.2%"
+    },
+    {
+        id: 4,
+        name: "Local Roasters Co.",
+        type: "Inventory",
+        category: "Inventory",
+        status: "Active",
+        email: "wholesale@localroast.com",
+        phone: "(555) 019-2834",
+        address: "45 Coffee Ln, Brewtown",
+        website: "https://localroasters.com",
+        balance: 450.00,
+        lastPayment: "2024-01-10",
+        lastPaymentAmount: 450.00,
+        annual: 15600,
+        monthly: 1300,
+        trend: "+5.8%"
+    },
+    {
+        id: 5,
+        name: "Zoom Video",
+        type: "Technology",
+        category: "Tech",
+        status: "Active",
+        email: "billing@zoom.us",
+        phone: "N/A",
+        address: "San Jose, CA",
+        website: "https://zoom.us",
+        balance: 0.00,
+        lastPayment: "2024-01-05",
+        lastPaymentAmount: 14.99,
+        annual: 2400,
+        monthly: 200,
+        trend: "0.0%"
+    }
+]
+
+export const JOBS_DATA = [
+    {
+        id: 1,
+        title: "E-Commerce Website Redesign",
+        client: "TechStream Inc",
+        rate: 125,
+        status: "Active",
+        totalHours: 14.5,
+        unbilledHours: 4.5,
+        dueDate: "2024-02-15"
+    },
+    {
+        id: 2,
+        title: "Mobile App API Integration",
+        client: "StartUp Flow",
+        rate: 150,
+        status: "Active",
+        totalHours: 8.0,
+        unbilledHours: 8.0,
+        dueDate: "2024-02-01"
+    },
+    {
+        id: 3,
+        title: "Q4 Marketing Audit",
+        client: "GreenLeaf Co",
+        rate: 95,
+        status: "Completed",
+        totalHours: 12.0,
+        unbilledHours: 0,
+        dueDate: "2024-01-10"
+    },
+    {
+        id: 4,
+        title: "Legacy System Migration",
+        client: "OldBank Corp",
+        rate: 180,
+        status: "Active",
+        totalHours: 42.0,
+        unbilledHours: 12.5,
+        dueDate: "2024-03-30"
+    }
+]
