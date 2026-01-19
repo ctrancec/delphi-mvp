@@ -74,6 +74,8 @@ function LoginContent() {
                                             redirectTo: `${window.location.origin}/auth/callback`
                                         }
                                     })
+                                } else {
+                                    alert('Authentication is not configured. Missing Environment Variables.')
                                 }
                             }}
                         >
