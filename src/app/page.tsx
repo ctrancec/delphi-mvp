@@ -134,15 +134,15 @@ export default function LandingPage() {
                 <PieChart className="h-3 w-3" />
                 Personal Command Center
               </div>
-              <h3 className="text-3xl font-bold mb-4 tracking-tight">Master your net worth.</h3>
+              <h3 className="text-3xl font-bold mb-4 tracking-tight">Master your finances.</h3>
               <p className="text-muted-foreground text-lg leading-relaxed mb-6">
-                Connect your bank accounts, track investments, and visualize your financial health in real-time. No more spreadsheets.
+                Connect your bank accounts and visualize your financial health in real-time. No more spreadsheets.
               </p>
               <ul className="space-y-3">
                 {[
-                  "Live Net Worth Checking",
+                  "Unified Account View",
                   "Smart Budgeting & Categorization",
-                  "Investment Portfolio Tracker",
+                  "Expense Analytics",
                   "AI Receipt Scanning"
                 ].map((item, i) => (
                   <li key={i} className="flex items-center gap-3">
@@ -197,7 +197,7 @@ export default function LandingPage() {
                 {[
                   "Enable 'POS' for your pop-up shop",
                   "Turn on 'Invoicing' for freelance work",
-                  "Hide everything but 'Net Worth' for focus"
+                  "Hide everything but 'Analytics' for focus"
                 ].map((item, i) => (
                   <li key={i} className="flex items-center gap-3">
                     <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-primary"><Check className="h-3 w-3" /></div>
@@ -208,16 +208,16 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Feature 2: Restaurant POS & Delivery */}
+          {/* Feature 2: Restaurant POS (Renamed from Delivery) */}
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-400 mb-6">
                 <Zap className="h-3 w-3" />
-                Unified Protocol
+                Cloud Point of Sale
               </div>
-              <h3 className="text-3xl font-bold mb-4 tracking-tight">One Screen. All Orders.</h3>
+              <h3 className="text-3xl font-bold mb-4 tracking-tight">Modern Retail & Dining.</h3>
               <p className="text-muted-foreground text-lg leading-relaxed mb-6">
-                Stop juggling three different tablets. Delphi's <strong>Delivery Hub</strong> catches orders from Uber Eats and DoorDash and sends them straight to your kitchen.
+                Stop juggling clunky hardware. Delphi's <strong>Cloud POS</strong> runs on any tablet, connects seamlessly to your kitchen display, and manages inventory in real-time.
               </p>
             </div>
             <div className="relative">
@@ -230,6 +230,7 @@ export default function LandingPage() {
                     className="w-full rounded-xl"
                   />
                 </div>
+                {/* Delivery Hub Hidden
                 <div className="glass-panel p-2 rounded-2xl border border-white/10 relative overflow-hidden transform translate-x-12 -mt-12 opacity-90 hover:opacity-100 hover:translate-x-0 transition-all duration-500">
                   <img
                     src="/images/delivery_hub.png"
@@ -237,6 +238,7 @@ export default function LandingPage() {
                     className="w-full rounded-xl"
                   />
                 </div>
+                */}
               </div>
             </div>
           </div>
@@ -348,11 +350,11 @@ export default function LandingPage() {
                 <span className="text-muted-foreground">/mo</span>
               </div>
               <div className="inline-block bg-white/10 rounded-full px-3 py-1 text-xs text-white font-medium mb-6">
-                Includes News & Budget
+                Includes Budgeting
               </div>
               <p className="text-muted-foreground mb-8 text-sm">For individuals and families mastering their wealth.</p>
               <ul className="space-y-3 mb-8 w-full">
-                {["Net Worth Tracking", "Smart Budgeting", "Financial News Feed", "Advanced Analytics"].map((feat) => (
+                {["Unified Account View", "Smart Budgeting", "Advanced Analytics", "Priority Support"].map((feat) => (
                   <li key={feat} className="flex items-center justify-center gap-2 text-sm">
                     <Check className="h-4 w-4 text-primary" />
                     {feat}
