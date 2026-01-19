@@ -44,7 +44,7 @@ export type ToolId =
     | 'subscription_admin'
     | 'consolidated_reports';
 
-export type UserRole = 'owner' | 'manager' | 'staff' | 'chef'
+export type UserRole = 'owner' | 'admin' | 'member' | 'manager' | 'staff' | 'chef'
 
 export interface ToolDefinition {
     id: ToolId;

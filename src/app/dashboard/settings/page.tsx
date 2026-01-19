@@ -65,7 +65,11 @@ export default function SettingsPage() {
 
     if (!user) return <div className="p-8 text-muted-foreground">Loading settings...</div>
 
-    const allTools = Object.values(TOOL_REGISTRY)
+    // Sort Tools: Free -> Pro -> Business -> Enterprise
+    const tierOrder = { free: 0, pro: 1, business: 2, enterprise: 3 }
+    const allTools = Object.values(TOOL_REGISTRY).sort((a, b) => {
+        return (tierOrder[a.tier] || 0) - (tierOrder[b.tier] || 0)
+    })
 
     return (
         <div className="space-y-8 max-w-5xl">
@@ -118,7 +122,7 @@ export default function SettingsPage() {
                     </CardContent>
                 </Card>
 
-                {/* Subscription Plan (Dev/Demo) */}
+                {/* Subscription Plan */}
                 <Card className="bg-white/5 border-white/10 backdrop-blur-md">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
@@ -148,71 +152,17 @@ export default function SettingsPage() {
                             </Badge>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2">
-                            {['free', 'pro', 'business'].map((tier) => (
-                                <Button
-                                    key={tier}
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => updateWorkspaceTier(tier as any)}
-                                    className={cn(
-                                        "capitalize text-xs border-white/10 hover:bg-white/10",
-                                        activeWorkspace.tier === tier && "border-primary/50 bg-primary/10 text-primary"
-                                    )}
-                                >
-                                    {tier}
+                        <div className="flex justify-end">
+                            {activeWorkspace.tier === 'free' ? (
+                                <Button className="bg-gradient-to-r from-purple-600 to-blue-600 text-white border-0">
+                                    Upgrade to Pro
                                 </Button>
-                            ))}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground text-center">
-                            (Demo: Click to switch tiers instantly)
-                        </p>
-                    </CardContent>
-                </Card>
-
-                {/* Role Simulation (Dev/Demo) */}
-                <Card className="bg-white/5 border-white/10 backdrop-blur-md">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Shield className="h-5 w-5" />
-                            Role Simulation
-                        </CardTitle>
-                        <CardDescription>
-                            Test the application as different user roles.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex items-center justify-between p-3 border border-white/10 rounded-lg bg-black/20">
-                            <div>
-                                <div className="font-medium capitalize text-white">{currentUserRole} Access</div>
-                                <div className="text-xs text-muted-foreground">
-                                    Simulating permissions for {currentUserRole}.
-                                </div>
-                            </div>
-                            <Badge variant="outline" className="capitalize border-white/20">
-                                {currentUserRole}
-                            </Badge>
-                        </div>
-
-                        <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-                            {['owner', 'manager', 'staff', 'chef'].map((role) => (
-                                <Button
-                                    key={role}
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => updateUserRole(role as any)}
-                                    className={cn(
-                                        "capitalize text-xs border-white/10 hover:bg-white/10",
-                                        currentUserRole === role && "border-primary/50 bg-primary/10 text-primary"
-                                    )}
-                                >
-                                    {role}
+                            ) : (
+                                <Button variant="outline" className="border-white/10">
+                                    Manage Subscription
                                 </Button>
-                            ))}
+                            )}
                         </div>
-                        <p className="text-[10px] text-muted-foreground text-center">
-                            (Check Sidebar to see permission changes)
-                        </p>
                     </CardContent>
                 </Card>
 
@@ -288,18 +238,41 @@ export default function SettingsPage() {
                         </div>
                     </CardContent>
                 </Card>
-                {/* Danger Zone */}
-                <Card className="border-red-500/20 bg-red-500/5 backdrop-blur-md">
+                {/* Account Management */}
+                <Card className="border-white/10 bg-white/5 backdrop-blur-md">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-red-500">
-                            <AlertTriangle className="h-5 w-5" />
-                            Danger Zone
+                        <CardTitle className="flex items-center gap-2">
+                            <Wrench className="h-5 w-5" />
+                            Account Management
                         </CardTitle>
                         <CardDescription>
-                            Irreversible actions for your account.
+                            Control your data and account existence.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
+                        <div className="flex items-center justify-between p-4 border border-red-500/20 rounded-lg bg-red-500/10">
+                            <div>
+                                <div className="font-medium text-white">Reset Local Data</div>
+                                <div className="text-xs text-muted-foreground mt-1">
+                                    Clear local cache and cookies. Use this if the app feels "stuck".
+                                    <br />
+                                    (This does not delete your account).
+                                </div>
+                            </div>
+                            <Button variant="outline" size="sm" className="border-red-500/20 hover:bg-red-500/10 text-red-400" onClick={() => {
+                                if (confirm('Clear only local data? You will need to login again.')) {
+                                    localStorage.clear()
+                                    // Clear cookies manually if needed, or rely on expiry
+                                    document.cookie.split(";").forEach((c) => {
+                                        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+                                    });
+                                    window.location.href = '/login'
+                                }
+                            }}>
+                                Rx Reset Data
+                            </Button>
+                        </div>
+
                         <div className="flex items-center justify-between p-4 border border-red-500/20 rounded-lg bg-red-500/10">
                             <div>
                                 <div className="font-medium text-white">Delete Account</div>

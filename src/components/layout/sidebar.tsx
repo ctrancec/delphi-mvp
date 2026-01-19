@@ -74,15 +74,21 @@ function ToolList({ tools, pathname, role }: { tools: ToolId[], pathname: string
 
     return (
         <>
-            {tools.map(toolId => {
-                const tool = TOOL_REGISTRY[toolId]
-                if (!tool) return null
+            {/* [NEW] Admin Settings for Owners */}
+            {role === 'owner' && (
+                <Link
+                    href="/dashboard/workspace-settings"
+                    className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/5 mb-4 group",
+                        pathname === '/dashboard/workspace-settings' ? "bg-white/10 text-white" : "text-amber-500/80 hover:text-amber-400"
+                    )}
+                >
+                    <Settings className="h-4 w-4" />
+                    Workspace Settings
+                </Link>
+            )}
 
-                // Role Filtering Logic
-                if (tool.allowedRoles && !tool.allowedRoles.includes(role as any)) {
-                    return null
-                }
-
+            {sortedAndFilteredTools.map(tool => {
                 const Icon = tool.icon
                 const isActive = pathname === tool.href || pathname.startsWith(tool.href + '/')
 
