@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/ui-alert'
 import { AlertCircle, Trash2, Save, ArrowLeft } from 'lucide-react'
 import { useWorkspace } from '@/lib/contexts/workspace-context'
 import { RoleGuard } from '@/components/auth/role-guard'
