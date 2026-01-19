@@ -1,13 +1,21 @@
-import { NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
 
-// Initialize Stripe with Secret Key
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2025-12-15.clover' as any, // Cast to ignore potential type mismatch if library is newer
-    typescript: true
-})
+export const dynamic = 'force-dynamic';
+
+const stripe = process.env.STRIPE_SECRET_KEY
+    ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+        apiVersion: '2025-12-15.clover' as any, // Type assertion for newer API version
+    })
+    : null;
 
 export async function POST(req: Request) {
+    if (!stripe) {
+        return NextResponse.json(
+            { error: 'Stripe is not configured (Missing STRIPE_SECRET_KEY)' },
+            { status: 500 }
+        );
+    }
     try {
         const { amount } = await req.json()
 
