@@ -87,7 +87,7 @@ export default function POSPage() {
             items: cart.map(i => ({ name: i.product.name, quantity: i.qty, price: i.product.price })),
             status: 'preparing',
             total: finalTotal,
-            total: finalTotal,
+
             type: 'dine-in',
             source: 'pos',
             customer: 'Guest',

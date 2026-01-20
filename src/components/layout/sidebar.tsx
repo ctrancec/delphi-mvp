@@ -72,6 +72,10 @@ function ToolList({ tools, pathname, role }: { tools: ToolId[], pathname: string
         </div>
     )
 
+    const sortedAndFilteredTools = tools
+        .map(id => TOOL_REGISTRY[id])
+        .filter(Boolean)
+
     return (
         <>
             {/* [NEW] Admin Settings for Owners */}

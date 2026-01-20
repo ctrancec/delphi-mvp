@@ -5,6 +5,9 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function completeOnboarding(industry: string) {
     const supabase = await createClient()
+    if (!supabase) {
+        return { error: 'Supabase client not initialized' }
+    }
 
     const {
         data: { user },
