@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Search, Filter, Plus, Package, AlertCircle, ArrowUpRight, Save, MoreHorizontal } from "lucide-react"
+import { Search, Filter, Plus, Package, AlertCircle, ArrowUpRight, Save, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
 import {
     Select,
     SelectContent,
@@ -22,21 +22,54 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
-import { useMockDatabase } from '@/lib/contexts/mock-db-context'
+import { useMockDatabase, InventoryItem } from '@/lib/contexts/mock-db-context'
 
 export default function InventoryPage() {
-    const { inventory, updateInventory } = useMockDatabase()
+    const { inventory, updateInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem } = useMockDatabase()
     const [searchTerm, setSearchTerm] = useState('')
     const [filterCategory, setFilterCategory] = useState('All')
     const [isReceiveOpen, setIsReceiveOpen] = useState(false)
-    const [receiveForm, setReceiveForm] = useState({ name: '', quantity: '', unit: 'pcs', category: 'Raw Material' })
+    const [receiveForm, setReceiveForm] = useState({ name: '', quantity: '', unit: 'pcs', category: 'Raw Material', cost: '', sku: '', minLevel: '10' })
+    const [isSubmitting, setIsSubmitting] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editValue, setEditValue] = useState<number>(0)
 
-    const handleReceiveStock = () => {
-        // In a real app we'd add new items to DB. For now closing dialog.
-        setIsReceiveOpen(false)
+    // Edit Item Dialog State
+    const [isEditOpen, setIsEditOpen] = useState(false)
+    const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
+
+    const handleReceiveStock = async () => {
+        if (!receiveForm.name || !receiveForm.quantity) return
+        setIsSubmitting(true)
+        try {
+            await addInventoryItem({
+                name: receiveForm.name,
+                quantity: parseFloat(receiveForm.quantity),
+                unit: receiveForm.unit,
+                category: receiveForm.category,
+                sku: receiveForm.sku || `SKU-${Math.floor(Math.random() * 1000)}`,
+                cost: parseFloat(receiveForm.cost) || 0,
+                price: parseFloat(receiveForm.cost) * 1.5 || 0,
+                minLevel: parseFloat(receiveForm.minLevel) || 10,
+                expiry: null as any,
+                batch: ''
+            })
+            setIsReceiveOpen(false)
+            setReceiveForm({ name: '', quantity: '', unit: 'pcs', category: 'Raw Material', cost: '', sku: '', minLevel: '10' })
+        } catch (error) {
+            console.error("Failed to receive stock", error)
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     const startEditing = (id: string, currentQty: number) => {
@@ -47,6 +80,31 @@ export default function InventoryPage() {
     const saveEditing = (id: string) => {
         updateInventory(id, editValue)
         setEditingId(null)
+    }
+
+    const startFullEdit = (item: InventoryItem) => {
+        setEditingItem(item)
+        setIsEditOpen(true)
+    }
+
+    const handleSaveEdit = async () => {
+        if (!editingItem) return
+        await updateInventoryItem(editingItem.id, {
+            name: editingItem.name,
+            sku: editingItem.sku,
+            category: editingItem.category,
+            minLevel: editingItem.minLevel,
+            unit: editingItem.unit,
+            cost: editingItem.cost
+        })
+        setIsEditOpen(false)
+        setEditingItem(null)
+    }
+
+    const handleDelete = async (id: string) => {
+        if (confirm('Are you sure you want to delete this item?')) {
+            await deleteInventoryItem(id)
+        }
     }
 
     const filteredInventory = inventory.filter(item => {
@@ -85,11 +143,67 @@ export default function InventoryPage() {
                                 <DialogDescription className="text-gray-400">Add new stock to the warehouse.</DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
-                                <Label>Item Name</Label>
-                                <Input className="bg-white/5 border-white/10 text-white" placeholder="Module disabled in demo" disabled />
+                                <div className="grid gap-2">
+                                    <Label>Item Name</Label>
+                                    <Input
+                                        className="bg-white/5 border-white/10 text-white"
+                                        value={receiveForm.name}
+                                        onChange={e => setReceiveForm({ ...receiveForm, name: e.target.value })}
+                                        placeholder="e.g. Milk, Coffee Beans"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid gap-2">
+                                        <Label>Quantity</Label>
+                                        <Input
+                                            type="number"
+                                            className="bg-white/5 border-white/10 text-white"
+                                            value={receiveForm.quantity}
+                                            onChange={e => setReceiveForm({ ...receiveForm, quantity: e.target.value })}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label>Unit</Label>
+                                        <Input
+                                            className="bg-white/5 border-white/10 text-white"
+                                            value={receiveForm.unit}
+                                            onChange={e => setReceiveForm({ ...receiveForm, unit: e.target.value })}
+                                            placeholder="pcs, kg, L"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid gap-2">
+                                        <Label>Cost per Unit</Label>
+                                        <Input
+                                            type="number"
+                                            className="bg-white/5 border-white/10 text-white"
+                                            value={receiveForm.cost}
+                                            onChange={e => setReceiveForm({ ...receiveForm, cost: e.target.value })}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label>Category</Label>
+                                        <Select value={receiveForm.category} onValueChange={(val) => setReceiveForm({ ...receiveForm, category: val })}>
+                                            <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                                                <SelectValue placeholder="Select" />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-zinc-950 border-white/10 text-white">
+                                                <SelectItem value="Raw Material">Raw Material</SelectItem>
+                                                <SelectItem value="Produce">Produce</SelectItem>
+                                                <SelectItem value="Dairy">Dairy</SelectItem>
+                                                <SelectItem value="Bakery">Bakery</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
                             </div>
                             <DialogFooter>
-                                <Button onClick={() => setIsReceiveOpen(false)} className="bg-emerald-600">to be implemented</Button>
+                                <Button onClick={handleReceiveStock} disabled={isSubmitting} className="bg-emerald-600 hover:bg-emerald-500">
+                                    {isSubmitting ? 'Adding...' : 'Add Stock'}
+                                </Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -219,10 +333,26 @@ export default function InventoryPage() {
                                         </div>
                                     </td>
                                     <td className="px-4 py-3 text-right">
-                                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                            <span className="sr-only">Open menu</span>
-                                            <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                                    <span className="sr-only">Open menu</span>
+                                                    <MoreHorizontal className="h-4 w-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="bg-zinc-950 border-white/10 text-white">
+                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                <DropdownMenuItem onClick={() => startFullEdit(item)} className="cursor-pointer hover:bg-white/5">
+                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                    Edit Details
+                                                </DropdownMenuItem>
+                                                <DropdownMenuSeparator className="bg-white/10" />
+                                                <DropdownMenuItem className="text-red-500 cursor-pointer hover:bg-red-500/10 hover:text-red-400" onClick={() => handleDelete(item.id)}>
+                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    Delete Item
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     </td>
                                 </tr>
                             )
@@ -230,6 +360,57 @@ export default function InventoryPage() {
                     </tbody>
                 </table>
             </div>
+            {/* Edit Item Dialog */}
+            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+                <DialogContent className="bg-zinc-950 border-white/10 text-white">
+                    <DialogHeader>
+                        <DialogTitle>Edit Item Details</DialogTitle>
+                        <DialogDescription className="text-gray-400">Modify item properties and thresholds.</DialogDescription>
+                    </DialogHeader>
+                    {editingItem && (
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label>Item Name</Label>
+                                <Input
+                                    className="bg-white/5 border-white/10 text-white"
+                                    value={editingItem.name}
+                                    onChange={e => editingItem && setEditingItem({ ...editingItem, name: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label>Min Stock Level (Alert Threshold)</Label>
+                                    <Input
+                                        type="number"
+                                        className="bg-white/5 border-white/10 text-white"
+                                        value={editingItem.minLevel}
+                                        onChange={e => editingItem && setEditingItem({ ...editingItem, minLevel: Number(e.target.value) })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label>Category</Label>
+                                    <Select value={editingItem.category} onValueChange={(val) => editingItem && setEditingItem({ ...editingItem, category: val })}>
+                                        <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-zinc-950 border-white/10 text-white">
+                                            <SelectItem value="Raw Material">Raw Material</SelectItem>
+                                            <SelectItem value="Produce">Produce</SelectItem>
+                                            <SelectItem value="Dairy">Dairy</SelectItem>
+                                            <SelectItem value="Bakery">Bakery</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button onClick={handleSaveEdit} className="bg-emerald-600 hover:bg-emerald-500">
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

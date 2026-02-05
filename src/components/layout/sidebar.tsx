@@ -75,6 +75,7 @@ function ToolList({ tools, pathname, role }: { tools: ToolId[], pathname: string
     const sortedAndFilteredTools = tools
         .map(id => TOOL_REGISTRY[id])
         .filter(Boolean)
+        .filter(tool => !tool.allowedRoles || tool.allowedRoles.includes(role as any))
 
     return (
         <>

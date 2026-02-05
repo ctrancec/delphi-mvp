@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { User, Building, Mail, Shield, LayoutGrid, Check, Plus, Wrench, CreditCard, AlertTriangle } from 'lucide-react'
+import { User, Building, Mail, Shield, LayoutGrid, Check, Plus, Wrench, CreditCard, AlertTriangle, Baby } from 'lucide-react'
 import { useWorkspace } from '@/lib/contexts/workspace-context'
 import { TOOL_REGISTRY, ToolId } from '@/lib/types/tool-registry'
 import { cn } from '@/lib/utils'
@@ -119,6 +119,33 @@ export default function SettingsPage() {
                                 </div>
                             </div>
                         </div>
+                    </CardContent>
+                </Card>
+
+                {/* Family & Junior Mode */}
+                <Card className="bg-white/5 border-white/10 backdrop-blur-md">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Baby className="h-5 w-5" />
+                            Family & Junior Mode
+                        </CardTitle>
+                        <CardDescription>
+                            Manage parental controls and kids mode settings.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex items-center justify-between">
+                        <div>
+                            <div className="font-medium text-white">Delphi Junior</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                                A simplified, safe interface for financial education.
+                            </div>
+                        </div>
+                        <Button
+                            variant="secondary"
+                            onClick={() => router.push('/dashboard/settings/parental')}
+                        >
+                            Configure
+                        </Button>
                     </CardContent>
                 </Card>
 

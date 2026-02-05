@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Mail, Plus, Shield, ShieldAlert, User, ChefHat, Check, X, Lock } from 'lucide-react'
+import { Mail, Plus, Shield, ShieldAlert, User, ChefHat, Check, X, Lock, UserPlus } from 'lucide-react'
 import { useWorkspace } from '@/lib/contexts/workspace-context'
 import { TOOL_REGISTRY, UserRole, ToolId } from '@/lib/types/tool-registry'
 import { cn } from '@/lib/utils'
@@ -170,9 +170,24 @@ export default function TeamPage() {
                                 <Button onClick={handleInvite} className="bg-primary text-white hover:bg-primary/90">Send Invitation</Button>
                             </DialogFooter>
                         </DialogContent>
-                    </Dialog>
-                )}
-            </div>
+                    </Dialog >
+                )
+                }
+
+                {/* Enterprise Hire Button */}
+                {
+                    canInvite && (
+                        <Button
+                            variant="outline"
+                            className="ml-2 border-indigo-500/50 text-indigo-400 hover:bg-indigo-500/10 hover:text-indigo-300"
+                            onClick={() => window.location.href = '/dashboard/team/hire'}
+                        >
+                            <UserPlus className="h-4 w-4 mr-2" />
+                            Hire Employee (Enterprise)
+                        </Button>
+                    )
+                }
+            </div >
 
             <Tabs defaultValue="members" className="w-full">
                 <TabsList className="bg-white/5 border border-white/10">
@@ -307,6 +322,6 @@ export default function TeamPage() {
                     </Card>
                 </TabsContent>
             </Tabs>
-        </div>
+        </div >
     )
 }

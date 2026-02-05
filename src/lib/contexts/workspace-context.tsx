@@ -137,7 +137,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
                     enabledTools: (ws.enabled_tools as ToolId[]) || [],
                     icon: getIconForType(ws.type),
                     owner_id: ws.owner_id,
-                    role: roleMap.get(ws.id) || 'member' // Default to member if not found
+                    role: ws.owner_id === user.id ? 'owner' : (roleMap.get(ws.id) || 'member')
                 }))
 
                 setWorkspaces(mappedWorkspaces)

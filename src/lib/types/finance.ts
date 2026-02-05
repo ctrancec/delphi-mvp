@@ -34,3 +34,13 @@ export type Invoice = {
     tax: number
     total: number
 }
+
+export type Account = {
+    id: string
+    workspaceId: string
+    name: string
+    institution: string
+    type: 'checking' | 'savings' | 'credit' | 'investment' | 'cash'
+    balance: number
+    color: string
+}

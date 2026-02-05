@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { CookieConsent } from "@/components/legal/cookie-consent";
+import { JuniorProvider } from "@/lib/contexts/junior-context";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -30,8 +31,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <CookieConsent />
+          <JuniorProvider>
+            {children}
+            <CookieConsent />
+          </JuniorProvider>
         </ThemeProvider>
       </body>
     </html>
