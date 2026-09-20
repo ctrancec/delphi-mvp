@@ -109,8 +109,13 @@ const PLAN_SCHEMA: Schema = {
                     },
                     newAgent: INVENTED_AGENT_SCHEMA,
                     rationale: { type: Type.STRING, description: 'Why this agent for this task.' },
+                    fit: {
+                        type: Type.NUMBER,
+                        description:
+                            'How well this agent fits THIS task, 0..1. Be honest: 0.9+ means a specialist doing exactly its speciality, 0.5 means a workable compromise, below 0.4 means you had no good option.',
+                    },
                 },
-                required: ['seq', 'title', 'objective', 'rationale'],
+                required: ['seq', 'title', 'objective', 'rationale', 'fit'],
             },
         },
     },
@@ -234,6 +239,11 @@ function costFitScore(costTier: CostTier): number {
 /**
  * Final hiring score.
  * 60% Delphi's judgement, 25% measured history, 15% cost efficiency.
+ *
+ * `llmFit` must come from Delphi's own per-task `fit`, never from the keyword
+ * prefilter in shortlistCandidates(). The prefilter exists only to bound the
+ * prompt; reusing it here scored a correctly-hired fact-checker at 0.23 purely
+ * because the brief did not happen to contain her skill words.
  */
 export function hiringScore(
     llmFit: number,
@@ -318,6 +328,7 @@ export function validateStaffingPlan(value: unknown, knownSlugs: Set<string>): S
             );
         }
 
+        const rawFit = Number(t.fit);
         return {
             seq: Number.isFinite(Number(t.seq)) ? Number(t.seq) : i + 1,
             title: String(t.title ?? objective.slice(0, 60)).trim(),
@@ -325,6 +336,9 @@ export function validateStaffingPlan(value: unknown, knownSlugs: Set<string>): S
             assignedSlug: newAgent ? undefined : assignedSlug,
             newAgent,
             rationale: String(t.rationale ?? '').trim(),
+            // Delphi deliberately selecting an agent is itself evidence of fit,
+            // so an omitted score defaults high rather than to zero.
+            fit: Number.isFinite(rawFit) ? Math.min(1, Math.max(0, rawFit)) : 0.8,
         };
     });
 

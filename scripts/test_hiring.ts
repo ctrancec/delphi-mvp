@@ -116,11 +116,8 @@ async function main() {
               : '(unassigned)';
 
         const tier = candidate?.agent.costTier ?? task.newAgent?.costTier ?? 1;
-        const score = hiringScore(
-            candidate?.skillMatch ?? 0.7,
-            candidate?.stats ?? null,
-            tier as CostTier
-        );
+        // Delphi's stated fit, not the keyword prefilter score.
+        const score = hiringScore(task.fit, candidate?.stats ?? null, tier as CostTier);
 
         const tag = isNew ? `${YELLOW}NEW HIRE${RESET}` : `${GREEN}from roster${RESET}`;
 

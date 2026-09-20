@@ -17,6 +17,23 @@ import { extractJson, JsonExtractionError } from './json';
 
 export const DEFAULT_MODEL = 'gemini-3.8-flash';
 
+/**
+ * Ordered fallback chain.
+ *
+ * Flash capacity genuinely runs out — the first live run of the hiring harness
+ * hit `503 UNAVAILABLE` on 3.8 through four backoff attempts. For a system that
+ * runs departments unattended on a cron, a saturated primary must degrade to an
+ * older Flash rather than fail the run. Cost accounting stays correct because
+ * pricing is keyed on whichever model actually served.
+ */
+export const MODEL_FALLBACKS: Record<string, string[]> = {
+    'gemini-3.8-flash': ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'],
+};
+
+function fallbackChain(model: string): string[] {
+    return [model, ...(MODEL_FALLBACKS[model] ?? [])];
+}
+
 let client: GoogleGenAI | null = null;
 
 /**
@@ -82,6 +99,78 @@ export interface TextResult {
     costUsd: number;
 }
 
+/** Transient upstream conditions worth retrying, as opposed to our own bad request. */
+function isTransient(err: unknown): boolean {
+    const msg = String((err as Error)?.message ?? err);
+    // The SDK surfaces the raw JSON error body, so match on status codes and
+    // the canonical status strings rather than on prose that may be localised.
+    return (
+        /\b(429|500|502|503|504)\b/.test(msg) ||
+        /UNAVAILABLE|RESOURCE_EXHAUSTED|INTERNAL|DEADLINE_EXCEEDED/i.test(msg) ||
+        /ECONNRESET|ETIMEDOUT|fetch failed/i.test(msg)
+    );
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Retry with exponential backoff and jitter.
+ *
+ * Delphi runs unattended on a cron, so a transient 503 must not fail a whole
+ * department run. Non-transient errors (bad key, malformed request) throw
+ * immediately — retrying those just burns time and money.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+    let lastError: unknown;
+    for (let i = 0; i < attempts; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastError = err;
+            if (!isTransient(err) || i === attempts - 1) throw err;
+            // 1s, 2s, 4s, plus up to 500ms jitter so parallel agents do not
+            // retry in lockstep and re-create the spike.
+            const delay = 1000 * 2 ** i + Math.random() * 500;
+            console.warn(
+                `[delphi] Gemini transient failure (attempt ${i + 1}/${attempts}), retrying in ${Math.round(delay)}ms`
+            );
+            await sleep(delay);
+        }
+    }
+    throw lastError;
+}
+
+/**
+ * Run `fn` against each model in the chain, moving on only when a model is
+ * transiently unavailable. Returns the served model alongside the response so
+ * the caller can price and record it accurately.
+ */
+async function callWithFallback(
+    model: string,
+    fn: (m: string) => Promise<GenerateContentResponse>
+): Promise<{ response: GenerateContentResponse; servedBy: string }> {
+    const chain = fallbackChain(model);
+    let lastError: unknown;
+
+    for (let i = 0; i < chain.length; i++) {
+        const candidate = chain[i];
+        try {
+            const response = await withRetry(() => fn(candidate));
+            if (candidate !== model) {
+                console.warn(`[delphi] ${model} unavailable; served by ${candidate}`);
+            }
+            return { response, servedBy: candidate };
+        } catch (err) {
+            lastError = err;
+            // A bad request is our fault and will fail identically on every
+            // model, so only capacity problems are worth walking the chain for.
+            if (!isTransient(err) || i === chain.length - 1) throw err;
+            console.warn(`[delphi] ${candidate} unavailable, falling back to ${chain[i + 1]}`);
+        }
+    }
+    throw lastError;
+}
+
 function readUsage(response: GenerateContentResponse): TokenUsage {
     const meta = response.usageMetadata ?? {};
     return {
@@ -101,22 +190,24 @@ export async function generateText(
 
     const model = options.model ?? DEFAULT_MODEL;
 
-    const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-            ...(options.system ? { systemInstruction: options.system } : {}),
-            ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-            ...(options.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}),
-        },
-    });
+    const { response, servedBy } = await callWithFallback(model, (m) =>
+        ai.models.generateContent({
+            model: m,
+            contents: prompt,
+            config: {
+                ...(options.system ? { systemInstruction: options.system } : {}),
+                ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+                ...(options.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}),
+            },
+        })
+    );
 
     const usage = readUsage(response);
     return {
         text: response.text ?? '',
-        model,
+        model: servedBy,
         usage,
-        costUsd: computeCost(model, usage),
+        costUsd: computeCost(servedBy, usage),
     };
 }
 
@@ -154,17 +245,21 @@ export async function generateStructured<T>(
         usage.cachedTokens = (usage.cachedTokens ?? 0) + (u.cachedTokens ?? 0);
     };
 
-    const first = await ai.models.generateContent({ model, contents: prompt, config });
-    addUsage(readUsage(first));
-    const firstRaw = first.text ?? '';
+    const firstCall = await callWithFallback(model, (m) =>
+        ai.models.generateContent({ model: m, contents: prompt, config })
+    );
+    // Whichever model answered is the one we price, record, and repair against.
+    const servedBy = firstCall.servedBy;
+    addUsage(readUsage(firstCall.response));
+    const firstRaw = firstCall.response.text ?? '';
 
     try {
         return {
             data: validate(extractJson(firstRaw)),
             raw: firstRaw,
-            model,
+            model: servedBy,
             usage,
-            costUsd: computeCost(model, usage),
+            costUsd: computeCost(servedBy, usage),
             repaired: false,
         };
     } catch (initialError) {
@@ -189,11 +284,9 @@ export async function generateStructured<T>(
             prompt,
         ].join('\n');
 
-        const second = await ai.models.generateContent({
-            model,
-            contents: repairPrompt,
-            config,
-        });
+        const second = await withRetry(() =>
+            ai.models.generateContent({ model: servedBy, contents: repairPrompt, config })
+        );
         addUsage(readUsage(second));
         const secondRaw = second.text ?? '';
 
@@ -201,9 +294,9 @@ export async function generateStructured<T>(
             return {
                 data: validate(extractJson(secondRaw)),
                 raw: secondRaw,
-                model,
+                model: servedBy,
                 usage,
-                costUsd: computeCost(model, usage),
+                costUsd: computeCost(servedBy, usage),
                 repaired: true,
             };
         } catch (repairError) {

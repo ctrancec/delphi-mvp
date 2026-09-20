@@ -296,6 +296,8 @@ export interface PlannedTask {
     /** A new hire, when no roster agent fits. */
     newAgent?: InventedAgentSpec;
     rationale: string;
+    /** Delphi's own judgement of how well this agent fits this task, 0..1. */
+    fit: number;
 }
 
 export interface StaffingPlan {
