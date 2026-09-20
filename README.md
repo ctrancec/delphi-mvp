@@ -1,3 +1,15 @@
+# Delphi
+
+A business and personal finance workspace, plus **Delphi World** — a persistent
+AI agent organisation you run as the Chief Human Officer. Your CEO agent founds
+companies for your projects, hires the team each one needs and delegates the
+work, rendered live as a pixel-art office at [`/world`](./docs/AGENT_WORLD.md).
+
+See **[docs/AGENT_WORLD.md](docs/AGENT_WORLD.md)** for the agent world:
+architecture, configuration, storage backends and how to extend it.
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
