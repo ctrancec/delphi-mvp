@@ -127,28 +127,49 @@ const STOPWORDS = new Set([
     'make', 'made', 'create', 'need', 'want', 'department', 'team', 'agent', 'agents',
 ]);
 
+/**
+ * Crude suffix stripping, applied identically to brief words and skill tags.
+ *
+ * Linguistic correctness is not the goal — consistency is. Without this, a
+ * brief asking for "market research" scores the Market Analyst at zero because
+ * its skill tag reads "markets", which is plainly wrong and was caught the
+ * first time the hiring harness ran.
+ */
+function stem(word: string): string {
+    const w = word.toLowerCase();
+    if (w.length > 4) {
+        if (w.endsWith('ies')) return `${w.slice(0, -3)}y`;
+        if (w.endsWith('ing')) return w.slice(0, -3);
+        if (w.endsWith('ed')) return w.slice(0, -2);
+        if (w.endsWith('es')) return w.slice(0, -2);
+    }
+    if (w.length > 3 && w.endsWith('s')) return w.slice(0, -1);
+    return w;
+}
+
 function briefTokens(brief: string): Set<string> {
     return new Set(
         brief
             .toLowerCase()
             .split(/[^a-z0-9]+/)
             .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+            .map(stem)
     );
 }
 
 /**
  * Deterministic skill-overlap score in 0..1.
  *
- * Matches on whole tokens and on hyphen-split parts, so a "web-search" skill
- * still matches a brief that says "search". Scaled by a small constant rather
- * than by skill count so agents with many skills are not penalised.
+ * Matches stemmed whole tokens and hyphen-split parts, so a "web-search" skill
+ * matches a brief that says "searching". Scaled by a small constant rather than
+ * by skill count so agents with many skills are not penalised.
  */
 export function scoreSkillMatch(agent: Agent, tokens: Set<string>): number {
     if (agent.skills.length === 0) return 0;
 
     let hits = 0;
     for (const skill of agent.skills) {
-        const parts = skill.toLowerCase().split('-');
+        const parts = skill.toLowerCase().split('-').map(stem);
         if (parts.some((p) => tokens.has(p))) hits++;
     }
     // Four matching skills is already a strong signal.
