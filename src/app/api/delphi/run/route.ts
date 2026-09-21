@@ -28,6 +28,8 @@ import type { Db } from '@/lib/delphi/db';
 import { runAndStoreReview } from '@/lib/delphi/reviews';
 import type { Deliverable } from '@/lib/delphi/board';
 import { runRetrospective } from '@/lib/delphi/retrospective';
+import { gradeTask, REPLACEMENT_FLOOR } from '@/lib/delphi/grading';
+import { replaceAgentOnTask, shouldReplace } from '@/lib/delphi/replacement';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +88,16 @@ async function drive(
         // means a review failure cannot lose a task's recorded cost.
         if (outcome.status === 'awaiting_approval') {
             await reviewPendingApproval(db, workspaceId, project.id, outcome.approvalId);
+        }
+
+        // Grade the work, and hand the task to someone else if it was bad
+        // enough. Both are reflection on a run already paid for, so neither is
+        // allowed to throw — see gradeTask and replaceAgentOnTask.
+        if (outcome.status === 'done' || outcome.status === 'failed') {
+            const replaced = await assessTask(db, workspaceId, outcome.taskId, outcome.status === 'failed');
+            // A replaced task is pending again, so there is more to do even
+            // though this step did not end in `done`.
+            if (replaced) continue;
         }
 
         // Only `done` means there is plausibly another task to take straight
@@ -197,6 +209,33 @@ async function reflectOnFinishedProjects(db: Db, workspaceId: string): Promise<v
         const written = await runRetrospective(db, workspaceId, p.id as string);
         if (written > 0) done++;
     }
+}
+
+
+/**
+ * Grade a finished task and replace its agent if the work did not hold up.
+ *
+ * Returns true when the task changed hands, because the caller then has more
+ * work to do on a task that just went back to `pending`.
+ */
+async function assessTask(
+    db: Db,
+    workspaceId: string,
+    taskId: string,
+    failed: boolean
+): Promise<boolean> {
+    if (!taskId) return false;
+
+    const result = await gradeTask(db, workspaceId, taskId);
+    const { replace, reason } = shouldReplace({
+        failed,
+        grade: result?.grade ?? null,
+        floor: REPLACEMENT_FLOOR,
+    });
+    if (!replace) return false;
+
+    const outcome = await replaceAgentOnTask(db, workspaceId, taskId, reason);
+    return outcome.replaced;
 }
 
 export async function POST(req: NextRequest) {

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ShieldCheck, UserPlus } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
+import { toneFor } from '@/components/delphi/grade-badge'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
 
 export const dynamic = 'force-dynamic'
@@ -74,7 +75,12 @@ function AgentCard({ agent, stats }: { agent: AgentRow; stats?: StatsRow }) {
                         <span className="text-emerald-400">{done} done</span>
                         {failed > 0 && <span className="text-red-400">{failed} failed</span>}
                         {quality !== null && quality !== undefined && (
-                            <span>quality {Number(quality).toFixed(2)}</span>
+                            <span
+                                className={toneFor(Number(quality)).split(' ')[0]}
+                                title="Delphi's average grade over this agent's last 20 tasks. Feeds the hiring rank directly."
+                            >
+                                {(Number(quality) * 100).toFixed(0)}% graded
+                            </span>
                         )}
                         <span>{formatUsd(Number(stats?.total_cost_usd ?? 0))}</span>
                     </div>

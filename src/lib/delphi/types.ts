@@ -270,7 +270,9 @@ export type DelphiEventType =
     | 'memory_written'
     | 'system_mode_changed'
     | 'review_completed'
-    | 'review_message';
+    | 'review_message'
+    | 'task_graded'
+    | 'replacement_escalated';
 
 export interface DelphiEvent {
     id: number;

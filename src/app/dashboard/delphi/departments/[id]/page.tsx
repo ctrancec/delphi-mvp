@@ -6,6 +6,7 @@ import { Wallet, Clock, ShieldCheck } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
 import { HiringPanel, type HiredAgent } from '@/components/delphi/hiring-panel'
 import { PipelineRunner } from '@/components/delphi/pipeline-runner'
+import { GradeCard, type GradeRow } from '@/components/delphi/grade-badge'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,6 +42,25 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
     const { data: tasks } = project
         ? await supabase.from('delphi_tasks').select('*').eq('project_id', project.id).order('seq')
         : { data: [] }
+
+    // Grades and handoffs for this project's tasks, so a replacement is
+    // visible as something that happened rather than inferred from a name
+    // silently changing.
+    const taskIds = (tasks ?? []).map((t) => t.id as string)
+    const [{ data: grades }, { data: handoffs }] = taskIds.length
+        ? await Promise.all([
+              supabase
+                  .from('delphi_performance_reviews')
+                  .select('*')
+                  .in('task_id', taskIds)
+                  .order('created_at', { ascending: false }),
+              supabase
+                  .from('delphi_handoffs')
+                  .select('task_id, reason, from:from_agent_id(name), to:to_agent_id(name)')
+                  .in('task_id', taskIds)
+                  .order('created_at', { ascending: false }),
+          ])
+        : [{ data: [] }, { data: [] }]
 
     // Pair each hire with its task; they share `seq` by construction.
     const team: HiredAgent[] = (hires ?? []).map((h) => {
@@ -105,6 +125,43 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
             {/* Running means work is outstanding; the runner keeps poking the
                 engine so the pipeline advances while the CHO watches. */}
             <PipelineRunner active={project?.status === 'running'} />
+
+            {(grades ?? []).length > 0 && (
+                <Card className="border-white/10 bg-black/40">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-sm">How the work was graded</CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                            Delphi grades every task. The score feeds the hiring rank, so an agent that
+                            performs badly here gets picked less often — automatically. A grade is an
+                            opinion; the unsourced-claim count is not.
+                        </p>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {(grades ?? []).map((g) => {
+                            const task = (tasks ?? []).find((t) => t.id === g.task_id)
+                            const handoff = (handoffs ?? []).find((h) => h.task_id === g.task_id)
+                            return (
+                                <div key={g.id as string} className="space-y-1.5">
+                                    {task && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Step {task.seq as number} — {task.title as string}
+                                        </p>
+                                    )}
+                                    <GradeCard grade={g as unknown as GradeRow} />
+                                    {handoff && (
+                                        <p className="pl-1 text-[11px] text-amber-400/80">
+                                            Handed from{' '}
+                                            {(handoff.from as unknown as { name: string })?.name ?? 'the previous agent'} to{' '}
+                                            {(handoff.to as unknown as { name: string })?.name ?? 'a replacement'} — they
+                                            resumed from the dossier rather than starting over.
+                                        </p>
+                                    )}
+                                </div>
+                            )
+                        })}
+                    </CardContent>
+                </Card>
+            )}
 
             {team.length > 0 && (
                 <Card className="bg-black/20 border-white/5">
