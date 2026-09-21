@@ -182,7 +182,17 @@ async function walk(respond: (model: string) => Reply) {
     forgetExhaustedModels();
     r = await walk((m) => (m === CHAIN[0] ? 'gone' : 'ok'));
     ok(r.servedBy === CHAIN[1], 'a retired model is skipped, not fatal', String(r.servedBy));
-    ok(!CHAIN.includes('gemini-2.5-flash'), 'the retired model is out of the chain');
+
+    // Guards on the chain itself, so a well-meant addition cannot quietly
+    // undo what was measured. The whole 2.5 family answers 404 on this key,
+    // and the `-latest` aliases refused in lockstep with the concrete models
+    // they stand for — so neither adds headroom, and both would cost a real
+    // request to rediscover that.
+    const retired = CHAIN.filter((m) => m.startsWith('gemini-2.5'));
+    ok(retired.length === 0, 'no retired model is in the chain', retired.join(', '));
+    const aliases = CHAIN.filter((m) => m.endsWith('-latest'));
+    ok(aliases.length === 0, 'no alias is in the chain', aliases.join(', '));
+    ok(new Set(CHAIN).size === CHAIN.length, 'no model appears twice', `${CHAIN.length} models`);
 
     // A busy model is worth waiting for, so this one does retry — and still
     // moves on rather than giving up.

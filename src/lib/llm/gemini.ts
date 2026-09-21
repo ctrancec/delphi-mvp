@@ -38,16 +38,34 @@ export const DEFAULT_MODEL = 'gemini-3.8-flash';
  * worst thing in it. Google has retired it for accounts that did not already
  * use it, so it answered `404` — which is not a capacity problem, so the chain
  * aborted on it and reported "model not found" as the cause of a failure that
- * was really the daily quota running out. Every entry below was verified to
- * answer `generateContent` on this key.
+ * was really the daily quota running out. 2.5-pro and 2.5-flash-lite answer
+ * the same way; the whole 2.5 family is gone for this key.
+ *
+ * Every model below was probed on the live API for the three things the
+ * runtime actually needs — it answers, it honours `responseSchema`, and it
+ * emits function calls with a `thoughtSignature` — and each carries its own
+ * daily bucket, which is what makes the list worth having.
+ *
+ * Deliberately **no aliases**. `gemini-flash-latest` and `gemini-pro-latest`
+ * refused in lockstep with the concrete models they stand for, so they add no
+ * headroom, and what they resolve to can change underneath us.
+ *
+ * Quality falls as you go down. The last two are a long way from the first,
+ * and a brief written by them is worth reading with that in mind — but a brief
+ * written by them beats no brief.
  */
 export const MODEL_FALLBACKS: Record<string, string[]> = {
     'gemini-3.8-flash': [
         'gemini-3.7-flash',
         'gemini-3.6-flash',
+        'gemini-3-flash-preview',
         'gemini-3.5-flash',
         'gemini-3.5-flash-lite',
         'gemini-3.1-flash-lite',
+        'gemini-3.1-flash-lite-preview',
+        // A different family with its own allowance, and the only thing left
+        // when every Gemini bucket is empty. Smaller, and it shows.
+        'gemma-4-26b-a4b-it',
     ],
 };
 
