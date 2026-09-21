@@ -8,12 +8,12 @@
  */
 
 import Parser from 'rss-parser';
-import { SEED_SOURCES, SEED_STREAMS, type SeedSource } from './sources';
+import { FEED_USER_AGENT, SEED_SOURCES, SEED_STREAMS, type SeedSource } from './sources';
 import type { Db } from '@/lib/delphi/db';
 
 const parser = new Parser({
     timeout: 12_000,
-    headers: { 'User-Agent': 'Delphi/1.0 (+https://delphi-mvp.vercel.app)' },
+    headers: { 'User-Agent': FEED_USER_AGENT },
 });
 
 export interface SourceRow {
