@@ -13,7 +13,22 @@ export const dynamic = 'force-dynamic'
  * root is a gate rather than a landing page: anyone already signed in goes
  * straight to mission control and never sees this.
  */
-export default async function HomePage() {
+export default async function HomePage({
+    searchParams,
+}: {
+    searchParams: Promise<{ code?: string; type?: string }>
+}) {
+    // Supabase rewrites a redirect target that is not in the project's allowed
+    // list to the bare Site URL, silently — so a password-reset link can arrive
+    // here carrying its code instead of at the callback. Forwarding it means
+    // the flow works whether or not the allowlist was configured, rather than
+    // dead-ending on a sign-in page for a password the person cannot remember.
+    const { code, type } = await searchParams
+    if (code) {
+        const next = type === 'recovery' ? '/account/new-password' : '/dashboard/delphi'
+        redirect(`/auth/callback?code=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`)
+    }
+
     const supabase = await createClient()
 
     if (supabase) {

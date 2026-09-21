@@ -61,12 +61,13 @@ export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps)
 
             <SystemSwitch mode={mode} />
 
-            <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/20 text-xs font-bold text-primary"
-                title={email}
+            <Link
+                href="/dashboard/account"
+                title={`${email} — account settings`}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/20 text-xs font-bold text-primary transition-colors hover:border-primary/60 hover:bg-primary/30"
             >
                 {email.charAt(0).toUpperCase()}
-            </span>
+            </Link>
         </header>
     );
 }

@@ -48,7 +48,17 @@ function LoginContent() {
                         <Input id="email" name="email" type="email" placeholder="name@example.com" required className="bg-white/5 border-white/10" />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
+                        <div className="flex items-center justify-between gap-2">
+                            <Label htmlFor="password">Password</Label>
+                            {isLogin && (
+                                <a
+                                    href="/account/forgot-password"
+                                    className="text-xs text-muted-foreground hover:text-sky-400"
+                                >
+                                    Forgot password?
+                                </a>
+                            )}
+                        </div>
                         <Input id="password" name="password" type="password" required className="bg-white/5 border-white/10" />
                     </div>
 

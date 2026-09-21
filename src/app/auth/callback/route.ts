@@ -15,8 +15,13 @@ export async function GET(request: Request) {
 
     // Only ever redirect within this app. Requiring a single leading slash and
     // no second one keeps `//evil.com` from being read as a host downstream.
-    const requested = searchParams.get('next') ?? '/dashboard'
-    const next = /^\/(?!\/)/.test(requested) ? requested : '/dashboard'
+    const requested = searchParams.get('next') ?? '/dashboard/delphi'
+    let next = /^\/(?!\/)/.test(requested) ? requested : '/dashboard/delphi'
+
+    // A recovery link has one destination regardless of what it asked for:
+    // someone who cannot sign in must not be dropped on a page that needs them
+    // to sign in.
+    if (searchParams.get('type') === 'recovery') next = '/account/new-password'
 
     if (code) {
         const supabase = await createClient()
