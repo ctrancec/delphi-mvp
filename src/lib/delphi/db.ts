@@ -30,8 +30,15 @@ import type {
 
 export type Db = SupabaseClient;
 
-/** Raw row shape helper — the DB speaks snake_case, the domain speaks camelCase. */
-type Row = Record<string, any>;
+/**
+ * Raw row shape helper — the DB speaks snake_case, the domain speaks camelCase.
+ *
+ * `any` is deliberate and contained: PostgREST returns arbitrarily-shaped rows,
+ * including nested embeds whose shape depends on the select string. The mappers
+ * below are the boundary — past them, everything is a typed domain object.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Row = Record<string, any>;
 
 export class DelphiDbError extends Error {
     constructor(operation: string, cause: { message: string; details?: string } | null) {

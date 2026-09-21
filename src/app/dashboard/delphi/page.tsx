@@ -3,7 +3,16 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Building2, Plus, Users, Wallet, ShieldCheck, Activity, AlertTriangle } from 'lucide-react'
+import {
+    Activity,
+    AlertTriangle,
+    Building2,
+    FolderOpen,
+    Plus,
+    ShieldCheck,
+    Users,
+    Wallet,
+} from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
 import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-line'
 
@@ -94,6 +103,22 @@ export default async function DelphiHqPage() {
                     </Button>
                 )}
             </div>
+
+            <nav className="flex flex-wrap gap-1.5">
+                {[
+                    { href: '/dashboard/delphi/outputs', label: 'Outputs', icon: FolderOpen },
+                    { href: '/dashboard/delphi/roster', label: 'Roster', icon: Users },
+                ].map(({ href, label, icon: Icon }) => (
+                    <Link
+                        key={href}
+                        href={href}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-white/25 hover:text-zinc-200"
+                    >
+                        <Icon className="h-3 w-3" />
+                        {label}
+                    </Link>
+                ))}
+            </nav>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Stat icon={<Building2 className="h-4 w-4" />} label="Departments" value={String(depts.length)} />
