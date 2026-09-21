@@ -46,8 +46,21 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
     'sonar-deep-research': { input: 2.0, output: 8.0, perRequest: 0.005 },
 };
 
-/** Fallback for an unknown model: price it as our default worker so spend is never silently zero. */
-const FALLBACK_PRICE: ModelPrice = MODEL_PRICES['gemini-3.8-flash'];
+/**
+ * Fallback for an unknown model.
+ *
+ * The dearest Gemini row rather than the default worker, deliberately: the
+ * fallback chain now reaches models this table does not list, and a budget cap
+ * that under-counts is a budget cap that does not hold. Over-counting stops a
+ * run early, which is recoverable; under-counting spends money that was
+ * supposed to be capped, which is not.
+ */
+const FALLBACK_PRICE: ModelPrice = Object.entries(MODEL_PRICES)
+    .filter(([name]) => name.startsWith('gemini-'))
+    .reduce((dearest, [, price]) => (price.output > dearest.output ? price : dearest), {
+        input: 0,
+        output: 0,
+    } as ModelPrice);
 
 export function priceFor(model: string): ModelPrice {
     return MODEL_PRICES[model] ?? FALLBACK_PRICE;

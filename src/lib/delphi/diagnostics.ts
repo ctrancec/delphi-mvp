@@ -353,13 +353,19 @@ async function modelChecks(db: Db | null, workspaceId: string | null): Promise<C
             };
         }
 
+        const fallback =
+            chain.length > 0
+                ? `Falls back through ${chain.join(' → ')} when saturated.`
+                : 'No fallback configured; a 503 fails the task.';
+
         return {
             name: model,
             level: 'ok' as Level,
-            detail:
-                chain.length > 0
-                    ? `Falls back through ${chain.join(' → ')} when saturated.`
-                    : 'No fallback configured; a 503 fails the task.',
+            // Said plainly when there is no workspace to read: the health
+            // endpoint answers without a session by design, so from there this
+            // describes the configuration and nothing more. The Diagnostics
+            // page, which has one, reports what actually happened.
+            detail: db && workspaceId ? fallback : `${fallback} No run history to check from here.`,
         };
     });
 }
