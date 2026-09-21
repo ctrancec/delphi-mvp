@@ -15,6 +15,8 @@
 
 import { Type, type Schema } from '@google/genai';
 import { generateWithTools, ModelQuotaError, SchemaValidationError } from '@/lib/llm/gemini';
+import { clearRevisionNote } from './revision';
+import { isMissingColumn } from './db';
 import { toolsForChannels } from '@/lib/channels/registry';
 import { emitEvent, getSystemMode, listChannels, type Db } from './db';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
@@ -534,14 +536,36 @@ export async function reconcileStaleRuns(db: Db, workspaceId: string): Promise<n
     return stale.length;
 }
 
-function buildPrompt(opts: {
+export function buildPrompt(opts: {
     objective: string;
     projectBrief: string;
     upstream: { title: string; contentMd: string; handoffNote?: string } | null;
     handoffDossier: string | null;
+    /** What the CHO refused, in their own words. Outranks everything else. */
+    choNote?: string | null;
+    revision?: number;
     toolNames?: string[];
 }): string {
     const parts: string[] = [];
+
+    // First, and unmissable. A person has looked at the last attempt and said
+    // it was not good enough — that outranks the brief, the upstream note and
+    // anything this agent thought it was doing, because it is the only part of
+    // the prompt that comes from the person the work is for.
+    if (opts.choNote) {
+        parts.push(
+            '--- THE CHO SENT YOUR LAST ATTEMPT BACK ---',
+            `This is attempt ${(opts.revision ?? 1) + 1}. They said:`,
+            '',
+            opts.choNote,
+            '',
+            'Address that specifically. Producing the same work again with different',
+            'wording is not a revision. If their request cannot be met from what your',
+            'sources actually support, say so plainly in the deliverable rather than',
+            'padding around it.',
+            ''
+        );
+    }
 
     parts.push('PROJECT BRIEF (context, not your task):', opts.projectBrief, '');
 
@@ -673,6 +697,11 @@ export async function runNextTask(
         id: string; name: string; title: string; system_prompt: string; model: string;
     };
 
+    // A task Delphi escalated runs on the stronger model, whoever holds it.
+    // Set per task rather than on the agent, so an agent that struggled with
+    // one objective does not become permanently dearer everywhere else.
+    const model = (task.model_override as string | null) || agent.model;
+
     // 3. The upstream artifact — this is the handoff.
     //
     // A missing one is not "no input", it is a broken chain. When the two
@@ -757,7 +786,7 @@ export async function runNextTask(
             task_id: task.id,
             attempt,
             status: 'running',
-            model: agent.model,
+            model,
         })
         .select('id')
         .single();
@@ -795,6 +824,8 @@ export async function runNextTask(
                 objective: task.objective,
                 projectBrief: project.brief,
                 upstream,
+                choNote: (task.cho_note as string | null) ?? null,
+                revision: Number(task.revision_count ?? 0),
                 handoffDossier: dossier
                     ? [
                           `Why your predecessor was replaced: ${dossier.reason}`,
@@ -827,7 +858,7 @@ export async function runNextTask(
             },
             TASK_OUTPUT_SCHEMA,
             (value) => validateAgentOutput(value, tools.length > 0 ? allowedLocators : undefined),
-            { system: agent.system_prompt, model: agent.model, temperature: 0.4 }
+            { system: agent.system_prompt, model, temperature: 0.4 }
         );
 
         const out = result.data;
@@ -853,24 +884,68 @@ export async function runNextTask(
             .update({ spent_usd: Number(project.spent_usd) + result.costUsd })
             .eq('id', projectId);
 
-        const { data: artifact } = await db
+        // A redo writes a new artifact and marks the refused one superseded,
+        // rather than overwriting it. The CHO asked for this version; being
+        // able to see it against the one they turned down is what makes the
+        // feedback loop legible instead of just a second opinion appearing.
+        const revision = Number(task.revision_count ?? 0) + 1;
+        let supersedes: string | null = null;
+        if (revision > 1) {
+            const { data: previous } = await db
+                .from('delphi_artifacts')
+                .select('id')
+                .eq('task_id', task.id)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            supersedes = (previous?.id as string) ?? null;
+        }
+
+        const base = {
+            workspace_id: workspaceId,
+            project_id: projectId,
+            task_id: task.id,
+            kind: out.kind,
+            title: task.title,
+            content_md: out.contentMd,
+            data: {
+                summary: out.summary,
+                steps: out.steps,
+                claims: out.claims,
+                handoffNote: out.handoffNote,
+            },
+        };
+
+        // Written with the revision columns when the database has them, and
+        // without when it does not. A deploy and a migration do not land at the
+        // same instant, and the window between them must not be one where every
+        // agent's work is lost for want of a column.
+        let artifact: { id: string } | null = null;
+        const withRevision = await db
             .from('delphi_artifacts')
-            .insert({
-                workspace_id: workspaceId,
-                project_id: projectId,
-                task_id: task.id,
-                kind: out.kind,
-                title: task.title,
-                content_md: out.contentMd,
-                data: {
-                    summary: out.summary,
-                    steps: out.steps,
-                    claims: out.claims,
-                    handoffNote: out.handoffNote,
-                },
-            })
+            .insert({ ...base, revision, supersedes })
             .select('id')
             .single();
+
+        if (withRevision.error && isMissingColumn(withRevision.error)) {
+            console.warn('[delphi] artifact revision columns not present yet; run migration 0004.');
+            const plain = await db.from('delphi_artifacts').insert(base).select('id').single();
+            artifact = (plain.data as { id: string } | null) ?? null;
+        } else {
+            artifact = (withRevision.data as { id: string } | null) ?? null;
+        }
+
+        if (supersedes) {
+            await db
+                .from('delphi_artifacts')
+                .update({ review_status: 'superseded' })
+                .eq('id', supersedes)
+                .eq('review_status', 'declined');
+        }
+
+        // The note has been answered. Leaving it set would hand the same
+        // complaint to whoever runs this task next, about work already redone.
+        if (task.cho_note) await clearRevisionNote(db, task.id as string);
 
         // The activity log: one line per step, each carrying its source.
         for (const s of out.steps) {

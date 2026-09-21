@@ -21,8 +21,19 @@ export interface ArtifactRef {
 }
 
 /** An artifact plus the chain that explains where it came from. */
+/** The CHO's verdict, and which attempt this is. */
+export interface OutputReview {
+    status: 'pending' | 'approved' | 'declined' | 'superseded';
+    note: string | null;
+    reviewedAt: string | null;
+    revision: number;
+    /** The artifact this one replaced, when it is a redo. */
+    supersedes: string | null;
+}
+
 export interface OutputRecord {
     artifact: Artifact;
+    review: OutputReview;
     department: ArtifactRef | null;
     project: ArtifactRef | null;
     task: (ArtifactRef & { seq: number }) | null;
@@ -94,6 +105,15 @@ function toOutput(r: Row): OutputRecord {
             sizeBytes: r.size_bytes ?? null,
             data: r.data ?? {},
             createdAt: r.created_at,
+        },
+        review: {
+            // Defaults rather than nulls: everything written before reviewing
+            // existed is honestly `pending`, not unknown.
+            status: (r.review_status as OutputReview['status']) ?? 'pending',
+            note: r.review_note ?? null,
+            reviewedAt: r.reviewed_at ?? null,
+            revision: Number(r.revision ?? 1),
+            supersedes: r.supersedes ?? null,
         },
         department: department ? { id: department.id, title: department.name } : null,
         project: project ? { id: project.id, title: project.title } : null,

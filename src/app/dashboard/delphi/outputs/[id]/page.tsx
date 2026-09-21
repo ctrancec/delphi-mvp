@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { ArtifactMarkdown } from '@/components/delphi/markdown';
 import { KIND_META } from '@/components/delphi/output-card';
 import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-line';
+import { OutputReview } from '@/components/delphi/output-review';
 import { formatBytes, getOutput, isBinaryKind, readingTime, signedUrlFor } from '@/lib/delphi/outputs';
 
 export const dynamic = 'force-dynamic';
@@ -71,7 +72,7 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
     const record = await getOutput(supabase, id);
     if (!record) notFound();
 
-    const { artifact, department, project, task, agent } = record;
+    const { artifact, review, department, project, task, agent } = record;
     const meta = KIND_META[artifact.kind] ?? KIND_META.other;
     const Icon = meta.icon;
 
@@ -173,6 +174,19 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
                     )}
                 </CardContent>
             </Card>
+
+            <OutputReview
+                state={{
+                    artifactId: artifact.id,
+                    status: review.status,
+                    note: review.note,
+                    reviewedAt: review.reviewedAt,
+                    revision: review.revision,
+                    // Nothing to send back to when no task produced it.
+                    canSendBack: Boolean(artifact.taskId),
+                    agentName: agent?.title ?? null,
+                }}
+            />
 
             {events && events.length > 0 && (
                 <Card className="bg-black/40 border-white/10">

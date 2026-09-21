@@ -21,6 +21,7 @@
 import { emitEvent, listAgents, getAgentStats, type Db, type Row } from './db';
 import { hiringScore } from './delphi';
 import { claimSources, MAX_REPLACEMENTS, type Grade } from './grading';
+import { ESCALATION_MODEL } from '@/lib/llm/gemini';
 import type { CostTier } from './types';
 
 export interface ReplacementOutcome {
@@ -75,8 +76,18 @@ async function chooseSuccessor(
     workspaceId: string,
     projectId: string,
     incumbentId: string,
-    objective: string
-): Promise<{ id: string; name: string; title: string } | null> {
+    objective: string,
+    /**
+     * Escalating, rather than merely swapping.
+     *
+     * The ordinary score includes a cost term that prefers the cheaper agent,
+     * which is right when assembling a team and exactly wrong here: the work
+     * has already been refused twice, so the thing to optimise is capability,
+     * not price. In this mode the cost term is inverted and anyone cheaper
+     * than the incumbent is not a candidate at all.
+     */
+    escalate = false
+): Promise<{ id: string; name: string; title: string; costTier: CostTier } | null> {
     const [agents, stats, { data: onProject }] = await Promise.all([
         listAgents(db, workspaceId),
         getAgentStats(db, workspaceId),
@@ -92,8 +103,11 @@ async function chooseSuccessor(
             .filter((w) => w.length > 3)
     );
 
+    const incumbentTier = agents.find((a) => a.id === incumbentId)?.costTier ?? 1;
+
     const candidates = agents
         .filter((a) => a.id !== incumbentId && !busy.has(a.id))
+        .filter((a) => !escalate || (a.costTier as number) >= (incumbentTier as number))
         .map((a) => {
             // Cheap skill overlap stands in for the LLM fit term: this runs
             // mid-pipeline, and a model call to pick a replacement would
@@ -102,13 +116,22 @@ async function chooseSuccessor(
                 [...objectiveTerms].some((t) => s.toLowerCase().includes(t) || t.includes(s.toLowerCase()))
             ).length;
             const fit = Math.min(1, overlap / 3);
-            return { agent: a, score: hiringScore(fit, stats.get(a.id) ?? null, a.costTier as CostTier) };
+            const base = hiringScore(fit, stats.get(a.id) ?? null, a.costTier as CostTier);
+            // Capability is what is being bought now, so a dearer tier is a
+            // reason to pick someone rather than a reason not to.
+            const score = escalate ? base + 0.15 * ((a.costTier as number) - 1) : base;
+            return { agent: a, score };
         })
         .sort((a, b) => b.score - a.score);
 
     const best = candidates[0];
     if (!best) return null;
-    return { id: best.agent.id, name: best.agent.name, title: best.agent.title };
+    return {
+        id: best.agent.id,
+        name: best.agent.name,
+        title: best.agent.title,
+        costTier: best.agent.costTier as CostTier,
+    };
 }
 
 /** What the predecessor established, so the successor does not start cold. */
@@ -280,6 +303,131 @@ export async function replaceAgentOnTask(
         };
     } catch (err) {
         console.error('[delphi] replacement failed:', (err as Error).message);
+        return { replaced: false };
+    }
+}
+
+/**
+ * Hand a task to someone more capable, because the CHO has refused it twice.
+ *
+ * Distinct from `replaceAgentOnTask`, which recovers from a task that failed
+ * or graded badly and looks for whoever fits best. This one is a response to
+ * a person saying, twice, that the work is not good enough — so it optimises
+ * for capability rather than fit, and buys it in both the ways available:
+ *
+ *   - **A dearer agent.** The ordinary successor score prefers the cheaper
+ *     candidate, which is right when assembling a team and wrong here. In
+ *     escalation mode anyone below the incumbent's tier is not a candidate,
+ *     and a higher tier is a reason to pick someone.
+ *   - **A stronger model,** set on the task rather than on the agent, so an
+ *     agent that struggled with one objective does not become permanently
+ *     more expensive everywhere else.
+ *
+ * Both are attempted. If the roster has nobody dearer, the incumbent keeps the
+ * task and gets the better model — which is still a real change, and honest
+ * about what happened. Doing nothing silently is the one outcome ruled out.
+ */
+export async function escalateTask(
+    db: Db,
+    workspaceId: string,
+    taskId: string,
+    reason: string
+): Promise<ReplacementOutcome> {
+    try {
+        const { data: task } = await db
+            .from('delphi_tasks')
+            .select('id, title, objective, agent_id, project_id, replacement_count, model_override')
+            .eq('id', taskId)
+            .maybeSingle();
+        if (!task) return { replaced: false };
+
+        const { data: incumbent } = await db
+            .from('delphi_agents')
+            .select('name, cost_tier')
+            .eq('id', task.agent_id)
+            .maybeSingle();
+
+        const successor = await chooseSuccessor(
+            db,
+            workspaceId,
+            task.project_id as string,
+            task.agent_id as string,
+            task.objective as string,
+            true
+        );
+
+        // The model upgrade happens either way. It is the part that does not
+        // depend on the roster having someone dearer to hand.
+        const alreadyEscalated = task.model_override === ESCALATION_MODEL;
+        await db
+            .from('delphi_tasks')
+            .update({ model_override: ESCALATION_MODEL })
+            .eq('id', taskId);
+
+        if (!successor) {
+            await emitEvent(db, {
+                workspaceId,
+                projectId: (task.project_id as string) ?? undefined,
+                taskId,
+                type: 'replacement_escalated',
+                actor: 'Delphi',
+                verb: alreadyEscalated
+                    ? 'has no one stronger for'
+                    : 'found no one dearer, so moved to a stronger model on',
+                object: task.title as string,
+                payload: { reason, model: ESCALATION_MODEL, incumbent: incumbent?.name ?? null },
+            });
+            return { replaced: false, escalated: true, reason };
+        }
+
+        const dossier = await buildDossier(db, taskId);
+
+        await db.from('delphi_handoffs').insert({
+            workspace_id: workspaceId,
+            task_id: taskId,
+            from_agent_id: task.agent_id,
+            to_agent_id: successor.id,
+            reason,
+            completed_summary: dossier.completed,
+            remaining_work: dossier.remaining,
+            sources_consulted: dossier.sources,
+            partial_artifact_id: dossier.artifactId,
+        });
+
+        // Same row, same seq, same dependants. The successor resumes from the
+        // dossier rather than starting the objective over.
+        await db
+            .from('delphi_tasks')
+            .update({
+                agent_id: successor.id,
+                status: 'pending',
+                replacement_count: Number(task.replacement_count ?? 0) + 1,
+            })
+            .eq('id', taskId);
+
+        await emitEvent(db, {
+            workspaceId,
+            projectId: (task.project_id as string) ?? undefined,
+            taskId,
+            type: 'agent_rehired',
+            actor: 'Delphi',
+            verb: `replaced ${incumbent?.name ?? 'the previous agent'} with a stronger hire on`,
+            object: `${task.title} — ${successor.name}, ${successor.title}`,
+            payload: {
+                reason,
+                from: incumbent?.name ?? null,
+                to: successor.name,
+                fromTier: incumbent?.cost_tier ?? null,
+                toTier: successor.costTier,
+                model: ESCALATION_MODEL,
+            },
+        });
+
+        return { replaced: true, fromAgent: incumbent?.name as string, toAgent: successor.name, reason };
+    } catch (err) {
+        // Escalation is a response to work already paid for. Failing here must
+        // not lose the refusal that prompted it.
+        console.error('[delphi] escalation failed:', (err as Error).message);
         return { replaced: false };
     }
 }

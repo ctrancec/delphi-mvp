@@ -48,8 +48,22 @@ function excerpt(markdown: string | null): string | null {
     return null;
 }
 
+/**
+ * Where a deliverable stands with the CHO.
+ *
+ * `pending` is deliberately unlabelled. Most of the library is waiting to be
+ * read, and a badge on every card saying so is noise that makes the two states
+ * that matter harder to spot.
+ */
+const REVIEW_BADGE: Record<string, { label: string; tone: string }> = {
+    approved: { label: 'Accepted', tone: 'text-emerald-400 border-emerald-400/30' },
+    declined: { label: 'Sent back', tone: 'text-amber-400 border-amber-400/30' },
+    superseded: { label: 'Replaced', tone: 'text-muted-foreground border-white/10' },
+};
+
 export function OutputCard({ record }: { record: OutputRecord }) {
-    const { artifact, department, project, agent, task } = record;
+    const { artifact, review, department, project, agent, task } = record;
+    const verdict = REVIEW_BADGE[review.status];
     const meta = KIND_META[artifact.kind] ?? KIND_META.other;
     const Icon = meta.icon;
     const preview = excerpt(artifact.contentMd);
@@ -72,10 +86,18 @@ export function OutputCard({ record }: { record: OutputRecord }) {
                                 </p>
                             )}
                         </div>
-                        <Badge variant="outline" className={`${meta.tone} gap-1 text-[10px] shrink-0`}>
-                            <Icon className="h-2.5 w-2.5" />
-                            {meta.label}
-                        </Badge>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                            <Badge variant="outline" className={`${meta.tone} gap-1 text-[10px]`}>
+                                <Icon className="h-2.5 w-2.5" />
+                                {meta.label}
+                            </Badge>
+                            {verdict && (
+                                <Badge variant="outline" className={`${verdict.tone} text-[10px]`}>
+                                    {verdict.label}
+                                    {review.revision > 1 && ` · v${review.revision}`}
+                                </Badge>
+                            )}
+                        </div>
                     </div>
 
                     {preview && <p className="text-xs text-muted-foreground line-clamp-3">{preview}</p>}

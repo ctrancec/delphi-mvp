@@ -16,6 +16,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { proposePlan } from './delphi';
 import { ensureWorkspace, provisionWorkspace } from './bootstrap';
+import { sendTaskBack } from './revision';
 import {
     availableChannelKinds,
     emitEvent,
@@ -373,7 +374,14 @@ export async function setSystemModeAction(
 // Approvals — the CHO's consent
 // ---------------------------------------------------------------------------
 
-export type Decision = 'approved' | 'rejected';
+/**
+ * The three answers.
+ *
+ * `rejected` refuses the act and moves on; `revise` refuses it and asks for
+ * another attempt. Keeping them distinct matters — one is "not this", the
+ * other is "not yet", and an agent needs to know which it was told.
+ */
+export type Decision = 'approved' | 'rejected' | 'revise';
 
 /**
  * Decide on a pending action.
@@ -387,8 +395,9 @@ export type Decision = 'approved' | 'rejected';
 export async function decideApprovalAction(
     approvalId: string,
     decision: Decision,
+    /** Conditions when approving; the reason to redo it when sending back. */
     conditions?: string
-): Promise<ActionResult<{ decision: Decision }>> {
+): Promise<ActionResult<{ decision: Decision; escalatedTo?: string }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
     const { db, workspaceId } = ctx;
@@ -409,11 +418,20 @@ export async function decideApprovalAction(
         return { ok: false, error: `Already ${approval.status}.` };
     }
 
+    const note = conditions?.trim() || null;
+
+    if (decision === 'revise' && (note?.length ?? 0) < 10) {
+        // An agent cannot act on "no". The reason is not ceremony here — it is
+        // the entire mechanism by which the next attempt differs from this one.
+        return { ok: false, error: 'Say what needs to change — the agent works from this.' };
+    }
+
     const { error: updErr } = await db
         .from('delphi_approvals')
         .update({
-            status: decision,
-            conditions: conditions?.trim() || null,
+            status: decision === 'revise' ? 'revision_requested' : decision,
+            conditions: decision === 'approved' ? note : null,
+            revision_note: decision === 'revise' ? note : null,
             decided_by: user?.id ?? null,
             decided_at: new Date().toISOString(),
         })
@@ -424,8 +442,16 @@ export async function decideApprovalAction(
     if (updErr) return { ok: false, error: updErr.message };
 
     // Release the task the runtime parked. `done` on approval because the work
-    // itself finished — the gate was on the action, not the output.
-    if (approval.task_id) {
+    // itself finished — the gate was on the action, not the output. A refusal
+    // skips it, which leaves the rest of the pipeline free to continue.
+    //
+    // Sending it back does neither: the task goes to the queue with the CHO's
+    // reason attached, and the agent tries again having read it.
+    let escalatedTo: string | undefined;
+    if (approval.task_id && decision === 'revise') {
+        const out = await sendTaskBack(db, workspaceId, approval.task_id, note!, 'approval');
+        escalatedTo = out.escalatedTo;
+    } else if (approval.task_id) {
         await db
             .from('delphi_tasks')
             .update({ status: decision === 'approved' ? 'done' : 'skipped' })
@@ -438,14 +464,21 @@ export async function decideApprovalAction(
         taskId: approval.task_id ?? undefined,
         type: 'approval_decided',
         actor: 'CHO',
-        verb: decision === 'approved' ? (conditions ? 'approved with conditions' : 'approved') : 'rejected',
+        verb:
+            decision === 'approved'
+                ? note
+                    ? 'approved with conditions'
+                    : 'approved'
+                : decision === 'revise'
+                  ? 'sent it back to be redone'
+                  : 'rejected',
         object: approval.summary,
-        payload: { actionType: approval.action_type, conditions: conditions?.trim() || null },
+        payload: { actionType: approval.action_type, decision, note },
     });
 
     revalidatePath('/dashboard/delphi/approvals');
     revalidatePath('/dashboard/delphi', 'layout');
-    return { ok: true, data: { decision } };
+    return { ok: true, data: { decision, escalatedTo } };
 }
 
 /** Post into a review thread. Discussions run both ways, not just agent to agent. */

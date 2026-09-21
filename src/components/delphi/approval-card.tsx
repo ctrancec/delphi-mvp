@@ -12,12 +12,12 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
-import { Check, ChevronDown, Gavel, Loader2, ShieldAlert, TriangleAlert, X } from 'lucide-react';
+import { Check, ChevronDown, Gavel, Loader2, RotateCcw, ShieldAlert, TriangleAlert, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { decideApprovalAction } from '@/lib/delphi/actions';
+import { decideApprovalAction, type Decision } from '@/lib/delphi/actions';
 import { ACTION_LABELS, RISK_STYLES, previewOf, type PendingApproval } from '@/lib/delphi/approvals';
 import { cn } from '@/lib/utils';
 
@@ -30,36 +30,67 @@ const VERDICT_STYLES: Record<string, { label: string; tone: string }> = {
 export function ApprovalCard({ approval }: { approval: PendingApproval }) {
     const [pending, startTransition] = useTransition();
     const [error, setError] = useState<string | null>(null);
-    const [showConditions, setShowConditions] = useState(false);
+    // One note field, two meanings. Conditions qualify an approval; the same
+    // words sent back are the brief for the next attempt. Keeping it as one
+    // box is deliberate: what the CHO wants changed is the same thought either
+    // way, and asking them to write it twice is how it ends up written once.
+    const [showNote, setShowNote] = useState(false);
     const [conditions, setConditions] = useState('');
-    const [decided, setDecided] = useState<'approved' | 'rejected' | null>(null);
+    const [decided, setDecided] = useState<Decision | null>(null);
+    const [escalatedTo, setEscalatedTo] = useState<string | null>(null);
 
     const preview = previewOf(approval);
     const verdict = approval.review?.verdict ? VERDICT_STYLES[approval.review.verdict] : null;
 
-    function decide(decision: 'approved' | 'rejected') {
+    function decide(decision: Decision) {
         setError(null);
+        if (decision === 'revise' && conditions.trim().length < 10) {
+            setShowNote(true);
+            setError('Say what needs to change — the agent works from this.');
+            return;
+        }
         startTransition(async () => {
             const res = await decideApprovalAction(
                 approval.id,
                 decision,
-                decision === 'approved' ? conditions : undefined
+                decision === 'rejected' ? undefined : conditions
             );
-            if (res.ok) setDecided(decision);
-            else setError(res.error ?? 'Could not record that decision.');
+            if (res.ok) {
+                setDecided(decision);
+                setEscalatedTo(res.data?.escalatedTo ?? null);
+            } else {
+                setError(res.error ?? 'Could not record that decision.');
+            }
         });
     }
 
     if (decided) {
+        const icon =
+            decided === 'approved' ? (
+                <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+            ) : decided === 'revise' ? (
+                <RotateCcw className="h-4 w-4 shrink-0 text-amber-400" />
+            ) : (
+                <X className="h-4 w-4 shrink-0 text-red-400" />
+            );
+        const word =
+            decided === 'approved' ? 'Approved' : decided === 'revise' ? 'Sent back' : 'Rejected';
         return (
             <Card className="border-white/5 bg-black/20">
-                <CardContent className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-                    {decided === 'approved' ? (
-                        <Check className="h-4 w-4 text-emerald-400" />
-                    ) : (
-                        <X className="h-4 w-4 text-red-400" />
+                <CardContent className="space-y-1.5 py-4 text-sm text-muted-foreground">
+                    <p className="flex items-center gap-2">
+                        {icon}
+                        <span className="min-w-0">
+                            {word} — {approval.summary}
+                        </span>
+                    </p>
+                    {decided === 'revise' && (
+                        <p className="pl-6 text-xs">
+                            {escalatedTo
+                                ? `Delphi handed it to ${escalatedTo}, who is working on it now.`
+                                : 'Back with the agent. It will appear again when they have redone it.'}
+                        </p>
                     )}
-                    {decided === 'approved' ? 'Approved' : 'Rejected'} — {approval.summary}
                 </CardContent>
             </Card>
         );
@@ -152,13 +183,18 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                     </div>
                 )}
 
-                {showConditions && (
-                    <Textarea
-                        value={conditions}
-                        onChange={(e) => setConditions(e.target.value)}
-                        placeholder="Conditions this approval depends on — e.g. remove the third claim, credit the footage."
-                        className="min-h-20 border-white/10 bg-white/5 text-sm"
-                    />
+                {showNote && (
+                    <div className="space-y-1.5">
+                        <Textarea
+                            value={conditions}
+                            onChange={(e) => setConditions(e.target.value)}
+                            placeholder="What has to be true — e.g. remove the third claim, credit the footage. Approve to make it a condition, or send it back to have it redone."
+                            className="min-h-20 border-white/10 bg-white/5 text-sm"
+                        />
+                        <p className="text-[11px] text-muted-foreground/60">
+                            Sent back, this is the whole brief for the next attempt. Be specific.
+                        </p>
+                    </div>
                 )}
 
                 {error && (
@@ -171,17 +207,28 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                 <div className="flex flex-wrap gap-2">
                     <Button size="sm" onClick={() => decide('approved')} disabled={pending}>
                         {pending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-2 h-3.5 w-3.5" />}
-                        {showConditions && conditions.trim() ? 'Approve with conditions' : 'Approve'}
+                        {showNote && conditions.trim() ? 'Approve with conditions' : 'Approve'}
                     </Button>
                     <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setShowConditions((v) => !v)}
+                        onClick={() => decide('revise')}
+                        disabled={pending}
+                        className="border-amber-400/30 text-amber-400 hover:bg-amber-400/10 hover:text-amber-300"
+                        title="Not yet — send it back with what needs to change"
+                    >
+                        <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                        Send back
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowNote((v) => !v)}
                         disabled={pending}
                         className="border-white/10"
                     >
-                        <ChevronDown className={cn('mr-2 h-3.5 w-3.5 transition-transform', showConditions && 'rotate-180')} />
-                        Conditions
+                        <ChevronDown className={cn('mr-2 h-3.5 w-3.5 transition-transform', showNote && 'rotate-180')} />
+                        Note
                     </Button>
                     <Button
                         size="sm"

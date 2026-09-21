@@ -274,7 +274,11 @@ export type DelphiEventType =
     | 'review_completed'
     | 'review_message'
     | 'task_graded'
-    | 'replacement_escalated';
+    | 'replacement_escalated'
+    /** The CHO refused a deliverable or an action and sent it back to be redone. */
+    | 'revision_requested'
+    /** The CHO ruled on a finished deliverable. */
+    | 'output_reviewed';
 
 export interface DelphiEvent {
     id: number;

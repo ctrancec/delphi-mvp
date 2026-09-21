@@ -23,6 +23,17 @@ import { extractJson, JsonExtractionError } from './json';
 export const DEFAULT_MODEL = 'gemini-3.8-flash';
 
 /**
+ * What a task is moved onto when Flash has not been good enough.
+ *
+ * Pro reasons for longer before it answers — roughly 8s against 1-2s — which
+ * is a bad trade for the ordinary case and the right one for work the CHO has
+ * already refused twice. Verified against the live API for the two things the
+ * runtime needs: it honours the discriminated-union `responseSchema`, and it
+ * emits function calls with a `thoughtSignature`.
+ */
+export const ESCALATION_MODEL = 'gemini-3.1-pro-preview';
+
+/**
  * Ordered fallback chain.
  *
  * Flash capacity genuinely runs out — the first live run of the hiring harness
@@ -67,6 +78,9 @@ export const MODEL_FALLBACKS: Record<string, string[]> = {
         // when every Gemini bucket is empty. Smaller, and it shows.
         'gemma-4-26b-a4b-it',
     ],
+    // Escalated work degrades sideways into Flash rather than giving up: a
+    // stronger model was preferred, not required, and no answer helps nobody.
+    'gemini-3.1-pro-preview': ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
 };
 
 function fallbackChain(model: string): string[] {

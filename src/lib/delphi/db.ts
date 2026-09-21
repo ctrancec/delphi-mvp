@@ -190,6 +190,19 @@ function toMemory(r: Row): Memory {
  * chat at all. Excluded from every listing that feeds hiring, so it can never
  * be staffed onto a task.
  */
+/**
+ * Did this fail only because the schema has not caught up?
+ *
+ * PostgREST reports an unknown column as PGRST204 rather than as a constraint
+ * violation, which makes it cleanly separable from a real write failure — and
+ * lets the runtime keep working across the gap between a deploy and the
+ * migration that goes with it.
+ */
+export function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
+    if (!error) return false;
+    return error.code === 'PGRST204' || /could not find the .* column/i.test(error.message ?? '');
+}
+
 export const DELPHI_SLUG = 'delphi-ceo';
 
 export async function ensureDelphiAgent(db: Db, workspaceId: string): Promise<string | null> {
