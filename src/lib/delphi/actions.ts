@@ -17,6 +17,7 @@ import { createClient, currentUser } from '@/lib/supabase/server';
 import { proposePlan } from './delphi';
 import { ensureWorkspace, provisionWorkspace } from './bootstrap';
 import { sendTaskBack } from './revision';
+import { hireProposedAgent } from './replacement';
 import {
     availableChannelKinds,
     emitEvent,
@@ -408,7 +409,7 @@ export async function decideApprovalAction(
 
     const { data: approval, error: readErr } = await db
         .from('delphi_approvals')
-        .select('id, task_id, project_id, status, summary, action_type')
+        .select('id, task_id, project_id, status, summary, action_type, payload')
         .eq('id', approvalId)
         .maybeSingle();
 
@@ -447,8 +448,40 @@ export async function decideApprovalAction(
     //
     // Sending it back does neither: the task goes to the queue with the CHO's
     // reason attached, and the agent tries again having read it.
+    // A staffing proposal is not an act in the world — it is Delphi asking to
+    // change who does the work. So approving it hires, and refusing it leaves
+    // the incumbent holding the task rather than skipping the task entirely.
+    const isStaffing =
+        (approval.payload as { kind?: string } | null)?.kind === 'staffing';
+
     let escalatedTo: string | undefined;
-    if (approval.task_id && decision === 'revise') {
+
+    if (isStaffing && approval.task_id) {
+        if (decision === 'approved') {
+            const hired = await hireProposedAgent(db, workspaceId, {
+                task_id: approval.task_id,
+                project_id: approval.project_id,
+                payload: approval.payload,
+            });
+            escalatedTo = hired.toAgent;
+            if (!hired.replaced) {
+                // Say so rather than leaving a task parked on a hire that
+                // never happened.
+                await db
+                    .from('delphi_tasks')
+                    .update({ status: 'pending' })
+                    .eq('id', approval.task_id);
+            }
+        } else if (decision === 'revise') {
+            // "Draft someone different." Back to pending so escalation can run
+            // again, with the CHO's steer recorded against the task.
+            await sendTaskBack(db, workspaceId, approval.task_id, note!, 'approval');
+        } else {
+            // Refused the hire, not the work. The incumbent keeps it — on the
+            // stronger model escalation already set.
+            await db.from('delphi_tasks').update({ status: 'pending' }).eq('id', approval.task_id);
+        }
+    } else if (approval.task_id && decision === 'revise') {
         const out = await sendTaskBack(db, workspaceId, approval.task_id, note!, 'approval');
         escalatedTo = out.escalatedTo;
     } else if (approval.task_id) {

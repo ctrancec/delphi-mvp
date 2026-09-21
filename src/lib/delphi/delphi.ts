@@ -66,7 +66,7 @@ the hire, so it must say what this agent will actually contribute.
 // Response schema
 // ---------------------------------------------------------------------------
 
-const INVENTED_AGENT_SCHEMA: Schema = {
+export const INVENTED_AGENT_SCHEMA: Schema = {
     type: Type.OBJECT,
     properties: {
         slug: { type: Type.STRING, description: 'kebab-case unique id, e.g. "podcast-producer"' },
@@ -266,7 +266,7 @@ function asRecord(value: unknown, what: string): Record<string, unknown> {
     return value as Record<string, unknown>;
 }
 
-function validateInventedAgent(value: unknown, seq: number): InventedAgentSpec {
+export function validateInventedAgent(value: unknown, seq = 0): InventedAgentSpec {
     const o = asRecord(value, `tasks[${seq}].newAgent`);
     const required = ['slug', 'name', 'title', 'systemPrompt', 'reason'];
     for (const key of required) {

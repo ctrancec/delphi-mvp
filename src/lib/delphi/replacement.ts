@@ -18,11 +18,19 @@
  *   being selected for it automatically.
  */
 
-import { emitEvent, listAgents, getAgentStats, type Db, type Row } from './db';
-import { hiringScore } from './delphi';
+import {
+    emitEvent,
+    getAgentStats,
+    insertInventedAgent,
+    listAgents,
+    listChannels,
+    type Db,
+    type Row,
+} from './db';
+import { hiringScore, INVENTED_AGENT_SCHEMA, validateInventedAgent } from './delphi';
 import { claimSources, MAX_REPLACEMENTS, type Grade } from './grading';
-import { ESCALATION_MODEL } from '@/lib/llm/gemini';
-import type { CostTier } from './types';
+import { ESCALATION_MODEL, generateStructured } from '@/lib/llm/gemini';
+import type { CostTier, InventedAgentSpec } from './types';
 
 export interface ReplacementOutcome {
     replaced: boolean;
@@ -31,6 +39,8 @@ export interface ReplacementOutcome {
     fromAgent?: string;
     toAgent?: string;
     reason?: string;
+    /** Set when Delphi has asked to hire someone new and is waiting on the CHO. */
+    proposedHire?: string;
 }
 
 /**
@@ -64,6 +74,14 @@ export function shouldReplace(opts: {
 }
 
 /**
+ * At least one skill genuinely overlapping the objective.
+ *
+ * `fit` is overlap capped at three, so this is "one of the three terms
+ * matched". Anything less is a stranger to the work.
+ */
+const MIN_ESCALATION_FIT = 1 / 3;
+
+/**
  * Pick who takes over.
  *
  * Scored the same way hiring scores, so the choice is consistent with how the
@@ -80,11 +98,16 @@ async function chooseSuccessor(
     /**
      * Escalating, rather than merely swapping.
      *
-     * The ordinary score includes a cost term that prefers the cheaper agent,
-     * which is right when assembling a team and exactly wrong here: the work
-     * has already been refused twice, so the thing to optimise is capability,
-     * not price. In this mode the cost term is inverted and anyone cheaper
-     * than the incumbent is not a candidate at all.
+     * This used to promote by cost tier, which was wrong in a way the roster
+     * makes obvious: the only tier-3 agents are a Motion & Animation Designer
+     * and a Video Editor. Tier measures what an agent costs to run media
+     * through, not how well it reasons, so "escalating" a market analysis task
+     * up a tier bought nothing — and the filter could exclude the genuinely
+     * better-fitting candidate for a reason unrelated to the work.
+     *
+     * So escalation no longer means *dearer*. It means: pick on fit alone, and
+     * if nobody on the roster beats the incumbent, say so, because the answer
+     * is a specialist who does not exist yet rather than a reshuffle.
      */
     escalate = false
 ): Promise<{ id: string; name: string; title: string; costTier: CostTier } | null> {
@@ -103,11 +126,8 @@ async function chooseSuccessor(
             .filter((w) => w.length > 3)
     );
 
-    const incumbentTier = agents.find((a) => a.id === incumbentId)?.costTier ?? 1;
-
     const candidates = agents
         .filter((a) => a.id !== incumbentId && !busy.has(a.id))
-        .filter((a) => !escalate || (a.costTier as number) >= (incumbentTier as number))
         .map((a) => {
             // Cheap skill overlap stands in for the LLM fit term: this runs
             // mid-pipeline, and a model call to pick a replacement would
@@ -116,16 +136,22 @@ async function chooseSuccessor(
                 [...objectiveTerms].some((t) => s.toLowerCase().includes(t) || t.includes(s.toLowerCase()))
             ).length;
             const fit = Math.min(1, overlap / 3);
-            const base = hiringScore(fit, stats.get(a.id) ?? null, a.costTier as CostTier);
-            // Capability is what is being bought now, so a dearer tier is a
-            // reason to pick someone rather than a reason not to.
-            const score = escalate ? base + 0.15 * ((a.costTier as number) - 1) : base;
-            return { agent: a, score };
+            return {
+                agent: a,
+                fit,
+                score: hiringScore(fit, stats.get(a.id) ?? null, a.costTier as CostTier),
+            };
         })
         .sort((a, b) => b.score - a.score);
 
     const best = candidates[0];
     if (!best) return null;
+
+    // Escalating on somebody who does not actually fit the objective is how a
+    // market analysis ends up with a motion designer. Below this, the roster
+    // has no answer and the caller should draft one instead.
+    if (escalate && best.fit < MIN_ESCALATION_FIT) return null;
+
     return {
         id: best.agent.id,
         name: best.agent.name,
@@ -307,6 +333,120 @@ export async function replaceAgentOnTask(
     }
 }
 
+
+/**
+ * Draft a specialist for one objective.
+ *
+ * Reached only when the roster has no one who genuinely fits — which, on a
+ * team of fourteen generalists, is the ordinary case for work that has already
+ * been refused twice. "More capable" for a given task does not mean dearer; it
+ * means specified for that task, and that agent does not exist until Delphi
+ * writes them.
+ *
+ * Nothing is hired here. The spec is returned for the CHO to consent to.
+ */
+async function draftSpecialist(
+    db: Db,
+    workspaceId: string,
+    objective: string,
+    reason: string,
+    incumbentName: string
+): Promise<InventedAgentSpec | null> {
+    try {
+        const kinds = (await listChannels(db, workspaceId)).map((c) => c.kind);
+
+        const { data } = await generateStructured<InventedAgentSpec>(
+            [
+                'You are Delphi, the CEO. One task has now been refused twice by the CHO,',
+                'and nobody on the roster is a better fit than the agent already holding it.',
+                '',
+                `THE TASK: ${objective}`,
+                `WHO HAS IT NOW: ${incumbentName}`,
+                `WHY IT KEEPS COMING BACK: ${reason}`,
+                '',
+                `CHANNELS AVAILABLE: ${kinds.join(', ') || 'none'}`,
+                '',
+                'Specify the agent you would hire to do this properly. Not a generalist with a',
+                'new name — someone whose single job is exactly this, whose system prompt names',
+                'the failure above and how they avoid it, and whose skills are the ones the',
+                'objective actually calls for. Request only channels from the list.',
+            ].join('\n'),
+            INVENTED_AGENT_SCHEMA,
+            (value) => validateInventedAgent(value),
+            { temperature: 0.4 }
+        );
+
+        return data;
+    } catch (err) {
+        // A draft that could not be written is not a reason to lose the
+        // refusal that prompted it. The incumbent keeps the task on the
+        // stronger model, which the caller has already arranged.
+        console.error('[delphi] could not draft a specialist:', (err as Error).message);
+        return null;
+    }
+}
+
+/**
+ * Put a proposed hire in front of the CHO.
+ *
+ * Delphi may decide the roster is not good enough. It may not act on that by
+ * itself — hiring spends money on every future run, and the rule that has held
+ * since the first department is that Delphi never staffs itself into spending.
+ * So the task waits here rather than quietly running the incumbent again.
+ *
+ * Filed as `other` rather than a new action type: a hire is genuinely not one
+ * of the outward-facing actions the enum names, and the payload says what it
+ * is.
+ */
+async function proposeHire(
+    db: Db,
+    workspaceId: string,
+    task: { id: string; title: string; project_id: string | null },
+    spec: InventedAgentSpec,
+    incumbentName: string,
+    reason: string
+): Promise<boolean> {
+    const { error } = await db.from('delphi_approvals').insert({
+        workspace_id: workspaceId,
+        project_id: task.project_id,
+        task_id: task.id,
+        action_type: 'other',
+        summary: `Hire ${spec.name}, ${spec.title}, to take over "${task.title}"`,
+        risk: 'medium',
+        // Written rather than left to the column default: the guard against
+        // proposing twice reads this back, and a rule that depends on a
+        // default it never states is a rule waiting to be broken by a schema
+        // change nobody connects to it.
+        status: 'pending',
+        payload: {
+            kind: 'staffing',
+            spec,
+            incumbent: incumbentName,
+            reason,
+        },
+    });
+
+    if (error) {
+        console.error('[delphi] could not propose a hire:', error.message);
+        return false;
+    }
+
+    await db.from('delphi_tasks').update({ status: 'awaiting_approval' }).eq('id', task.id);
+
+    await emitEvent(db, {
+        workspaceId,
+        projectId: task.project_id ?? undefined,
+        taskId: task.id,
+        type: 'approval_requested',
+        actor: 'Delphi',
+        verb: 'wants to hire someone new for',
+        object: `${task.title} — ${spec.name}, ${spec.title}`,
+        payload: { kind: 'staffing', reason: spec.reason },
+    });
+
+    return true;
+}
+
 /**
  * Hand a task to someone more capable, because the CHO has refused it twice.
  *
@@ -364,7 +504,54 @@ export async function escalateTask(
             .update({ model_override: ESCALATION_MODEL })
             .eq('id', taskId);
 
+        const incumbentName = (incumbent?.name as string) ?? 'the current agent';
+
         if (!successor) {
+            // Nobody on the roster fits. That is not a dead end — it is the
+            // case the invention path exists for, and the one the CHO asked
+            // to be handled by hiring rather than by shuffling.
+            //
+            // Unless we already asked. A second proposal for the same task
+            // would be Delphi pestering the CHO about a decision they have not
+            // made yet.
+            const { data: asked } = await db
+                .from('delphi_approvals')
+                .select('id')
+                .eq('task_id', taskId)
+                .eq('status', 'pending')
+                .limit(1);
+
+            if (!asked?.length) {
+                const spec = await draftSpecialist(
+                    db,
+                    workspaceId,
+                    task.objective as string,
+                    reason,
+                    incumbentName
+                );
+
+                if (
+                    spec &&
+                    (await proposeHire(
+                        db,
+                        workspaceId,
+                        {
+                            id: taskId,
+                            title: task.title as string,
+                            project_id: (task.project_id as string) ?? null,
+                        },
+                        spec,
+                        incumbentName,
+                        reason
+                    ))
+                ) {
+                    return { replaced: false, escalated: true, reason, proposedHire: spec.name };
+                }
+            }
+
+            // Either we have already asked, or the draft could not be written.
+            // The incumbent keeps the task with the stronger model, which was
+            // set above and is still a real change.
             await emitEvent(db, {
                 workspaceId,
                 projectId: (task.project_id as string) ?? undefined,
@@ -372,10 +559,10 @@ export async function escalateTask(
                 type: 'replacement_escalated',
                 actor: 'Delphi',
                 verb: alreadyEscalated
-                    ? 'has no one stronger for'
-                    : 'found no one dearer, so moved to a stronger model on',
+                    ? 'has no one else for'
+                    : 'found no one better, so moved to a stronger model on',
                 object: task.title as string,
-                payload: { reason, model: ESCALATION_MODEL, incumbent: incumbent?.name ?? null },
+                payload: { reason, model: ESCALATION_MODEL, incumbent: incumbentName },
             });
             return { replaced: false, escalated: true, reason };
         }
@@ -411,7 +598,7 @@ export async function escalateTask(
             taskId,
             type: 'agent_rehired',
             actor: 'Delphi',
-            verb: `replaced ${incumbent?.name ?? 'the previous agent'} with a stronger hire on`,
+            verb: `replaced ${incumbentName} with a better-fitting agent on`,
             object: `${task.title} — ${successor.name}, ${successor.title}`,
             payload: {
                 reason,
@@ -423,11 +610,101 @@ export async function escalateTask(
             },
         });
 
-        return { replaced: true, fromAgent: incumbent?.name as string, toAgent: successor.name, reason };
+        return { replaced: true, fromAgent: incumbentName, toAgent: successor.name, reason };
     } catch (err) {
         // Escalation is a response to work already paid for. Failing here must
         // not lose the refusal that prompted it.
         console.error('[delphi] escalation failed:', (err as Error).message);
+        return { replaced: false };
+    }
+}
+
+/**
+ * The CHO said yes. Hire them.
+ *
+ * Only ever reached from `decideApprovalAction`, under the CHO's own session —
+ * Delphi cannot call this, which is the whole point of the proposal sitting in
+ * a queue rather than the roster simply growing.
+ *
+ * The new agent is permanent (`origin='invented'`), so a specialist drafted
+ * for one stubborn task is available to every department after it. That is the
+ * roster learning what the work actually needs.
+ */
+export async function hireProposedAgent(
+    db: Db,
+    workspaceId: string,
+    approval: { task_id: string | null; project_id: string | null; payload: unknown }
+): Promise<ReplacementOutcome> {
+    const payload = (approval.payload ?? {}) as { kind?: string; spec?: unknown; reason?: string };
+    if (payload.kind !== 'staffing' || !approval.task_id) return { replaced: false };
+
+    try {
+        const spec = validateInventedAgent(payload.spec);
+
+        const { data: task } = await db
+            .from('delphi_tasks')
+            .select('id, title, agent_id, project_id, replacement_count, department_id')
+            .eq('id', approval.task_id)
+            .maybeSingle();
+        if (!task) return { replaced: false };
+
+        const { data: incumbent } = await db
+            .from('delphi_agents')
+            .select('name')
+            .eq('id', task.agent_id)
+            .maybeSingle();
+
+        const hired = await insertInventedAgent(
+            db,
+            workspaceId,
+            spec,
+            (task.department_id as string) ?? null
+        );
+
+        // Same row, same seq, same dependants: the specialist resumes from the
+        // dossier rather than starting the objective from nothing.
+        const dossier = await buildDossier(db, approval.task_id);
+        await db.from('delphi_handoffs').insert({
+            workspace_id: workspaceId,
+            task_id: approval.task_id,
+            from_agent_id: task.agent_id,
+            to_agent_id: hired.id,
+            reason: payload.reason ?? 'The CHO approved a specialist for this task.',
+            completed_summary: dossier.completed,
+            remaining_work: dossier.remaining,
+            sources_consulted: dossier.sources,
+            partial_artifact_id: dossier.artifactId,
+        });
+
+        await db
+            .from('delphi_tasks')
+            .update({
+                agent_id: hired.id,
+                status: 'pending',
+                replacement_count: Number(task.replacement_count ?? 0) + 1,
+                model_override: ESCALATION_MODEL,
+            })
+            .eq('id', approval.task_id);
+
+        await emitEvent(db, {
+            workspaceId,
+            projectId: (task.project_id as string) ?? undefined,
+            taskId: approval.task_id,
+            type: 'agent_invented',
+            actor: 'Delphi',
+            verb: 'hired, with the CHO’s approval, for',
+            object: `${task.title} — ${hired.name}, ${hired.title}`,
+            payload: { from: incumbent?.name ?? null, to: hired.name, why: spec.reason },
+        });
+
+        return {
+            replaced: true,
+            fromAgent: (incumbent?.name as string) ?? undefined,
+            toAgent: hired.name,
+            reason: spec.reason,
+        };
+    } catch (err) {
+        console.error('[delphi] could not hire the approved agent:', (err as Error).message);
         return { replaced: false };
     }
 }

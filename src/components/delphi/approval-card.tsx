@@ -40,6 +40,26 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
     const [escalatedTo, setEscalatedTo] = useState<string | null>(null);
 
     const preview = previewOf(approval);
+
+    // A hire is not an act in the world, and a JSON dump of a persona is not a
+    // decision anyone can make. Delphi proposing a new agent gets its own
+    // reading: who, for what, and why the roster fell short.
+    const staffing =
+        (approval.payload as { kind?: string }).kind === 'staffing'
+            ? (approval.payload as unknown as {
+                  spec: {
+                      name: string;
+                      title: string;
+                      systemPrompt: string;
+                      skills: string[];
+                      costTier: number;
+                      requiredChannels: string[];
+                      reason: string;
+                  };
+                  incumbent?: string;
+                  reason?: string;
+              })
+            : null;
     const verdict = approval.review?.verdict ? VERDICT_STYLES[approval.review.verdict] : null;
 
     function decide(decision: Decision) {
@@ -172,7 +192,7 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                     </p>
                 )}
 
-                {preview && (
+                {preview && !staffing && (
                     <div className="space-y-1.5">
                         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                             What would happen
@@ -180,6 +200,68 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                         <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-black/60 p-3 font-mono text-xs text-zinc-200">
                             {preview}
                         </pre>
+                    </div>
+                )}
+
+                {staffing && (
+                    <div className="space-y-3 rounded-lg border border-sky-400/20 bg-sky-400/5 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="text-sm font-semibold text-zinc-100">
+                                    {staffing.spec.name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    {staffing.spec.title}
+                                </p>
+                            </div>
+                            <Badge variant="outline" className="shrink-0 border-sky-400/30 text-[10px] text-sky-400">
+                                tier {staffing.spec.costTier}
+                            </Badge>
+                        </div>
+
+                        <div className="space-y-1">
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                Why not someone you already have
+                            </p>
+                            <p className="text-xs leading-relaxed text-zinc-300">
+                                {staffing.spec.reason}
+                            </p>
+                        </div>
+
+                        {staffing.incumbent && (
+                            <p className="text-xs text-muted-foreground">
+                                Taking over from{' '}
+                                <span className="text-zinc-200">{staffing.incumbent}</span>.
+                                {staffing.reason ? ` ${staffing.reason}` : ''}
+                            </p>
+                        )}
+
+                        <div className="flex flex-wrap gap-1.5">
+                            {staffing.spec.skills.slice(0, 8).map((skill) => (
+                                <Badge
+                                    key={skill}
+                                    variant="outline"
+                                    className="border-white/10 text-[10px] text-muted-foreground"
+                                >
+                                    {skill}
+                                </Badge>
+                            ))}
+                        </div>
+
+                        <p className="text-[11px] text-muted-foreground/60">
+                            Channels: {staffing.spec.requiredChannels.join(', ') || 'none'} · Hiring
+                            them adds a permanent agent to your roster, available to every
+                            department after this one.
+                        </p>
+
+                        <details className="group">
+                            <summary className="cursor-pointer list-none text-[11px] text-muted-foreground hover:text-zinc-200">
+                                Read the brief Delphi wrote for them
+                            </summary>
+                            <p className="mt-2 whitespace-pre-wrap rounded border border-white/10 bg-black/40 p-3 text-xs leading-relaxed text-zinc-300">
+                                {staffing.spec.systemPrompt}
+                            </p>
+                        </details>
                     </div>
                 )}
 
@@ -207,7 +289,11 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                 <div className="flex flex-wrap gap-2">
                     <Button size="sm" onClick={() => decide('approved')} disabled={pending}>
                         {pending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-2 h-3.5 w-3.5" />}
-                        {showNote && conditions.trim() ? 'Approve with conditions' : 'Approve'}
+                        {staffing
+                            ? 'Hire them'
+                            : showNote && conditions.trim()
+                              ? 'Approve with conditions'
+                              : 'Approve'}
                     </Button>
                     <Button
                         size="sm"
@@ -215,10 +301,14 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                         onClick={() => decide('revise')}
                         disabled={pending}
                         className="border-amber-400/30 text-amber-400 hover:bg-amber-400/10 hover:text-amber-300"
-                        title="Not yet — send it back with what needs to change"
+                        title={
+                            staffing
+                                ? 'Not this one — say what you want instead and Delphi drafts another'
+                                : 'Not yet — send it back with what needs to change'
+                        }
                     >
                         <RotateCcw className="mr-2 h-3.5 w-3.5" />
-                        Send back
+                        {staffing ? 'Draft someone else' : 'Send back'}
                     </Button>
                     <Button
                         size="sm"
@@ -236,9 +326,14 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                         onClick={() => decide('rejected')}
                         disabled={pending}
                         className="border-red-400/30 text-red-400 hover:bg-red-400/10 hover:text-red-300"
+                        title={
+                            staffing
+                                ? 'No new hire. The current agent keeps the task, on the stronger model.'
+                                : undefined
+                        }
                     >
                         <X className="mr-2 h-3.5 w-3.5" />
-                        Reject
+                        {staffing ? 'Keep who I have' : 'Reject'}
                     </Button>
                 </div>
             </CardContent>
