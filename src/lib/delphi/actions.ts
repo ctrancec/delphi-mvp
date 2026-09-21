@@ -32,14 +32,30 @@ export interface ActionResult<T = void> {
     data?: T;
 }
 
-/** Resolve the caller's active workspace. */
+/**
+ * Resolve the caller's active workspace, creating one on first use.
+ *
+ * bootstrap_workspace() depends on auth.uid(), which is null in the Supabase
+ * SQL editor — so it cannot usefully be run by hand there. The app is the only
+ * place with a real session, so first use is where the workspace gets made.
+ */
 async function resolveWorkspace(db: Db): Promise<string | null> {
     const { data } = await db
         .from('workspaces')
         .select('id')
         .order('created_at', { ascending: true })
         .limit(1);
-    return data?.[0]?.id ?? null;
+
+    if (data?.[0]?.id) return data[0].id;
+
+    const { data: created, error } = await db.rpc('bootstrap_workspace', {
+        workspace_name: 'Delphi',
+    });
+    if (error) {
+        console.error('[delphi] bootstrap_workspace failed:', error.message);
+        return null;
+    }
+    return (created as string) ?? null;
 }
 
 async function getDb(): Promise<{ db: Db; workspaceId: string } | { error: string }> {
@@ -147,12 +163,16 @@ export async function proposeHiringAction(
     });
 
     try {
-        const agents = await listAgents(db, workspaceId);
+        let agents = await listAgents(db, workspaceId);
         if (agents.length === 0) {
-            return {
-                ok: false,
-                error: 'The roster is empty. Run  npm run delphi:seed  before staffing a department.',
-            };
+            // A fresh workspace has no roster, and an empty roster is a dead end
+            // the CHO cannot resolve from the UI. Seed it rather than failing.
+            const { seedRoster } = await import('./db');
+            await seedRoster(db, workspaceId);
+            agents = await listAgents(db, workspaceId);
+        }
+        if (agents.length === 0) {
+            return { ok: false, error: 'The roster could not be seeded. Check the database connection.' };
         }
 
         const stats = await getAgentStats(db, workspaceId);
