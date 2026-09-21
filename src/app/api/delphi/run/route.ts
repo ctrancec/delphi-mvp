@@ -27,6 +27,7 @@ import { reconcileStaleRuns, runNextTask, type StepOutcome } from '@/lib/delphi/
 import type { Db } from '@/lib/delphi/db';
 import { runAndStoreReview } from '@/lib/delphi/reviews';
 import type { Deliverable } from '@/lib/delphi/board';
+import { runRetrospective } from '@/lib/delphi/retrospective';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +70,13 @@ async function drive(
             .limit(1);
 
         const project = (projects?.[0] as ProjectRow | undefined) ?? null;
-        if (!project) return { outcomes, more: false };
+        if (!project) {
+            // Nothing running. Anything that finished since the last tick gets
+            // its retrospective now — reflection is what turns one project's
+            // experience into the next one's staffing.
+            await reflectOnFinishedProjects(db, workspaceId);
+            return { outcomes, more: false };
+        }
 
         const outcome = await runNextTask(db, workspaceId, project.id);
         outcomes.push(outcome);
@@ -162,6 +169,33 @@ async function reviewPendingApproval(
         );
     } catch (err) {
         console.error('[delphi] board review failed:', (err as Error).message);
+    }
+}
+
+
+/**
+ * Write retrospectives for projects that finished and have none.
+ *
+ * Bounded to a couple per tick: reflection is a model call, and a workspace
+ * that finished ten projects at once should not spend ten calls before the
+ * response is written.
+ */
+async function reflectOnFinishedProjects(db: Db, workspaceId: string): Promise<void> {
+    const { data: finished } = await db
+        .from('delphi_projects')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .in('status', ['done', 'halted_budget', 'failed'])
+        .order('finished_at', { ascending: false })
+        .limit(5);
+
+    if (!finished?.length) return;
+
+    let done = 0;
+    for (const p of finished) {
+        if (done >= 2) return;
+        const written = await runRetrospective(db, workspaceId, p.id as string);
+        if (written > 0) done++;
     }
 }
 
