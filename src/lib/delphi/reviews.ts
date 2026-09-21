@@ -12,6 +12,8 @@
 
 import { runBoardReview, type BoardReview, type Deliverable, type ReviewDepth } from './board';
 import { emitEvent, listBoardAgents, type Db, type Row } from './db';
+import { formatLegalContext, retrieveLegalContext } from '@/lib/legal/retrieve';
+import { DEFAULT_JURISDICTIONS } from '@/lib/legal/sources';
 import { DelphiDbError } from './db';
 
 export interface StoredReview {
@@ -49,7 +51,24 @@ export async function runAndStoreReview(
         return null;
     }
 
-    const review = await runBoardReview(board, deliverable, { depth });
+    // Retrieve the law before convening, so findings cite a stored clause
+    // rather than the model's recall of one. An empty library is not hidden:
+    // the board is simply given no context and its findings carry no citation,
+    // which the boardroom then labels as resting on recall.
+    const legal = await retrieveLegalContext(
+        db,
+        subject.workspaceId,
+        [deliverable.title, deliverable.kind, deliverable.content.slice(0, 1200)].join('\n'),
+        { jurisdictions: [...DEFAULT_JURISDICTIONS] }
+    ).catch((err) => {
+        console.warn('[delphi] legal retrieval failed, reviewing without it:', (err as Error).message);
+        return { passages: [], terms: [], costUsd: 0 };
+    });
+
+    const review = await runBoardReview(board, deliverable, {
+        depth,
+        libraryContext: formatLegalContext(legal.passages),
+    });
 
     const { data: row, error } = await db
         .from('delphi_reviews')
@@ -171,7 +190,14 @@ export async function runAndStoreReview(
                   ? 'cleared with conditions'
                   : 'cleared',
         object: deliverable.title,
-        payload: { verdict: review.verdict, findings: findings.length, costUsd: review.totalCostUsd },
+        payload: {
+            verdict: review.verdict,
+            findings: findings.length,
+            costUsd: review.totalCostUsd + legal.costUsd,
+            // Zero passages means the round ran on recall. Worth recording,
+            // because it changes how much a finding is worth.
+            legalPassages: legal.passages.length,
+        },
     });
 
     return {
