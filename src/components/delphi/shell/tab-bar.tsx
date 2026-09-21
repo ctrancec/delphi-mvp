@@ -16,7 +16,13 @@ import { usePathname } from 'next/navigation';
 import { NAV, activeHref } from './nav';
 import { cn } from '@/lib/utils';
 
-export function TabBar({ pendingApprovals }: { pendingApprovals: number }) {
+export function TabBar({
+    pendingApprovals,
+    newOutputs,
+}: {
+    pendingApprovals: number;
+    newOutputs: number;
+}) {
     const pathname = usePathname();
     const active = activeHref(pathname);
     const items = NAV.filter((n) => n.onCover);
@@ -29,7 +35,11 @@ export function TabBar({ pendingApprovals }: { pendingApprovals: number }) {
             {items.map((item) => {
                 const Icon = item.icon;
                 const isActive = active === item.href;
-                const badge = item.href.endsWith('/approvals') ? pendingApprovals : 0;
+                const badge = item.href.endsWith('/approvals')
+                    ? pendingApprovals
+                    : item.href.endsWith('/outputs')
+                      ? newOutputs
+                      : 0;
 
                 const inner = (
                     <>

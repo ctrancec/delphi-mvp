@@ -11,7 +11,7 @@
  * select in the steady state.
  */
 
-import { listAgents, seedChannels, seedRoster, type Db } from './db';
+import { ensureDelphiAgent, listAgents, seedChannels, seedRoster, type Db } from './db';
 
 export interface Provisioned {
     workspaceId: string;
@@ -75,6 +75,10 @@ export async function ensureWorkspace(db: Db): Promise<string | null> {
  * confident, well-formatted work having never touched a live source.
  */
 export async function provisionWorkspace(db: Db, workspaceId: string): Promise<Provisioned> {
+    // Cheap and idempotent, and needed even on an already-seeded workspace that
+    // predates the CEO having a row of its own.
+    await ensureDelphiAgent(db, workspaceId);
+
     const existing = await listAgents(db, workspaceId);
     if (existing.length > 0) {
         return { workspaceId, seeded: false, agentCount: existing.length };

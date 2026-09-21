@@ -3,6 +3,7 @@ import {
     Building2,
     FolderOpen,
     Gavel,
+    MessageSquare,
     Globe2,
     Scale,
     ShieldCheck,
@@ -30,6 +31,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
     { href: '/dashboard/delphi', label: 'Mission control', short: 'HQ', icon: Building2, live: true, onCover: true },
+    { href: '/dashboard/delphi/chat', label: 'Talk to Delphi', short: 'Chat', icon: MessageSquare, live: true, onCover: true },
     { href: '/dashboard/delphi/outputs', label: 'Outputs', short: 'Outputs', icon: FolderOpen, live: true, onCover: true },
     { href: '/dashboard/delphi/approvals', label: 'Approvals', short: 'Approve', icon: ShieldCheck, live: true, onCover: true },
     { href: '/dashboard/delphi/reviews', label: 'Boardroom', short: 'Board', icon: Gavel, live: true },

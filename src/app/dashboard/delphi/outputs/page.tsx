@@ -14,6 +14,8 @@ import { OutputCard, KIND_META } from '@/components/delphi/output-card';
 import { facetsFrom, listOutputs, type OutputRecord } from '@/lib/delphi/outputs';
 import type { ArtifactKind } from '@/lib/delphi/types';
 import { cn } from '@/lib/utils';
+import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { markOutputsSeen } from '@/lib/delphi/unread';
 
 export const dynamic = 'force-dynamic';
 
@@ -101,6 +103,14 @@ export default async function OutputsPage({
     }
 
     const params = await searchParams;
+
+    // Seeing the page is what clears the badge — not rendering the badge
+    // itself, which would let a count vanish on a glance at the wrong moment.
+    const [{ data: { user } }, workspaceId] = await Promise.all([
+        supabase.auth.getUser(),
+        findWorkspace(supabase),
+    ]);
+    if (user && workspaceId) await markOutputsSeen(supabase, workspaceId, user.id);
 
     // One query, unfiltered, then narrowed in memory. Facet counts have to be
     // computed over everything the CHO can see — counting a filtered set would

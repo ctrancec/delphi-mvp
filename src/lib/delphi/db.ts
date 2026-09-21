@@ -181,6 +181,51 @@ function toMemory(r: Row): Memory {
 // Agents and roster
 // ---------------------------------------------------------------------------
 
+/**
+ * Delphi's own agent row.
+ *
+ * The CEO is an agent in the organisation — it just is not a hireable one. It
+ * needs a row because `delphi_messages` requires every message to have exactly
+ * one author, and without one Delphi could not speak in a review thread or a
+ * chat at all. Excluded from every listing that feeds hiring, so it can never
+ * be staffed onto a task.
+ */
+export const DELPHI_SLUG = 'delphi-ceo';
+
+export async function ensureDelphiAgent(db: Db, workspaceId: string): Promise<string | null> {
+    const { data: existing } = await db
+        .from('delphi_agents')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('slug', DELPHI_SLUG)
+        .maybeSingle();
+    if (existing) return existing.id as string;
+
+    const { data, error } = await db
+        .from('delphi_agents')
+        .insert({
+            workspace_id: workspaceId,
+            slug: DELPHI_SLUG,
+            name: 'Delphi',
+            title: 'Chief Executive',
+            system_prompt: 'The CEO. Hires, plans, consolidates and reports to the CHO.',
+            skills: [],
+            channel_ids: [],
+            model: 'gemini-3.8-flash',
+            cost_tier: 2,
+            origin: 'seed',
+            is_board: false,
+        })
+        .select('id')
+        .single();
+
+    if (error) {
+        console.error('[delphi] could not create the CEO row:', error.message);
+        return null;
+    }
+    return data.id as string;
+}
+
 export async function listAgents(
     db: Db,
     workspaceId: string,
@@ -189,6 +234,8 @@ export async function listAgents(
     let q = db.from('delphi_agents').select('*').eq('workspace_id', workspaceId);
     if (!opts.includeArchived) q = q.is('archived_at', null);
     if (!opts.includeBoard) q = q.eq('is_board', false);
+    // The CEO is never a candidate for its own staffing decisions.
+    q = q.neq('slug', DELPHI_SLUG);
 
     const { data, error } = await q.order('slug');
     if (error) throw new DelphiDbError('listAgents', error);

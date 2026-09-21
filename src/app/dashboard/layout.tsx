@@ -9,32 +9,38 @@ import { MockDatabaseProvider } from '@/lib/contexts/mock-db-context'
 import { DashboardChrome } from '@/components/delphi/shell/chrome'
 import { findWorkspace } from '@/lib/delphi/bootstrap'
 import { getSystemMode, type SystemMode } from '@/lib/delphi/db'
+import { countNewOutputs } from '@/lib/delphi/unread'
 
 export const dynamic = 'force-dynamic'
 
-const NO_STATUS = { mode: 'running' as SystemMode, spentUsd: 0, pendingApprovals: 0 }
+const NO_STATUS = { mode: 'running' as SystemMode, spentUsd: 0, pendingApprovals: 0, newOutputs: 0 }
 
 /**
  * What the status strip shows, tolerating a workspace that does not exist yet:
  * the very first render of a new account happens before Delphi has provisioned
  * anything.
  */
-async function readStatus(db: NonNullable<Awaited<ReturnType<typeof createClient>>>) {
+async function readStatus(
+    db: NonNullable<Awaited<ReturnType<typeof createClient>>>,
+    userId: string
+) {
     try {
         // Read only. The Delphi page is the sole creator; see bootstrap.ts.
         const workspaceId = await findWorkspace(db)
         if (!workspaceId) return NO_STATUS
 
-        const [mode, { data: depts }, { data: approvals }] = await Promise.all([
+        const [mode, { data: depts }, { data: approvals }, work] = await Promise.all([
             getSystemMode(db, workspaceId),
             db.from('delphi_departments').select('spent_usd'),
             db.from('delphi_approvals').select('id').eq('status', 'pending'),
+            countNewOutputs(db, workspaceId, userId),
         ])
 
         return {
             mode,
             spentUsd: (depts ?? []).reduce((sum, d) => sum + Number(d.spent_usd ?? 0), 0),
             pendingApprovals: approvals?.length ?? 0,
+            newOutputs: work.newOutputs,
         }
     } catch (err) {
         // Chrome has to render even when Delphi's tables cannot be read, or one
@@ -65,7 +71,7 @@ export default async function DashboardLayout({
         redirect('/login')
     }
 
-    const status = supabase ? await readStatus(supabase) : NO_STATUS
+    const status = supabase ? await readStatus(supabase, user.id) : NO_STATUS
 
     // The shell the pages inherited from what this codebase used to be. Built
     // here but passed through rather than rendered, so Delphi's own routes
@@ -100,6 +106,7 @@ export default async function DashboardLayout({
                             mode={status.mode}
                             spentUsd={status.spentUsd}
                             pendingApprovals={status.pendingApprovals}
+                            newOutputs={status.newOutputs}
                             email={user.email ?? ''}
                         >
                             {children}

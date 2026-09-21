@@ -31,7 +31,7 @@ export function DashboardChrome({
 
     return (
         <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
-            <Rail pendingApprovals={status.pendingApprovals} />
+            <Rail pendingApprovals={status.pendingApprovals} newOutputs={status.newOutputs} />
 
             <div className="flex min-w-0 flex-1 flex-col">
                 <TopBar {...status} />
@@ -45,7 +45,7 @@ export function DashboardChrome({
                     <div className="mx-auto w-full max-w-[1400px]">{children}</div>
                 </main>
 
-                <TabBar pendingApprovals={status.pendingApprovals} />
+                <TabBar pendingApprovals={status.pendingApprovals} newOutputs={status.newOutputs} />
             </div>
         </div>
     );

@@ -18,6 +18,8 @@ import { formatUsd } from '@/lib/llm/cost';
 
 export interface TopBarProps {
     mode: SystemMode;
+    /** Deliverables landed since the CHO last opened Outputs. */
+    newOutputs: number;
     spentUsd: number;
     pendingApprovals: number;
     email: string;

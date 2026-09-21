@@ -475,3 +475,90 @@ export async function postToThreadAction(
     revalidatePath('/dashboard/delphi/reviews');
     return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// Talking to the CEO
+// ---------------------------------------------------------------------------
+
+export interface ChatReply {
+    reply: string;
+    actions: string[];
+    costUsd: number;
+}
+
+/**
+ * Send Delphi a message and store both turns.
+ *
+ * The conversation is one long-lived thread per workspace rather than a new
+ * one each time, because a CEO you have to re-brief every session is not one
+ * you would keep.
+ */
+export async function chatWithDelphiAction(message: string): Promise<ActionResult<ChatReply>> {
+    const ctx = await getDb();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const { db, workspaceId } = ctx;
+
+    const body = message.trim();
+    if (!body) return { ok: false, error: 'Say something first.' };
+
+    const {
+        data: { user },
+    } = await db.auth.getUser();
+    if (!user) return { ok: false, error: 'You are not signed in.' };
+
+    try {
+        const { ensureDelphiAgent } = await import('./db');
+        const { chatWithDelphi } = await import('./chat');
+        const { getOrCreateChatThread, loadChatHistory } = await import('./chat-store');
+
+        const delphiId = await ensureDelphiAgent(db, workspaceId);
+        const threadId = await getOrCreateChatThread(db, workspaceId);
+        if (!threadId) return { ok: false, error: 'Could not open the conversation thread.' };
+
+        const history = await loadChatHistory(db, threadId);
+
+        // The question is stored before the answer is attempted, so a failed
+        // turn does not lose what was asked.
+        await db.from('delphi_messages').insert({
+            workspace_id: workspaceId,
+            thread_id: threadId,
+            author_user_id: user.id,
+            author_agent_id: null,
+            role: 'cho',
+            content: body,
+            round: 0,
+        });
+
+        const result = await chatWithDelphi(db, workspaceId, history, body);
+
+        await db.from('delphi_messages').insert({
+            workspace_id: workspaceId,
+            thread_id: threadId,
+            author_user_id: null,
+            author_agent_id: delphiId,
+            role: 'ceo',
+            content: result.reply,
+            round: 0,
+        });
+
+        // Anything Delphi changed shows up in the activity log too, so the
+        // conversation is not a side channel that bypasses the record.
+        for (const action of result.actions) {
+            await emitEvent(db, {
+                workspaceId,
+                type: 'department_created',
+                actor: 'Delphi',
+                verb: 'acted on your instruction',
+                object: action,
+            });
+        }
+
+        revalidatePath('/dashboard/delphi', 'layout');
+        return {
+            ok: true,
+            data: { reply: result.reply, actions: result.actions, costUsd: result.costUsd },
+        };
+    } catch (err) {
+        return { ok: false, error: (err as Error).message };
+    }
+}
