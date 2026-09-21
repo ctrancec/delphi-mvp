@@ -62,9 +62,14 @@ export const findWorkspace = cache(readWorkspace);
  * when both created, both saw an empty table and both inserted — which is
  * exactly what happened on the first run: two workspaces 0.4ms apart, one of
  * them empty. Read-only callers use findWorkspace().
+ *
+ * The first read goes through the memoized lookup, so on an already-provisioned
+ * workspace — every load after the first — this shares the layout's query
+ * rather than repeating it. The re-read after creating deliberately does not:
+ * it has to see the row that was just inserted.
  */
 export async function ensureWorkspace(db: Db): Promise<string | null> {
-    const existing = await readWorkspace(db);
+    const existing = await findWorkspace(db);
     if (existing) return existing;
 
     const { error } = await db.rpc('bootstrap_workspace', {

@@ -19,7 +19,8 @@
  */
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { cache } from 'react';
+import { createClient, currentUser } from '@/lib/supabase/server';
 import { emitEvent, type Db } from './db';
 import { findWorkspace } from './bootstrap';
 
@@ -29,20 +30,20 @@ export interface ManageResult<T = void> {
     data?: T;
 }
 
-async function ctx(): Promise<{ db: Db; workspaceId: string } | { error: string }> {
+/** Memoized for the request — see the same helper in actions.ts. */
+const ctx = cache(async function ctx(): Promise<
+    { db: Db; workspaceId: string } | { error: string }
+> {
     const db = await createClient();
     if (!db) return { error: 'Supabase is not configured.' };
 
-    const {
-        data: { user },
-    } = await db.auth.getUser();
-    if (!user) return { error: 'You are not signed in.' };
+    if (!(await currentUser())) return { error: 'You are not signed in.' };
 
     const workspaceId = await findWorkspace(db);
     if (!workspaceId) return { error: 'No workspace yet.' };
 
     return { db, workspaceId };
-}
+});
 
 // ---------------------------------------------------------------------------
 // Departments

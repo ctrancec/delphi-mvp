@@ -11,8 +11,9 @@
  * never the service-role client, which would bypass it.
  */
 
+import { cache } from 'react';
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, currentUser } from '@/lib/supabase/server';
 import { proposePlan } from './delphi';
 import { ensureWorkspace, provisionWorkspace } from './bootstrap';
 import {
@@ -34,14 +35,18 @@ export interface ActionResult<T = void> {
     data?: T;
 }
 
-async function getDb(): Promise<{ db: Db; workspaceId: string } | { error: string }> {
+/**
+ * Memoized for the request. A server action and the re-render Next runs after
+ * it share one request, so without this every action paid for a second auth
+ * round trip and a second workspace lookup on the way back out.
+ */
+const getDb = cache(async function getDb(): Promise<
+    { db: Db; workspaceId: string } | { error: string }
+> {
     const db = await createClient();
     if (!db) return { error: 'Supabase is not configured. Check your environment variables.' };
 
-    const {
-        data: { user },
-    } = await db.auth.getUser();
-    if (!user) return { error: 'You are not signed in.' };
+    if (!(await currentUser())) return { error: 'You are not signed in.' };
 
     const workspaceId = await ensureWorkspace(db);
     if (!workspaceId) {
@@ -49,7 +54,7 @@ async function getDb(): Promise<{ db: Db; workspaceId: string } | { error: strin
     }
 
     return { db, workspaceId };
-}
+});
 
 // ---------------------------------------------------------------------------
 // Departments

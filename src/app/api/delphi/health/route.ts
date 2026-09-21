@@ -30,6 +30,23 @@ export async function GET() {
         }
     }
 
+    // What a single database round trip actually costs from wherever this
+    // function is running. It is the number that explains a slow dashboard
+    // better than any other: a page is a handful of these, so ~15ms and ~80ms
+    // are a different application to use. A large figure here usually means
+    // the function region and the Supabase region are on opposite sides of the
+    // country, which is a project setting, not a code problem.
+    let databaseMs: number | null = null;
+    if (supabase) {
+        const started = Date.now();
+        try {
+            await supabase.from('workspaces').select('id').limit(1);
+            databaseMs = Date.now() - started;
+        } catch {
+            databaseMs = null;
+        }
+    }
+
     const report = await runDiagnostics(supabase, workspaceId);
 
     const blocking = [...report.environment, ...report.channels, ...report.database].filter(
@@ -50,6 +67,14 @@ export async function GET() {
             channels: report.channels,
             database: report.database,
             models: report.models,
+            build: {
+                // Which commit is actually serving this, so "did my change
+                // deploy?" is answerable without reading a build log.
+                commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
+                branch: process.env.VERCEL_GIT_COMMIT_REF ?? 'local',
+                region: process.env.VERCEL_REGION ?? 'local',
+            },
+            latency: { databaseMs },
             generatedAt: report.generatedAt,
         },
         { status: 200, headers: { 'Cache-Control': 'no-store' } }
