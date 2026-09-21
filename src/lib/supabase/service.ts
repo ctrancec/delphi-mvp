@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import { readServiceEnv } from './env'
 
 /**
  * Service-role client — bypasses RLS.
@@ -9,12 +10,10 @@ import { createClient as createSupabaseClient, type SupabaseClient } from '@supa
  * service-role key must stay server-side.
  */
 export function createServiceClient(): SupabaseClient | null {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const env = readServiceEnv()
+    if (!env) return null
 
-    if (!url || !key) return null
-
-    return createSupabaseClient(url, key, {
+    return createSupabaseClient(env.url, env.key, {
         auth: { persistSession: false, autoRefreshToken: false },
     })
 }

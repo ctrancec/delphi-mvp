@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { TOOL_REGISTRY, UserRole } from '@/lib/types/tool-registry'
+import { readAnonEnv } from './env'
 
 export async function updateSession(request: NextRequest) {
     let response = NextResponse.next({
@@ -9,8 +10,13 @@ export async function updateSession(request: NextRequest) {
         },
     })
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // Validated rather than read raw: a key carrying characters that cannot go
+    // in an HTTP header throws from inside fetch, and middleware runs on every
+    // request, so that failure would take down the whole site rather than one
+    // route.
+    const env = readAnonEnv();
+    const supabaseUrl = env?.url;
+    const supabaseAnonKey = env?.key;
 
     // --- Role Based Access Control (RBAC) ---
     // 1. Get the current path

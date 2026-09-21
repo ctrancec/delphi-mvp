@@ -1,15 +1,9 @@
 import { createBrowserClient } from '@supabase/ssr'
+import { readAnonEnv } from './env'
 
 export function createClient() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const env = readAnonEnv()
+    if (!env) return null
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-        return null
-    }
-
-    return createBrowserClient(
-        supabaseUrl,
-        supabaseAnonKey
-    )
+    return createBrowserClient(env.url, env.key)
 }
