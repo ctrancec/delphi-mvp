@@ -163,11 +163,16 @@ export async function proposeHiringAction(
     });
 
     try {
+        // Channels first: seedRoster resolves each agent's requiredChannels to
+        // ids at insert time, so seeding in the other order leaves every agent
+        // bound to nothing and the runtime hands out no tools.
+        const { seedChannels, seedRoster } = await import('./db');
+        await seedChannels(db, workspaceId);
+
         let agents = await listAgents(db, workspaceId);
         if (agents.length === 0) {
             // A fresh workspace has no roster, and an empty roster is a dead end
             // the CHO cannot resolve from the UI. Seed it rather than failing.
-            const { seedRoster } = await import('./db');
             await seedRoster(db, workspaceId);
             agents = await listAgents(db, workspaceId);
         }

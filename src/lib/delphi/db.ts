@@ -340,6 +340,63 @@ export async function listChannels(
     return (data ?? []).map(toChannel);
 }
 
+/**
+ * Seed channel rows for every kind this deployment has credentials for.
+ *
+ * Without this the whole channel chain silently no-ops: no rows means
+ * availableChannelKinds() returns nothing, Delphi is told it has no channels,
+ * seedRoster() binds every agent to none, and the runtime hands out no tools.
+ * Agents would produce plausible output having never touched a live source —
+ * which looks like success and is the exact failure the locator design exists
+ * to prevent.
+ *
+ * MUST run before seedRoster(), which resolves each agent's requiredChannels to
+ * ids at insert time. Seeding in the wrong order leaves agents unbound even
+ * once the channels exist.
+ *
+ * Idempotent on (workspace_id, label). Only the env var NAME is stored in
+ * credential_ref — never the secret itself.
+ */
+export async function seedChannels(
+    db: Db,
+    workspaceId: string
+): Promise<{ inserted: number; skipped: number }> {
+    const { isChannelConfigured } = await import('@/lib/channels/registry');
+
+    const candidates: { kind: ChannelKind; label: string; credentialRef: string | null }[] = [
+        { kind: 'perplexity', label: 'Perplexity Web Search', credentialRef: 'PERPLEXITY_API_KEY' },
+        { kind: 'fred', label: 'FRED Economic Data', credentialRef: 'FRED_API_KEY' },
+        { kind: 'rss', label: 'Global News Feeds', credentialRef: null },
+    ];
+
+    const usable = candidates.filter((c) => isChannelConfigured(c.kind));
+
+    const { data: existing, error: exErr } = await db
+        .from('delphi_channels')
+        .select('label')
+        .eq('workspace_id', workspaceId);
+    if (exErr) throw new DelphiDbError('seedChannels/read', exErr);
+
+    const have = new Set((existing ?? []).map((r) => r.label as string));
+    const toInsert = usable.filter((c) => !have.has(c.label));
+
+    if (toInsert.length === 0) return { inserted: 0, skipped: have.size };
+
+    const { error } = await db.from('delphi_channels').insert(
+        toInsert.map((c) => ({
+            workspace_id: workspaceId,
+            kind: c.kind,
+            label: c.label,
+            credential_ref: c.credentialRef,
+            enabled: true,
+            health: 'unknown',
+        }))
+    );
+    if (error) throw new DelphiDbError('seedChannels/insert', error);
+
+    return { inserted: toInsert.length, skipped: have.size };
+}
+
 /** Channel kinds an agent may actually be assigned work against. */
 export async function availableChannelKinds(
     db: Db,

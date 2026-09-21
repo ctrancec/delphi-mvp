@@ -12,7 +12,7 @@
  */
 
 import { createServiceClient } from '../src/lib/supabase/service';
-import { seedRoster, listAgents, listBoardAgents } from '../src/lib/delphi/db';
+import { seedChannels, seedRoster, listAgents, listBoardAgents } from '../src/lib/delphi/db';
 import { ALL_SEED_AGENTS } from '../src/lib/delphi/roster';
 
 const BOLD = '\x1b[1m';
@@ -50,6 +50,14 @@ async function main() {
 
         workspaceId = data[0].id;
         console.log(`${DIM}Using workspace "${data[0].name}" (${workspaceId})${RESET}`);
+    }
+
+    // Channels first — seedRoster binds agents to channel ids at insert time.
+    const ch = await seedChannels(db, workspaceId!);
+    console.log(`\n${BOLD}Channels${RESET}`);
+    console.log(`  ${GREEN}+${RESET} connected ${ch.inserted}${ch.skipped ? `  ${DIM}(${ch.skipped} already present)${RESET}` : ''}`);
+    if (ch.inserted === 0 && ch.skipped === 0) {
+        console.log(`  ${RED}none configured${RESET} ${DIM}— agents will run with no tools. Check your API keys.${RESET}`);
     }
 
     console.log(`\n${BOLD}Seeding roster${RESET} ${DIM}— ${ALL_SEED_AGENTS.length} agents defined${RESET}\n`);
