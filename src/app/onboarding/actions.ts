@@ -29,5 +29,5 @@ export async function completeOnboarding(industry: string) {
         return { error: 'Failed to save preference' }
     }
 
-    redirect('/dashboard')
+    redirect('/dashboard/delphi')
 }

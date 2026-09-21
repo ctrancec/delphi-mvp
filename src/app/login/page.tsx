@@ -7,13 +7,14 @@ import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Suspense, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, MailCheck } from 'lucide-react'
 
 function LoginContent() {
     const searchParams = useSearchParams()
     const mode = searchParams.get('mode')
     const [isLogin, setIsLogin] = useState(mode !== 'signup')
     const error = searchParams.get('error')
+    const message = searchParams.get('message')
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] p-4">
@@ -31,6 +32,13 @@ function LoginContent() {
                     <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
                         <AlertCircle className="h-4 w-4" />
                         {error}
+                    </div>
+                )}
+
+                {message && (
+                    <div className="mb-6 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-2">
+                        <MailCheck className="h-4 w-4 shrink-0" />
+                        {message}
                     </div>
                 )}
 
