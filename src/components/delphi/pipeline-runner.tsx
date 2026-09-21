@@ -41,9 +41,11 @@ export function PipelineRunner({ active }: { active: boolean }) {
             case 'awaiting_approval':
                 return 'Waiting on your approval.';
             case 'halted':
-                return last.reason === 'budget'
-                    ? 'Stopped: the budget cap was reached.'
-                    : 'Stopped: the system is switched off.';
+                if (last.reason === 'budget') return 'Stopped: the budget cap was reached.';
+                if (last.reason === 'upstream_failed') {
+                    return 'Stopped: an earlier step produced nothing, so the rest has nothing to work from.';
+                }
+                return 'Stopped: the system is switched off.';
             case 'failed':
                 return 'A task failed. See the activity log.';
             case 'idle':

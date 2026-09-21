@@ -262,7 +262,7 @@ export type StepOutcome =
     | { status: 'done'; taskId: string; costUsd: number; artifactId: string | null }
     | { status: 'awaiting_approval'; taskId: string; approvalId: string }
     | { status: 'failed'; taskId: string; error: string }
-    | { status: 'halted'; reason: 'budget' | 'system_paused' | 'system_stopped' }
+    | { status: 'halted'; reason: 'budget' | 'system_paused' | 'system_stopped' | 'upstream_failed' }
     | { status: 'idle'; reason: 'no_pending_tasks' };
 
 /**
@@ -437,21 +437,62 @@ export async function runNextTask(
     };
 
     // 3. The upstream artifact — this is the handoff.
+    //
+    // A missing one is not "no input", it is a broken chain. When the two
+    // researchers ahead of it failed, the staff writer was handed nothing and
+    // told it was first in the pipeline, so it correctly refused to invent a
+    // brief and shipped a polished statement that it had no data. That is the
+    // anti-fabrication rule working and the sequencing failing: it should
+    // never have been asked.
+    //
+    // The bar is a deliverable, not a status. A task the CHO rejected at the
+    // approval gate is `skipped` but may still have produced perfectly good
+    // work, and the rest of the pipeline can run on it.
     let upstream: { title: string; contentMd: string; handoffNote?: string } | null = null;
     if (task.depends_on) {
-        const { data: prev } = await db
-            .from('delphi_artifacts')
-            .select('title, content_md, data')
-            .eq('task_id', task.depends_on)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const [{ data: prev }, { data: prevTask }] = await Promise.all([
+            db
+                .from('delphi_artifacts')
+                .select('title, content_md, data')
+                .eq('task_id', task.depends_on)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle(),
+            db
+                .from('delphi_tasks')
+                .select('status, title, seq')
+                .eq('id', task.depends_on)
+                .maybeSingle(),
+        ]);
+
         if (prev) {
             upstream = {
                 title: prev.title,
                 contentMd: prev.content_md ?? '',
                 handoffNote: (prev.data as Record<string, unknown>)?.handoffNote as string | undefined,
             };
+        } else if (prevTask?.status !== 'done') {
+            // Nothing to hand over and the step before did not finish. Stop
+            // rather than spend a model call producing confident emptiness.
+            const reason = `Step ${prevTask?.seq ?? '?'} (${prevTask?.title ?? 'upstream'}) is ${prevTask?.status ?? 'missing'} and produced nothing to work from.`;
+
+            await db
+                .from('delphi_projects')
+                .update({ status: 'failed', error: reason, finished_at: new Date().toISOString() })
+                .eq('id', projectId);
+
+            await emitEvent(db, {
+                workspaceId,
+                projectId,
+                taskId: task.id,
+                type: 'project_failed',
+                actor: 'Delphi',
+                verb: 'stopped the pipeline before',
+                object: `${agent.name} — ${task.title}`,
+                payload: { reason },
+            });
+
+            return { status: 'halted', reason: 'upstream_failed' };
         }
     }
 
