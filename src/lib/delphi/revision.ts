@@ -28,11 +28,47 @@ import { escalateTask } from './replacement';
  */
 export const REVISIONS_BEFORE_ESCALATION = 2;
 
+/**
+ * Everything downstream of a refused task, in pipeline order.
+ *
+ * Refusing step 2 and leaving steps 3 and 4 alone is how you fix the analysis
+ * and still read the same stale report: the writer consumed what has just been
+ * replaced, and the auditor audited the writer. So the whole tail goes back in
+ * the queue. It re-runs in `seq` order behind the step being redone, which is
+ * what `depends_on` already guarantees.
+ */
+async function dependantsOf(db: Db, projectId: string, taskId: string): Promise<string[]> {
+    const { data } = await db
+        .from('delphi_tasks')
+        .select('id, depends_on')
+        .eq('project_id', projectId);
+
+    const rows = (data ?? []) as { id: string; depends_on: string | null }[];
+    const downstream: string[] = [];
+    const frontier = [taskId];
+
+    // Breadth-first rather than assuming a straight line: the schema allows a
+    // task to be depended on by more than one.
+    while (frontier.length) {
+        const current = frontier.shift()!;
+        for (const r of rows) {
+            if (r.depends_on === current && !downstream.includes(r.id)) {
+                downstream.push(r.id);
+                frontier.push(r.id);
+            }
+        }
+    }
+
+    return downstream;
+}
+
 export interface SendBackOutcome {
     /** Set when this decision changed who is working on the task. */
     escalatedTo?: string;
     /** Which attempt the CHO has just refused. */
     revision: number;
+    /** How many later steps were re-queued because they were built on this. */
+    invalidated: number;
 }
 
 /**
@@ -55,7 +91,7 @@ export async function sendTaskBack(
         .select('id, title, project_id, revision_count, agent_id')
         .eq('id', taskId)
         .maybeSingle();
-    if (!task) return { revision: 0 };
+    if (!task) return { revision: 0, invalidated: 0 };
 
     const revision = Number(task.revision_count ?? 0) + 1;
 
@@ -80,6 +116,19 @@ export async function sendTaskBack(
             .in('status', ['done', 'failed', 'halted_budget']);
     }
 
+    // Whatever was built on this was built on what was just refused.
+    const downstream = task.project_id
+        ? await dependantsOf(db, task.project_id as string, taskId)
+        : [];
+
+    if (downstream.length) {
+        await db
+            .from('delphi_tasks')
+            .update({ status: 'pending' })
+            .in('id', downstream)
+            .neq('status', 'running');
+    }
+
     await emitEvent(db, {
         workspaceId,
         projectId: (task.project_id as string) ?? undefined,
@@ -88,7 +137,7 @@ export async function sendTaskBack(
         actor: 'CHO',
         verb: `sent ${source === 'output' ? 'the deliverable' : 'the proposed action'} back to`,
         object: `${(agent?.name as string) ?? 'the agent'} — ${note.slice(0, 120)}`,
-        payload: { source, revision, note },
+        payload: { source, revision, note, invalidated: downstream.length },
     });
 
     // The CHO has now said twice that this is not good enough. That is a
@@ -101,10 +150,12 @@ export async function sendTaskBack(
             taskId,
             `The CHO sent this back ${revision} times. Most recently: ${note}`
         );
-        if (outcome.replaced) return { revision, escalatedTo: outcome.toAgent };
+        if (outcome.replaced) {
+            return { revision, escalatedTo: outcome.toAgent, invalidated: downstream.length };
+        }
     }
 
-    return { revision };
+    return { revision, invalidated: downstream.length };
 }
 
 /**

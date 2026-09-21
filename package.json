@@ -15,6 +15,7 @@
         "delphi:failover": "tsx scripts/check_model_failover.ts",
         "delphi:revision": "tsx scripts/check_revision.ts",
         "delphi:escalation": "tsx --env-file-if-exists=.env.local scripts/check_escalation.ts",
+        "delphi:schedule": "tsx scripts/check_schedule.ts",
         "delphi:feeds": "tsx --env-file-if-exists=.env.local scripts/check_feeds.ts"
     },
     "dependencies": {

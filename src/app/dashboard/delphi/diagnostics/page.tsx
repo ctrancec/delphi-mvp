@@ -12,6 +12,9 @@ import { Activity, AlertTriangle, CheckCircle2, CircleSlash, Stethoscope, XCircl
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { getSystemState } from '@/lib/delphi/db';
+import { DEFAULT_SCHEDULE, effectiveState } from '@/lib/delphi/schedule';
+import { WorkHours } from '@/components/delphi/work-hours';
 import { runDiagnostics, type Check, type Level } from '@/lib/delphi/diagnostics';
 import { cn } from '@/lib/utils';
 
@@ -69,6 +72,16 @@ export default async function DiagnosticsPage() {
     const workspaceId = supabase ? await findWorkspace(supabase) : null;
     const report = await runDiagnostics(supabase, workspaceId);
 
+    // "Why isn't anything running" is the question this page exists to answer,
+    // and once hours are set the answer is often "because you told it not to".
+    // So it belongs here rather than behind a settings screen nobody opens
+    // while something looks broken.
+    const state =
+        supabase && workspaceId
+            ? await getSystemState(supabase, workspaceId)
+            : { mode: 'running' as const, schedule: DEFAULT_SCHEDULE, override: null };
+    const now = effectiveState(state);
+
     const verdict = LEVELS[report.verdict];
     const VerdictIcon = verdict.icon;
 
@@ -84,6 +97,8 @@ export default async function DiagnosticsPage() {
                     broken now.
                 </p>
             </div>
+
+            <WorkHours schedule={state.schedule} detail={now.detail} />
 
             <Card
                 className={cn(

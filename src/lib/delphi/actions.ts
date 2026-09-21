@@ -30,6 +30,7 @@ import {
 import { hiringScore, shortlistCandidates } from './delphi';
 import type { CostTier } from './types';
 import type { SystemMode } from './db';
+import type { WorkSchedule } from './schedule';
 
 export interface ActionResult<T = void> {
     ok: boolean;
@@ -352,15 +353,33 @@ export async function setSystemModeAction(
     const { db, workspaceId } = ctx;
 
     try {
-        const { setSystemMode } = await import('./db');
-        await setSystemMode(db, workspaceId, mode, reason);
+        const { getSystemState, setSystemMode } = await import('./db');
+        const { switchIntent, effectiveState } = await import('./schedule');
+
+        // The switch means "right now", so what it writes depends on what the
+        // schedule is currently saying. Asking for work while the window is
+        // shut, or quiet while it is open, is a temporary override that ends
+        // at the next boundary; anything else is just the mode.
+        const state = await getSystemState(db, workspaceId);
+        const intent = switchIntent(state, mode);
+
+        await setSystemMode(db, workspaceId, intent.mode, reason, intent.override);
+
+        const now = effectiveState({ ...state, mode: intent.mode, override: intent.override });
 
         await emitEvent(db, {
             workspaceId,
             type: 'system_mode_changed',
             actor: 'CHO',
-            verb: mode === 'running' ? 'started the system' : `set the system to ${mode}`,
-            object: reason,
+            verb: intent.override
+                ? intent.override.mode === 'run'
+                    ? 'overrode working hours to run'
+                    : 'held the agents during working hours'
+                : mode === 'running'
+                  ? 'started the system'
+                  : `set the system to ${mode}`,
+            object: reason ?? now.detail,
+            payload: { override: intent.override, effective: now.mode },
         });
 
         // Every Delphi surface shows the switch, so none of them may go stale.
@@ -629,6 +648,87 @@ export async function chatWithDelphiAction(message: string): Promise<ActionResul
             ok: true,
             data: { reply: result.reply, actions: result.actions, costUsd: result.costUsd },
         };
+    } catch (err) {
+        return { ok: false, error: (err as Error).message };
+    }
+}
+
+/**
+ * Set the hours the agents work.
+ *
+ * Writing a schedule always clears any override. An override is a temporary
+ * win against a *particular* schedule; once the schedule changes, whatever it
+ * was arguing with no longer exists, and leaving it in place is how "just this
+ * once" quietly becomes the new rule.
+ */
+export async function setWorkScheduleAction(
+    schedule: WorkSchedule
+): Promise<ActionResult<{ detail: string }>> {
+    const ctx = await getDb();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const { db, workspaceId } = ctx;
+
+    const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (!hhmm.test(schedule.start) || !hhmm.test(schedule.end)) {
+        return { ok: false, error: 'Times must look like 09:00.' };
+    }
+    if (schedule.enabled && schedule.days.length === 0) {
+        // Otherwise the agents are switched on and can never run, which looks
+        // exactly like something being broken.
+        return { ok: false, error: 'Pick at least one day, or turn working hours off.' };
+    }
+    try {
+        // Rejected rather than stored: an unknown zone silently falls back to
+        // UTC at read time, and hours that mean something different from what
+        // was set are worse than hours that would not save.
+        new Intl.DateTimeFormat('en-GB', { timeZone: schedule.timezone });
+    } catch {
+        return { ok: false, error: `${schedule.timezone} is not a timezone I recognise.` };
+    }
+
+    try {
+        const { getSystemState } = await import('./db');
+        const { effectiveState } = await import('./schedule');
+
+        const { error } = await db.from('delphi_system_state').upsert(
+            {
+                workspace_id: workspaceId,
+                schedule_enabled: schedule.enabled,
+                work_start: schedule.start,
+                work_end: schedule.end,
+                work_days: schedule.days,
+                timezone: schedule.timezone,
+                override_mode: null,
+                override_until: null,
+                changed_at: new Date().toISOString(),
+            },
+            { onConflict: 'workspace_id' }
+        );
+
+        if (error) {
+            const { isMissingColumn } = await import('./db');
+            return {
+                ok: false,
+                error: isMissingColumn(error)
+                    ? 'Working hours need migration 0005 applied to the database first.'
+                    : error.message,
+            };
+        }
+
+        const now = effectiveState(await getSystemState(db, workspaceId));
+
+        await emitEvent(db, {
+            workspaceId,
+            type: 'system_mode_changed',
+            actor: 'CHO',
+            verb: schedule.enabled ? 'set working hours' : 'turned working hours off',
+            object: schedule.enabled
+                ? `${schedule.start}–${schedule.end} ${schedule.timezone}`
+                : 'the switch alone decides again',
+        });
+
+        revalidatePath('/dashboard/delphi', 'layout');
+        return { ok: true, data: { detail: now.detail } };
     } catch (err) {
         return { ok: false, error: (err as Error).message };
     }

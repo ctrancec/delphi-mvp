@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ALL_SEED_AGENTS, composeSystemPrompt, type SeedAgent } from './roster';
+import { DEFAULT_SCHEDULE, effectiveState, type SystemState } from './schedule';
 import type {
     Agent,
     AgentStats,
@@ -665,34 +666,99 @@ export async function emitEvent(db: Db, input: EmitEventInput): Promise<void> {
 
 export type SystemMode = 'running' | 'paused' | 'stopped';
 
+export type { SystemState, WorkSchedule } from './schedule';
+
 /**
  * Read the master switch. Defaults to 'running' when no row exists yet so a
  * fresh workspace is not silently halted.
  */
-export async function getSystemMode(db: Db, workspaceId: string): Promise<SystemMode> {
+/**
+ * The switch, the schedule and any override, as stored.
+ *
+ * `select('*')` and defensive reads, so this keeps working on a database that
+ * has not had migration 0005 applied: absent columns simply fall back to the
+ * behaviour that predates working hours, which is the switch deciding alone.
+ */
+export async function getSystemState(db: Db, workspaceId: string): Promise<SystemState> {
     const { data, error } = await db
         .from('delphi_system_state')
-        .select('mode')
+        .select('*')
         .eq('workspace_id', workspaceId)
         .maybeSingle();
-    if (error) throw new DelphiDbError('getSystemMode', error);
-    return (data?.mode as SystemMode) ?? 'running';
+    if (error) throw new DelphiDbError('getSystemState', error);
+
+    const r = (data ?? {}) as Record<string, unknown>;
+    return {
+        mode: (r.mode as SystemMode) ?? 'running',
+        schedule: {
+            enabled: Boolean(r.schedule_enabled),
+            start: (r.work_start as string) ?? DEFAULT_SCHEDULE.start,
+            end: (r.work_end as string) ?? DEFAULT_SCHEDULE.end,
+            days: Array.isArray(r.work_days) ? (r.work_days as number[]) : DEFAULT_SCHEDULE.days,
+            timezone: (r.timezone as string) ?? DEFAULT_SCHEDULE.timezone,
+        },
+        override:
+            r.override_mode && r.override_until
+                ? { mode: r.override_mode as 'run' | 'hold', until: r.override_until as string }
+                : null,
+    };
+}
+
+/**
+ * What the system is actually doing — which is what every caller wanted.
+ *
+ * Returns the *effective* mode, so a schedule that says "not at this hour"
+ * halts the runtime through the same gate an emergency stop does, and no
+ * caller has to know that working hours exist.
+ */
+export async function getSystemMode(db: Db, workspaceId: string): Promise<SystemMode> {
+    const state = await getSystemState(db, workspaceId);
+    return effectiveState(state).mode;
 }
 
 export async function setSystemMode(
     db: Db,
     workspaceId: string,
     mode: SystemMode,
-    reason?: string
+    reason?: string,
+    /**
+     * The temporary win, or null to clear one. Always written, never left
+     * alone: an override that outlives the intent behind it is the failure
+     * working hours exist to avoid.
+     */
+    override?: { mode: 'run' | 'hold'; until: string } | null
 ): Promise<void> {
-    const { error } = await db.from('delphi_system_state').upsert(
-        {
-            workspace_id: workspaceId,
-            mode,
-            reason: reason ?? null,
-            changed_at: new Date().toISOString(),
-        },
-        { onConflict: 'workspace_id' }
-    );
+    const row: Record<string, unknown> = {
+        workspace_id: workspaceId,
+        mode,
+        reason: reason ?? null,
+        changed_at: new Date().toISOString(),
+    };
+    if (override !== undefined) {
+        row.override_mode = override?.mode ?? null;
+        row.override_until = override?.until ?? null;
+    }
+
+    const { error } = await db
+        .from('delphi_system_state')
+        .upsert(row, { onConflict: 'workspace_id' });
+
+    // Without migration 0005 the override columns do not exist yet. The switch
+    // is more important than the schedule, so fall back to writing the mode
+    // alone rather than refusing to stop the system.
+    if (error && isMissingColumn(error)) {
+        const { error: plain } = await db.from('delphi_system_state').upsert(
+            {
+                workspace_id: workspaceId,
+                mode,
+                reason: reason ?? null,
+                changed_at: new Date().toISOString(),
+            },
+            { onConflict: 'workspace_id' }
+        );
+        if (plain) throw new DelphiDbError('setSystemMode', plain);
+        return;
+    }
+
     if (error) throw new DelphiDbError('setSystemMode', error);
 }

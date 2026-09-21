@@ -45,6 +45,9 @@ export function PipelineRunner({ active }: { active: boolean }) {
                 if (last.reason === 'upstream_failed') {
                     return 'Stopped: an earlier step produced nothing, so the rest has nothing to work from.';
                 }
+                if (last.reason === 'out_of_hours') {
+                    return 'Outside working hours. The step stays queued and picks up when the window opens — or switch the system on to work through it.';
+                }
                 if (last.reason === 'model_quota') {
                     return 'Paused: the day\u2019s model quota is used up. The step is still queued and picks up on its own once the quota resets \u2014 enable billing on the Gemini key to lift the limit.';
                 }

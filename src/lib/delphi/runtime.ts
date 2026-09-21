@@ -18,7 +18,8 @@ import { generateWithTools, ModelQuotaError, SchemaValidationError } from '@/lib
 import { clearRevisionNote } from './revision';
 import { isMissingColumn } from './db';
 import { toolsForChannels } from '@/lib/channels/registry';
-import { emitEvent, getSystemMode, listChannels, type Db } from './db';
+import { emitEvent, getSystemState, listChannels, type Db } from './db';
+import { effectiveState } from './schedule';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
 
 /** How long a `running` task may sit before it is presumed dead. */
@@ -500,7 +501,8 @@ export type StepOutcome =
               | 'system_paused'
               | 'system_stopped'
               | 'upstream_failed'
-              | 'model_quota';
+              | 'model_quota'
+              | 'out_of_hours';
       }
     | { status: 'idle'; reason: 'no_pending_tasks' };
 
@@ -633,10 +635,21 @@ export async function runNextTask(
     workspaceId: string,
     projectId: string
 ): Promise<StepOutcome> {
-    // 1. The master switch wins over everything.
-    const mode = await getSystemMode(db, workspaceId);
-    if (mode !== 'running') {
-        return { status: 'halted', reason: mode === 'paused' ? 'system_paused' : 'system_stopped' };
+    // 1. The master switch and the working hours, together, win over
+    //    everything. Reported apart because "switched off" and "it is 3am" are
+    //    different answers to "why is nothing happening", and only one of them
+    //    is something to go and fix.
+    const now = effectiveState(await getSystemState(db, workspaceId));
+    if (now.mode !== 'running') {
+        return {
+            status: 'halted',
+            reason:
+                now.reason === 'out_of_hours'
+                    ? 'out_of_hours'
+                    : now.mode === 'paused'
+                      ? 'system_paused'
+                      : 'system_stopped',
+        };
     }
 
     const { data: project } = await db
@@ -884,22 +897,24 @@ export async function runNextTask(
             .update({ spent_usd: Number(project.spent_usd) + result.costUsd })
             .eq('id', projectId);
 
-        // A redo writes a new artifact and marks the refused one superseded,
-        // rather than overwriting it. The CHO asked for this version; being
-        // able to see it against the one they turned down is what makes the
-        // feedback loop legible instead of just a second opinion appearing.
-        const revision = Number(task.revision_count ?? 0) + 1;
-        let supersedes: string | null = null;
-        if (revision > 1) {
-            const { data: previous } = await db
-                .from('delphi_artifacts')
-                .select('id')
-                .eq('task_id', task.id)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-            supersedes = (previous?.id as string) ?? null;
-        }
+        // A redo writes a new artifact and marks the one it replaces
+        // superseded, rather than overwriting it. Being able to read the new
+        // version against the one that was turned down is what makes the
+        // feedback loop legible instead of a second opinion simply appearing.
+        //
+        // Counted from what exists rather than from the task's revision count,
+        // because a task gets redone for more reasons than the CHO refusing
+        // it: a step upstream being replaced invalidates this one too, and
+        // that redo deserves a version number just as much.
+        const { data: earlier } = await db
+            .from('delphi_artifacts')
+            .select('id')
+            .eq('task_id', task.id)
+            .order('created_at', { ascending: false });
+
+        const previous = (earlier ?? []) as { id: string }[];
+        const revision = previous.length + 1;
+        const supersedes = previous[0]?.id ?? null;
 
         const base = {
             workspace_id: workspaceId,
@@ -936,11 +951,13 @@ export async function runNextTask(
         }
 
         if (supersedes) {
+            // Whatever the CHO had said about it, it has been replaced — and
+            // `reviewed_at` and the note stay on the row, so what they said is
+            // not lost by recording that it no longer stands.
             await db
                 .from('delphi_artifacts')
                 .update({ review_status: 'superseded' })
-                .eq('id', supersedes)
-                .eq('review_status', 'declined');
+                .eq('id', supersedes);
         }
 
         // The note has been answered. Leaving it set would hand the same
