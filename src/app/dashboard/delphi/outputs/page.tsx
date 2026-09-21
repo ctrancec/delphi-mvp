@@ -8,7 +8,7 @@
 
 import Link from 'next/link';
 import { FolderOpen, Inbox } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent } from '@/components/ui/card';
 import { OutputCard, KIND_META } from '@/components/delphi/output-card';
 import { facetsFrom, listOutputs, type OutputRecord } from '@/lib/delphi/outputs';
@@ -106,8 +106,8 @@ export default async function OutputsPage({
 
     // Seeing the page is what clears the badge — not rendering the badge
     // itself, which would let a count vanish on a glance at the wrong moment.
-    const [{ data: { user } }, workspaceId] = await Promise.all([
-        supabase.auth.getUser(),
+    const [user, workspaceId] = await Promise.all([
+        currentUser(),
         findWorkspace(supabase),
     ]);
     if (user && workspaceId) await markOutputsSeen(supabase, workspaceId, user.id);

@@ -9,7 +9,7 @@
 
 import { redirect } from 'next/navigation';
 import { KeyRound, ShieldCheck, UserCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PasswordForm } from '@/components/delphi/password-form';
@@ -28,9 +28,10 @@ export default async function AccountPage() {
         );
     }
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
+    // The layout above already resolved this; `currentUser()` is memoized for
+    // the request, so asking again costs nothing rather than another round trip
+    // to Supabase's auth server.
+    const user = await currentUser();
     if (!user) redirect('/login');
 
     // Google sign-in means there may be no password to change at all.

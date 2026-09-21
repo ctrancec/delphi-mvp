@@ -11,7 +11,14 @@
  * select in the steady state.
  */
 
-import { ensureDelphiAgent, listAgents, seedChannels, seedRoster, type Db } from './db';
+import { cache } from 'react';
+import {
+    DELPHI_SLUG,
+    ensureDelphiAgent,
+    seedChannels,
+    seedRoster,
+    type Db,
+} from './db';
 
 export interface Provisioned {
     workspaceId: string;
@@ -26,7 +33,7 @@ export interface Provisioned {
  * Always the oldest, so every caller agrees on which workspace is "the" one
  * even if a duplicate ever gets through.
  */
-export async function findWorkspace(db: Db): Promise<string | null> {
+async function readWorkspace(db: Db): Promise<string | null> {
     const { data } = await db
         .from('workspaces')
         .select('id')
@@ -35,6 +42,14 @@ export async function findWorkspace(db: Db): Promise<string | null> {
 
     return (data?.[0]?.id as string) ?? null;
 }
+
+/**
+ * Memoized per request, because a layout and the page inside it both want it
+ * and neither should wait on its own copy of the same select. `cache()` is
+ * keyed on the client instance, which is itself now one per request — so this
+ * is a single query however many callers ask.
+ */
+export const findWorkspace = cache(readWorkspace);
 
 /**
  * The caller's workspace, created on first use.
@@ -49,7 +64,7 @@ export async function findWorkspace(db: Db): Promise<string | null> {
  * them empty. Read-only callers use findWorkspace().
  */
 export async function ensureWorkspace(db: Db): Promise<string | null> {
-    const existing = await findWorkspace(db);
+    const existing = await readWorkspace(db);
     if (existing) return existing;
 
     const { error } = await db.rpc('bootstrap_workspace', {
@@ -63,7 +78,31 @@ export async function ensureWorkspace(db: Db): Promise<string | null> {
     // Re-read rather than trusting the returned id: if a concurrent request
     // also inserted, this converges on the oldest, which is what every other
     // caller will pick too.
-    return findWorkspace(db);
+    return readWorkspace(db);
+}
+
+/**
+ * Is this workspace already staffed?
+ *
+ * One select answers both questions the provisioner asks — whether the CEO has
+ * a row and whether anyone was hired — where it used to ask them separately.
+ * On an already-provisioned workspace, which is every load after the first,
+ * that is the entire cost of this module.
+ */
+async function rosterProbe(db: Db, workspaceId: string) {
+    const { data } = await db
+        .from('delphi_agents')
+        .select('slug, is_board')
+        .eq('workspace_id', workspaceId)
+        .is('archived_at', null);
+
+    const rows = data ?? [];
+    return {
+        hasCeo: rows.some((r) => r.slug === DELPHI_SLUG),
+        // The count the callers mean by "roster": workers, not the board and
+        // not the CEO, matching listAgents()'s defaults.
+        workers: rows.filter((r) => !r.is_board && r.slug !== DELPHI_SLUG).length,
+    };
 }
 
 /**
@@ -75,28 +114,38 @@ export async function ensureWorkspace(db: Db): Promise<string | null> {
  * confident, well-formatted work having never touched a live source.
  */
 export async function provisionWorkspace(db: Db, workspaceId: string): Promise<Provisioned> {
-    // Cheap and idempotent, and needed even on an already-seeded workspace that
-    // predates the CEO having a row of its own.
-    await ensureDelphiAgent(db, workspaceId);
+    const probe = await rosterProbe(db, workspaceId);
 
-    const existing = await listAgents(db, workspaceId);
-    if (existing.length > 0) {
-        return { workspaceId, seeded: false, agentCount: existing.length };
+    // The steady state, and the only path that matters for page load speed.
+    if (probe.hasCeo && probe.workers > 0) {
+        return { workspaceId, seeded: false, agentCount: probe.workers };
+    }
+
+    // Needed even on an already-seeded workspace that predates the CEO having
+    // a row of its own.
+    if (!probe.hasCeo) await ensureDelphiAgent(db, workspaceId);
+
+    if (probe.workers > 0) {
+        return { workspaceId, seeded: false, agentCount: probe.workers };
     }
 
     await seedChannels(db, workspaceId);
     await seedRoster(db, workspaceId);
 
-    const agents = await listAgents(db, workspaceId);
-    return { workspaceId, seeded: true, agentCount: agents.length };
+    const after = await rosterProbe(db, workspaceId);
+    return { workspaceId, seeded: true, agentCount: after.workers };
 }
 
 /**
  * Everything a signed-in CHO needs before mission control can show them
  * anything. Returns null when there is no session or the workspace could not
  * be created; callers render their own "not configured" state from that.
+ *
+ * Memoized per request for the same reason findWorkspace is: several pages
+ * call it, and a page that also renders a component calling it should not
+ * provision twice.
  */
-export async function bootstrapDelphi(db: Db): Promise<Provisioned | null> {
+export const bootstrapDelphi = cache(async (db: Db): Promise<Provisioned | null> => {
     const workspaceId = await ensureWorkspace(db);
     if (!workspaceId) return null;
 
@@ -108,4 +157,4 @@ export async function bootstrapDelphi(db: Db): Promise<Provisioned | null> {
         console.error('[delphi] provisioning failed:', (err as Error).message);
         return { workspaceId, seeded: false, agentCount: 0 };
     }
-}
+});
