@@ -258,6 +258,8 @@ export type DelphiEventType =
     | 'task_started'
     | 'task_done'
     | 'task_failed'
+    /** Ran into something no retry fixes — the day's model quota, so far. */
+    | 'task_blocked'
     | 'handoff'
     | 'artifact_created'
     | 'approval_requested'

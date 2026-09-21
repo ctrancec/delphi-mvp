@@ -14,7 +14,7 @@
  */
 
 import { Type, type Schema } from '@google/genai';
-import { generateWithTools, SchemaValidationError } from '@/lib/llm/gemini';
+import { generateWithTools, ModelQuotaError, SchemaValidationError } from '@/lib/llm/gemini';
 import { toolsForChannels } from '@/lib/channels/registry';
 import { emitEvent, getSystemMode, listChannels, type Db } from './db';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
@@ -262,7 +262,15 @@ export type StepOutcome =
     | { status: 'done'; taskId: string; costUsd: number; artifactId: string | null }
     | { status: 'awaiting_approval'; taskId: string; approvalId: string }
     | { status: 'failed'; taskId: string; error: string }
-    | { status: 'halted'; reason: 'budget' | 'system_paused' | 'system_stopped' | 'upstream_failed' }
+    | {
+          status: 'halted';
+          reason:
+              | 'budget'
+              | 'system_paused'
+              | 'system_stopped'
+              | 'upstream_failed'
+              | 'model_quota';
+      }
     | { status: 'idle'; reason: 'no_pending_tasks' };
 
 /**
@@ -712,6 +720,38 @@ export async function runNextTask(
         return { status: 'done', taskId: task.id, costUsd: result.costUsd, artifactId: artifact?.id ?? null };
     } catch (err) {
         const message = (err as Error).message;
+
+        // Running out of the day's allowance is not this task's fault and not
+        // something a re-run fixes, so the task goes back in the queue rather
+        // than being marked failed and needing to be found and restarted by
+        // hand. The pipeline halts where it stands and picks up from here on a
+        // later tick, once the quota window has rolled over.
+        if (err instanceof ModelQuotaError) {
+            await db
+                .from('delphi_task_runs')
+                .update({
+                    status: 'failed',
+                    error: message,
+                    cost_usd: 0,
+                    finished_at: new Date().toISOString(),
+                })
+                .eq('id', run!.id);
+
+            await db.from('delphi_tasks').update({ status: 'pending' }).eq('id', task.id);
+            await emitEvent(db, {
+                workspaceId,
+                projectId,
+                taskId: task.id,
+                type: 'task_blocked',
+                actor: agent.name,
+                verb: 'is waiting on model quota',
+                object: message.slice(0, 200),
+                durationMs: Date.now() - startedAt,
+                payload: { reason: 'model_quota', models: err.models },
+            });
+
+            return { status: 'halted', reason: 'model_quota' };
+        }
 
         // A validation failure means the model ran, and a repair round ran after
         // it — that spent real money even though nothing usable came back.

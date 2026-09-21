@@ -108,6 +108,7 @@ const VERB_FALLBACK: Record<string, string> = {
     task_started: 'started a task',
     task_done: 'finished a task',
     task_failed: 'failed a task',
+    task_blocked: 'is blocked',
     handoff: 'handed off',
     artifact_created: 'produced an artifact',
     approval_requested: 'requested approval',
@@ -119,6 +120,8 @@ const VERB_FALLBACK: Record<string, string> = {
 
 const TONE: Record<string, string> = {
     task_failed: 'text-red-400',
+    // Amber, not red: blocked means waiting on something, not broken.
+    task_blocked: 'text-amber-400',
     project_failed: 'text-red-400',
     budget_halted: 'text-amber-400',
     approval_requested: 'text-amber-400',

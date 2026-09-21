@@ -30,9 +30,25 @@ export const DEFAULT_MODEL = 'gemini-3.8-flash';
  * runs departments unattended on a cron, a saturated primary must degrade to an
  * older Flash rather than fail the run. Cost accounting stays correct because
  * pricing is keyed on whichever model actually served.
+ *
+ * The free tier counts its daily allowance **per model**, so this chain is also
+ * how a day's work gets done at all: each entry carries its own bucket.
+ *
+ * `gemini-2.5-flash` used to sit at the end of this list and was the single
+ * worst thing in it. Google has retired it for accounts that did not already
+ * use it, so it answered `404` — which is not a capacity problem, so the chain
+ * aborted on it and reported "model not found" as the cause of a failure that
+ * was really the daily quota running out. Every entry below was verified to
+ * answer `generateContent` on this key.
  */
 export const MODEL_FALLBACKS: Record<string, string[]> = {
-    'gemini-3.8-flash': ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'],
+    'gemini-3.8-flash': [
+        'gemini-3.7-flash',
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-flash-lite',
+    ],
 };
 
 function fallbackChain(model: string): string[] {
@@ -66,6 +82,31 @@ export class GeminiNotConfiguredError extends Error {
             'No Gemini API key found. Set GOOGLE_GENERATIVE_AI_API_KEY (or GEMINI_API_KEY) in the environment.'
         );
         this.name = 'GeminiNotConfiguredError';
+    }
+}
+
+/**
+ * Every model Delphi can reach has spent its allowance for the day.
+ *
+ * Worth its own type because it is the one failure no retry, no fallback and
+ * no better prompt can fix, and because the message it replaces was actively
+ * misleading: the chain used to end on a model that answered 404, so a run
+ * that ran out of quota reported "model not found".
+ */
+export class ModelQuotaError extends Error {
+    readonly models: string[];
+
+    constructor(models: string[], cause?: unknown) {
+        super(
+            `Out of Gemini quota for today on every available model ` +
+                `(${models.join(', ')}). The free tier counts requests per model per day, ` +
+                `so the whole chain empties within a few hours of real work. ` +
+                `Enable billing on the Google AI Studio project to lift the limit, ` +
+                `or wait for the daily reset.`
+        );
+        this.name = 'ModelQuotaError';
+        this.models = models;
+        this.cause = cause;
     }
 }
 
@@ -104,16 +145,72 @@ export interface TextResult {
     costUsd: number;
 }
 
-/** Transient upstream conditions worth retrying, as opposed to our own bad request. */
-function isTransient(err: unknown): boolean {
+/**
+ * What kind of refusal this was, which decides whether to wait, move on, or stop.
+ *
+ * The distinction that matters most is between a spike and an allowance. Both
+ * arrive as `429 RESOURCE_EXHAUSTED`, and treating them alike is what turned a
+ * quota problem into a three-minute death march: four backoff attempts against
+ * each of five models, every one of them a request the API had already said it
+ * would refuse for the rest of the day, and every one of them spending more of
+ * the very thing that had run out.
+ *
+ * The SDK surfaces the raw JSON error body, so this matches on status codes and
+ * canonical status strings rather than prose that may be localised. Google puts
+ * the quota's identity in `details[].violations[].quotaId`, e.g.
+ * `GenerateRequestsPerDayPerProjectPerModel-FreeTier`.
+ */
+export type Refusal =
+    /** The day's allowance for this model is gone. Nothing to wait for. */
+    | 'quota'
+    /** Busy, throttled per-minute, or a network blip. Worth waiting for. */
+    | 'unavailable'
+    /** This key cannot call this model at all — but the others may be fine. */
+    | 'model_gone'
+    /** Our own bad request. It will fail identically everywhere. */
+    | 'fatal';
+
+export function classifyRefusal(err: unknown): Refusal {
     const msg = String((err as Error)?.message ?? err);
-    // The SDK surfaces the raw JSON error body, so match on status codes and
-    // the canonical status strings rather than on prose that may be localised.
-    return (
-        /\b(429|500|502|503|504)\b/.test(msg) ||
-        /UNAVAILABLE|RESOURCE_EXHAUSTED|INTERNAL|DEADLINE_EXCEEDED/i.test(msg) ||
+
+    if (/\b429\b|RESOURCE_EXHAUSTED/i.test(msg)) {
+        // Per-day is an allowance; per-minute is a speed limit, and waiting
+        // does clear that one.
+        return /PerDay|per[ _-]?day/i.test(msg) ? 'quota' : 'unavailable';
+    }
+
+    if (/\b404\b|NOT_FOUND/.test(msg)) return 'model_gone';
+
+    if (
+        /\b(500|502|503|504)\b/.test(msg) ||
+        /UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED/i.test(msg) ||
         /ECONNRESET|ETIMEDOUT|fetch failed/i.test(msg)
-    );
+    ) {
+        return 'unavailable';
+    }
+
+    return 'fatal';
+}
+
+/**
+ * Models known to be unusable, for the life of this process.
+ *
+ * One serverless invocation runs several tasks, and each was rediscovering the
+ * same exhausted model by calling it again — so the deeper the hole, the more
+ * requests were spent digging. Deliberately not persisted: the quota window
+ * rolls over, and a fresh process should find out for itself rather than
+ * inherit yesterday's verdict.
+ */
+const unusable = new Set<string>();
+
+/** What the runtime observed, so diagnostics can report it rather than guess. */
+export function exhaustedModels(): string[] {
+    return [...unusable];
+}
+
+/** Test seam. Nothing in the app forgets a refusal; a process restart does. */
+export function forgetExhaustedModels(): void {
+    unusable.clear();
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -132,7 +229,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
             return await fn();
         } catch (err) {
             lastError = err;
-            if (!isTransient(err) || i === attempts - 1) throw err;
+            if (classifyRefusal(err) !== 'unavailable' || i === attempts - 1) throw err;
             // 1s, 2s, 4s, plus up to 500ms jitter so parallel agents do not
             // retry in lockstep and re-create the spike.
             const delay = 1000 * 2 ** i + Math.random() * 500;
@@ -147,18 +244,21 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
 
 /**
  * Run `fn` against each model in the chain, moving on only when a model is
- * transiently unavailable. Returns the served model alongside the response so
+ * transiently unavailable or finished for the day. Returns the served model alongside the response so
  * the caller can price and record it accurately.
  */
-async function callWithFallback(
+export async function callWithFallback(
     model: string,
     fn: (m: string) => Promise<GenerateContentResponse>
 ): Promise<{ response: GenerateContentResponse; servedBy: string }> {
     const chain = fallbackChain(model);
+    // Skip what this process has already watched refuse. Re-asking a model
+    // that is out of allowance costs another request from the allowance.
+    const candidates = chain.filter((m) => !unusable.has(m));
     let lastError: unknown;
+    let sawQuota = false;
 
-    for (let i = 0; i < chain.length; i++) {
-        const candidate = chain[i];
+    for (const candidate of candidates) {
         try {
             const response = await withRetry(() => fn(candidate));
             if (candidate !== model) {
@@ -167,13 +267,34 @@ async function callWithFallback(
             return { response, servedBy: candidate };
         } catch (err) {
             lastError = err;
-            // A bad request is our fault and will fail identically on every
-            // model, so only capacity problems are worth walking the chain for.
-            if (!isTransient(err) || i === chain.length - 1) throw err;
-            console.warn(`[delphi] ${candidate} unavailable, falling back to ${chain[i + 1]}`);
+            const refusal = classifyRefusal(err);
+
+            // Our own bad request. It fails identically on every model, so
+            // walking the chain would just repeat the mistake five times.
+            if (refusal === 'fatal') throw err;
+
+            if (refusal === 'quota') {
+                sawQuota = true;
+                unusable.add(candidate);
+                console.warn(`[delphi] ${candidate} is out of quota for the day`);
+            } else if (refusal === 'model_gone') {
+                // Specific to this model, not to the request — the rest of the
+                // chain is still worth trying, and this one never will be again.
+                unusable.add(candidate);
+                console.warn(`[delphi] ${candidate} is not available to this key`);
+            } else {
+                console.warn(`[delphi] ${candidate} unavailable, trying the next model`);
+            }
         }
     }
-    throw lastError;
+
+    // Report what is actually wrong. Falling through used to surface whatever
+    // the last model in the chain happened to say, which is how a day's quota
+    // running out got reported as a missing model.
+    if (sawQuota || chain.every((m) => unusable.has(m))) {
+        throw new ModelQuotaError(chain, lastError);
+    }
+    throw lastError ?? new Error(`No Gemini model was reachable (tried ${chain.join(', ')}).`);
 }
 
 function readUsage(response: GenerateContentResponse): TokenUsage {
@@ -291,7 +412,16 @@ export async function generateStructured<T>(
 
         const second = await withRetry(() =>
             ai.models.generateContent({ model: servedBy, contents: repairPrompt, config })
-        );
+        ).catch((err) => {
+            // Deliberately stays on the model that answered first, so the usage
+            // this call adds is priced as that model. But if its allowance ran
+            // out between the two calls, say so rather than leaking a raw body.
+            if (classifyRefusal(err) === 'quota') {
+                unusable.add(servedBy);
+                throw new ModelQuotaError([servedBy], err);
+            }
+            throw err;
+        });
         addUsage(readUsage(second));
         const secondRaw = second.text ?? '';
 

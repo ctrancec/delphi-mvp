@@ -12,6 +12,7 @@
         "delphi:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
         "delphi:channels": "tsx --env-file-if-exists=.env.local scripts/check_channels.ts",
         "delphi:session": "tsx scripts/check_session_cookie.ts",
+        "delphi:failover": "tsx scripts/check_model_failover.ts",
         "delphi:feeds": "tsx --env-file-if-exists=.env.local scripts/check_feeds.ts"
     },
     "dependencies": {

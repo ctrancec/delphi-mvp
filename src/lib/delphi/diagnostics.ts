@@ -13,7 +13,7 @@
  */
 
 import { channelHealth, isChannelConfigured } from '@/lib/channels/registry';
-import { MODEL_FALLBACKS } from '@/lib/llm/gemini';
+import { exhaustedModels, MODEL_FALLBACKS } from '@/lib/llm/gemini';
 import { readSupabaseKey, readSupabaseUrl } from '@/lib/supabase/env';
 import type { ChannelKind } from './types';
 import type { Db } from './db';
@@ -278,15 +278,90 @@ async function databaseChecks(db: Db | null, workspaceId: string | null): Promis
 // Models
 // ---------------------------------------------------------------------------
 
-function modelChecks(): Check[] {
-    return Object.entries(MODEL_FALLBACKS).map(([model, chain]) => ({
-        name: model,
-        level: 'ok' as Level,
-        detail:
-            chain.length > 0
-                ? `Falls back through ${chain.join(' → ')} when saturated.`
-                : 'No fallback configured; a 503 fails the task.',
-    }));
+/** Roughly how long ago, in words a person reads rather than parses. */
+function ago(iso: string): string {
+    const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+    const hours = Math.round(mins / 60);
+    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+}
+
+/**
+ * What the models are actually doing, not what the chain is configured to do.
+ *
+ * This used to report a flat "ok" describing the fallback list, which meant
+ * the health endpoint said agents could think on a day when every model in the
+ * chain had spent its allowance. A check that cannot fail is not a check.
+ *
+ * Probing the models directly would be the obvious fix and is the wrong one:
+ * the free tier counts requests per model per day, so a diagnostics page that
+ * asked each model whether it was out of quota would be spending the very
+ * thing it reports on. This reads what the runtime already observed instead —
+ * free, and evidence of real work rather than of a synthetic probe.
+ */
+async function modelChecks(db: Db | null, workspaceId: string | null): Promise<Check[]> {
+    // This process's own observations, plus what the database remembers: the
+    // health endpoint is usually a cold invocation, where the in-process set is
+    // empty and the event log is the only witness.
+    const spent = new Set(exhaustedModels());
+    let blockedAt: string | null = null;
+
+    if (db && workspaceId) {
+        const { data } = await db
+            .from('delphi_events')
+            .select('payload, created_at')
+            .eq('workspace_id', workspaceId)
+            .eq('type', 'task_blocked')
+            .order('id', { ascending: false })
+            .limit(1);
+
+        const row = data?.[0];
+        const payload = row?.payload as { reason?: string; models?: string[] } | undefined;
+        if (payload?.reason === 'model_quota') {
+            blockedAt = row?.created_at as string;
+            for (const m of payload.models ?? []) spent.add(m);
+        }
+    }
+
+    // A quota window rolls over daily, so an old sighting is history rather
+    // than a fault. The level decays on its own instead of needing clearing.
+    const minutesSince = blockedAt
+        ? (Date.now() - new Date(blockedAt).getTime()) / 60000
+        : Number.POSITIVE_INFINITY;
+
+    return Object.entries(MODEL_FALLBACKS).map(([model, chain]) => {
+        const all = [model, ...chain];
+        const out = all.filter((m) => spent.has(m));
+
+        if (out.length === all.length && minutesSince < 60) {
+            return {
+                name: model,
+                level: 'error' as Level,
+                detail: `Out of quota on all ${all.length} models (last seen ${ago(blockedAt!)}). Agents cannot think.`,
+                remedy:
+                    'The free tier counts requests per model per day. Enable billing on the Google AI Studio project to lift the limit, or wait for the daily reset — queued steps resume on their own.',
+            };
+        }
+
+        if (out.length > 0 && minutesSince < 24 * 60) {
+            return {
+                name: model,
+                level: 'degraded' as Level,
+                detail: `${out.length} of ${all.length} models were out of quota ${ago(blockedAt!)}: ${out.join(', ')}.`,
+                remedy:
+                    'Work still gets through on the rest of the chain, more slowly and on smaller models. Enable billing on the Gemini key to stop it happening.',
+            };
+        }
+
+        return {
+            name: model,
+            level: 'ok' as Level,
+            detail:
+                chain.length > 0
+                    ? `Falls back through ${chain.join(' → ')} when saturated.`
+                    : 'No fallback configured; a 503 fails the task.',
+        };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +375,7 @@ export async function runDiagnostics(
         channelChecks(db, workspaceId),
         databaseChecks(db, workspaceId),
     ]);
-    const models = modelChecks();
+    const models = await modelChecks(db, workspaceId);
 
     const all = [...environment, ...channels, ...database, ...models];
 
