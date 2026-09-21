@@ -9,16 +9,27 @@
  * Every step is idempotent and the whole thing short-circuits on one cheap
  * query once provisioned, so calling it on each page load costs a single
  * select in the steady state.
+ *
+ * ## Why nothing here reads back what it just wrote
+ *
+ * React memoizes `fetch` by URL within a single render, and a PostgREST query
+ * *is* a `fetch`. So a write followed by **the same** read hands back the
+ * answer from before the write — no error, no warning, just the earlier body
+ * again.
+ *
+ * That is not theoretical. This module used to create the workspace and then
+ * re-read it to learn its id, and that re-read was byte-identical to the read
+ * that had just come back empty. So it came back empty too, provisioning was
+ * skipped, and a brand new account's first screen said the roster could not be
+ * provisioned. Everything downstream looked fine because everything downstream
+ * *was* fine — it simply never ran.
+ *
+ * So: use what the write returned. Do not read it back in the same render.
  */
 
 import { cache } from 'react';
-import {
-    DELPHI_SLUG,
-    ensureDelphiAgent,
-    seedChannels,
-    seedRoster,
-    type Db,
-} from './db';
+import { ALL_SEED_AGENTS } from './roster';
+import { DELPHI_SLUG, ensureDelphiAgent, seedChannels, seedRoster, type Db } from './db';
 
 export interface Provisioned {
     workspaceId: string;
@@ -34,11 +45,16 @@ export interface Provisioned {
  * even if a duplicate ever gets through.
  */
 async function readWorkspace(db: Db): Promise<string | null> {
-    const { data } = await db
+    const { data, error } = await db
         .from('workspaces')
         .select('id')
         .order('created_at', { ascending: true })
         .limit(1);
+
+    // Said out loud rather than folded into the null. "No workspace" and
+    // "could not ask" lead somewhere completely different, and a silent null
+    // here is what hid the provisioning bug described above.
+    if (error) console.error('[delphi] could not read the workspace:', error.message);
 
     return (data?.[0]?.id as string) ?? null;
 }
@@ -46,8 +62,8 @@ async function readWorkspace(db: Db): Promise<string | null> {
 /**
  * Memoized per request, because a layout and the page inside it both want it
  * and neither should wait on its own copy of the same select. `cache()` is
- * keyed on the client instance, which is itself now one per request — so this
- * is a single query however many callers ask.
+ * keyed on the client instance, which is itself one per request — so this is a
+ * single query however many callers ask.
  */
 export const findWorkspace = cache(readWorkspace);
 
@@ -62,17 +78,12 @@ export const findWorkspace = cache(readWorkspace);
  * when both created, both saw an empty table and both inserted — which is
  * exactly what happened on the first run: two workspaces 0.4ms apart, one of
  * them empty. Read-only callers use findWorkspace().
- *
- * The first read goes through the memoized lookup, so on an already-provisioned
- * workspace — every load after the first — this shares the layout's query
- * rather than repeating it. The re-read after creating deliberately does not:
- * it has to see the row that was just inserted.
  */
 export async function ensureWorkspace(db: Db): Promise<string | null> {
     const existing = await findWorkspace(db);
     if (existing) return existing;
 
-    const { error } = await db.rpc('bootstrap_workspace', {
+    const { data, error } = await db.rpc('bootstrap_workspace', {
         workspace_name: 'Delphi',
     });
     if (error) {
@@ -80,35 +91,41 @@ export async function ensureWorkspace(db: Db): Promise<string | null> {
         return null;
     }
 
-    // Re-read rather than trusting the returned id: if a concurrent request
-    // also inserted, this converges on the oldest, which is what every other
-    // caller will pick too.
-    return readWorkspace(db);
+    // The function returns the id, and it reuses an existing workspace of the
+    // same name rather than piling up copies — so this is both the answer and
+    // a convergent one. Reading it back instead returns the memoized empty
+    // list from a moment ago; see the note at the top of this file.
+    return (data as string | null) ?? null;
 }
 
 /**
  * Is this workspace already staffed?
  *
  * One select answers both questions the provisioner asks — whether the CEO has
- * a row and whether anyone was hired — where it used to ask them separately.
+ * a row, and whether anyone was hired — where it used to ask them separately.
  * On an already-provisioned workspace, which is every load after the first,
  * that is the entire cost of this module.
  */
 async function rosterProbe(db: Db, workspaceId: string) {
-    const { data } = await db
+    const { data, error } = await db
         .from('delphi_agents')
         .select('slug, is_board')
         .eq('workspace_id', workspaceId)
         .is('archived_at', null);
 
+    if (error) console.error('[delphi] could not read the roster:', error.message);
+
     const rows = data ?? [];
     return {
         hasCeo: rows.some((r) => r.slug === DELPHI_SLUG),
-        // The count the callers mean by "roster": workers, not the board and
-        // not the CEO, matching listAgents()'s defaults.
+        // The count callers mean by "roster": workers, not the board and not
+        // the CEO, matching listAgents()'s defaults.
         workers: rows.filter((r) => !r.is_board && r.slug !== DELPHI_SLUG).length,
     };
 }
+
+/** How many workers a freshly seeded roster has. */
+const SEED_WORKER_COUNT = ALL_SEED_AGENTS.filter((a) => !a.board).length;
 
 /**
  * Bring a workspace up to a usable state: channels, then roster.
@@ -135,10 +152,12 @@ export async function provisionWorkspace(db: Db, workspaceId: string): Promise<P
     }
 
     await seedChannels(db, workspaceId);
-    await seedRoster(db, workspaceId);
+    const { inserted } = await seedRoster(db, workspaceId);
 
-    const after = await rosterProbe(db, workspaceId);
-    return { workspaceId, seeded: true, agentCount: after.workers };
+    // Counted from what was seeded rather than read back: the roster is now
+    // exactly the seed set, and re-probing would return the empty list from
+    // the probe above.
+    return { workspaceId, seeded: inserted > 0, agentCount: SEED_WORKER_COUNT };
 }
 
 /**
