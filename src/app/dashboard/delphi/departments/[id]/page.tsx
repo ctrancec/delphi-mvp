@@ -1,11 +1,11 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, Wallet, Clock, ShieldCheck } from 'lucide-react'
+import { Wallet, Clock, ShieldCheck } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
 import { HiringPanel, type HiredAgent } from '@/components/delphi/hiring-panel'
+import { PipelineRunner } from '@/components/delphi/pipeline-runner'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,13 +72,6 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
 
     return (
         <div className="space-y-6 max-w-4xl">
-            <Link
-                href="/dashboard/delphi"
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-white"
-            >
-                <ArrowLeft className="h-4 w-4" /> Delphi
-            </Link>
-
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">{dept.name}</h1>
@@ -108,6 +101,10 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
             </div>
 
             <HiringPanel departmentId={id} team={team} status={dept.status} approved={approved} />
+
+            {/* Running means work is outstanding; the runner keeps poking the
+                engine so the pipeline advances while the CHO watches. */}
+            <PipelineRunner active={project?.status === 'running'} />
 
             {team.length > 0 && (
                 <Card className="bg-black/20 border-white/5">
