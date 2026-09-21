@@ -72,10 +72,15 @@ async function main() {
 
     // A monitor with no wire service and no language diversity is not a
     // monitor, so those are the two conditions worth failing on.
-    if (wires === 0 || languages.size < 3) {
+    const tooThin = wires === 0 || languages.size < 3;
+    if (tooThin) {
         console.log(`\n${RED}Coverage is too thin to corroborate anything.${RESET}`);
-        process.exit(1);
     }
+
+    // Explicit, because undici holds keep-alive sockets open after the last
+    // response and Node will not exit while they are alive — the run would
+    // otherwise print its summary and then appear to hang.
+    process.exit(tooThin ? 1 : 0);
 }
 
 main();
