@@ -83,7 +83,11 @@ export default async function DelphiHqPage() {
             supabase.from('delphi_approvals').select('id').eq('status', 'pending'),
         ])
 
-    const depts = departments ?? []
+    const all = departments ?? []
+    // Archived departments stay reachable but out of the way — otherwise
+    // archiving one changes nothing you can see, which is not archiving.
+    const depts = all.filter((d) => d.status !== 'archived')
+    const archived = all.filter((d) => d.status === 'archived')
     const workerCount = (agents ?? []).filter((a) => !a.is_board).length
     const boardCount = (agents ?? []).filter((a) => a.is_board).length
     const pendingApprovals = approvals?.length ?? 0
@@ -152,6 +156,30 @@ export default async function DelphiHqPage() {
                         </Link>
                     ))}
                 </div>
+            )}
+
+            {archived.length > 0 && (
+                <details className="group">
+                    <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-zinc-200">
+                        Archived ({archived.length}) — kept, not running
+                    </summary>
+                    <div className="mt-3 grid gap-2 inner:grid-cols-2">
+                        {archived.map((d) => (
+                            <Link key={d.id} href={`/dashboard/delphi/departments/${d.id}`}>
+                                <Card className="border-white/5 bg-black/20 transition-colors hover:border-white/15">
+                                    <CardContent className="flex items-center gap-3 py-3">
+                                        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                                            {d.name}
+                                        </span>
+                                        <span className="shrink-0 text-xs text-muted-foreground/60">
+                                            {formatUsd(Number(d.spent_usd ?? 0))} spent
+                                        </span>
+                                    </CardContent>
+                                </Card>
+                            </Link>
+                        ))}
+                    </div>
+                </details>
             )}
 
             <Card className="bg-black/40 border-white/10">

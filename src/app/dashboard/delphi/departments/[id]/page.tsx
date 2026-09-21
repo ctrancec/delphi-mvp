@@ -7,6 +7,8 @@ import { formatUsd } from '@/lib/llm/cost'
 import { HiringPanel, type HiredAgent } from '@/components/delphi/hiring-panel'
 import { PipelineRunner } from '@/components/delphi/pipeline-runner'
 import { GradeCard, type GradeRow } from '@/components/delphi/grade-badge'
+import { TaskEditor } from '@/components/delphi/task-editor'
+import { DepartmentSettings } from '@/components/delphi/department-settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -125,6 +127,46 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
             {/* Running means work is outstanding; the runner keeps poking the
                 engine so the pipeline advances while the CHO watches. */}
             <PipelineRunner active={project?.status === 'running'} />
+
+            {(tasks ?? []).length > 0 && (
+                <Card className="border-white/10 bg-black/40">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-sm">The pipeline</CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                            Each step&rsquo;s objective is the instruction its agent actually receives.
+                            Edit one to change what gets done — &ldquo;also check the bond market&rdquo;,
+                            &ldquo;cite the primary source rather than a summary&rdquo;.
+                        </p>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        {(tasks ?? []).map((t) => {
+                            const member = team.find((m) => m.seq === (t.seq as number))
+                            return (
+                                <TaskEditor
+                                    key={t.id as string}
+                                    task={{
+                                        id: t.id as string,
+                                        seq: t.seq as number,
+                                        title: t.title as string,
+                                        objective: t.objective as string,
+                                        status: t.status as string,
+                                        agentName: member?.name ?? null,
+                                    }}
+                                />
+                            )
+                        })}
+                    </CardContent>
+                </Card>
+            )}
+
+            <DepartmentSettings
+                departmentId={id}
+                name={dept.name as string}
+                charter={dept.charter as string}
+                budgetUsd={Number(dept.budget_usd ?? 0)}
+                cadenceCron={(dept.cadence_cron as string) ?? null}
+                archived={dept.status === 'archived'}
+            />
 
             {(grades ?? []).length > 0 && (
                 <Card className="border-white/10 bg-black/40">
