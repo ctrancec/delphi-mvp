@@ -8,8 +8,8 @@ import { JuniorProvider } from "@/lib/contexts/junior-context";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Delphi Finance | The Oracle of Wealth",
-  description: "Advanced financial intelligence for the modern era.",
+  title: "Delphi",
+  description: "Your AI CEO. Stand up a department, and Delphi hires the agents to run it.",
   viewport: "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no",
   appleWebApp: {
     capable: true,

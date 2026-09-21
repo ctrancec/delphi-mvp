@@ -1,8 +1,8 @@
 {
-    "name": "Delphi Finance",
+    "name": "Delphi",
     "short_name": "Delphi",
-    "description": "The Oracle of Wealth - Unified Finance Dashboard",
-    "start_url": "/dashboard",
+    "description": "Your AI CEO. Departments, agents and approvals in one mission control.",
+    "start_url": "/dashboard/delphi",
     "display": "standalone",
     "background_color": "#09090b",
     "theme_color": "#09090b",
