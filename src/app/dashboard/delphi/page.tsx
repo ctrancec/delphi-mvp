@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
 import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-line'
+import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,16 +40,15 @@ function Empty({ hasRoster }: { hasRoster: boolean }) {
                         standing, like a morning brief on global events and market moves.
                     </p>
                 </div>
-                {hasRoster ? (
-                    <Button asChild>
-                        <Link href="/dashboard/delphi/departments/new">
-                            <Plus className="h-4 w-4 mr-2" /> Create a department
-                        </Link>
-                    </Button>
-                ) : (
-                    <p className="text-sm text-amber-400 flex items-center justify-center gap-2">
-                        <AlertTriangle className="h-4 w-4" />
-                        The roster is empty — run <code className="font-mono">npm run delphi:seed</code> first.
+                <Button asChild>
+                    <Link href="/dashboard/delphi/departments/new">
+                        <Plus className="h-4 w-4 mr-2" /> Create a department
+                    </Link>
+                </Button>
+                {!hasRoster && (
+                    <p className="text-xs text-amber-400 flex items-center justify-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        The roster could not be provisioned — Delphi will retry when you create this.
                     </p>
                 )}
             </CardContent>
@@ -69,6 +69,11 @@ export default async function DelphiHqPage() {
             </Card>
         )
     }
+
+    // First view of a new account: create the workspace, connect the channels
+    // and seed the roster. Idempotent, and short-circuits on one query once
+    // done, so this is a no-op on every subsequent load.
+    await bootstrapDelphi(supabase)
 
     // RLS scopes all of this to the signed-in CHO's workspaces.
     const [{ data: departments }, { data: agents }, { data: events }, { data: approvals }] =
@@ -95,13 +100,11 @@ export default async function DelphiHqPage() {
                         Your AI CEO. Departments are standing teams; Delphi hires into them and reports to you.
                     </p>
                 </div>
-                {depts.length > 0 && (
-                    <Button asChild>
-                        <Link href="/dashboard/delphi/departments/new">
-                            <Plus className="h-4 w-4 mr-2" /> New department
-                        </Link>
-                    </Button>
-                )}
+                <Button asChild>
+                    <Link href="/dashboard/delphi/departments/new">
+                        <Plus className="h-4 w-4 mr-2" /> New department
+                    </Link>
+                </Button>
             </div>
 
             <nav className="flex flex-wrap gap-1.5">

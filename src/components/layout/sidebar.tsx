@@ -37,7 +37,7 @@ export function Sidebar() {
 
             <div className="flex-1 overflow-y-auto py-2 px-3 space-y-1">
                 <div className="text-xs font-semibold text-muted-foreground px-3 mb-2 uppercase tracking-wide">
-                    {activeWorkspace.name} ({activeWorkspace.tier})
+                    {activeWorkspace.name}
                 </div>
 
                 {/* Delphi is the core surface, not a workspace-gated tool. */}
@@ -96,11 +96,9 @@ export function Sidebar() {
 }
 
 function ToolList({ tools, pathname, role }: { tools: ToolId[], pathname: string, role: string }) {
-    if (!tools || tools.length === 0) return (
-        <div className="px-3 py-4 text-sm text-muted-foreground italic">
-            No tools enabled. Check settings.
-        </div>
-    )
+    // Delphi and Roster sit above this list and are always present, so an empty
+    // registry is the ordinary state for a Delphi workspace, not a misconfiguration.
+    if (!tools || tools.length === 0) return null
 
     const sortedAndFilteredTools = tools
         .map(id => TOOL_REGISTRY[id])

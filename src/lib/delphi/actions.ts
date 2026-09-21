@@ -14,6 +14,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { proposePlan } from './delphi';
+import { ensureWorkspace, provisionWorkspace } from './bootstrap';
 import {
     availableChannelKinds,
     emitEvent,
@@ -32,32 +33,6 @@ export interface ActionResult<T = void> {
     data?: T;
 }
 
-/**
- * Resolve the caller's active workspace, creating one on first use.
- *
- * bootstrap_workspace() depends on auth.uid(), which is null in the Supabase
- * SQL editor — so it cannot usefully be run by hand there. The app is the only
- * place with a real session, so first use is where the workspace gets made.
- */
-async function resolveWorkspace(db: Db): Promise<string | null> {
-    const { data } = await db
-        .from('workspaces')
-        .select('id')
-        .order('created_at', { ascending: true })
-        .limit(1);
-
-    if (data?.[0]?.id) return data[0].id;
-
-    const { data: created, error } = await db.rpc('bootstrap_workspace', {
-        workspace_name: 'Delphi',
-    });
-    if (error) {
-        console.error('[delphi] bootstrap_workspace failed:', error.message);
-        return null;
-    }
-    return (created as string) ?? null;
-}
-
 async function getDb(): Promise<{ db: Db; workspaceId: string } | { error: string }> {
     const db = await createClient();
     if (!db) return { error: 'Supabase is not configured. Check your environment variables.' };
@@ -67,11 +42,9 @@ async function getDb(): Promise<{ db: Db; workspaceId: string } | { error: strin
     } = await db.auth.getUser();
     if (!user) return { error: 'You are not signed in.' };
 
-    const workspaceId = await resolveWorkspace(db);
+    const workspaceId = await ensureWorkspace(db);
     if (!workspaceId) {
-        return {
-            error: 'No workspace found. Run  select public.bootstrap_workspace(\'Delphi\');  in the SQL editor.',
-        };
+        return { error: 'Could not create your workspace. Check the database connection.' };
     }
 
     return { db, workspaceId };
@@ -163,19 +136,11 @@ export async function proposeHiringAction(
     });
 
     try {
-        // Channels first: seedRoster resolves each agent's requiredChannels to
-        // ids at insert time, so seeding in the other order leaves every agent
-        // bound to nothing and the runtime hands out no tools.
-        const { seedChannels, seedRoster } = await import('./db');
-        await seedChannels(db, workspaceId);
+        // A fresh workspace has no roster, and an empty roster is a dead end the
+        // CHO cannot resolve from the UI. Provision rather than failing.
+        await provisionWorkspace(db, workspaceId);
 
-        let agents = await listAgents(db, workspaceId);
-        if (agents.length === 0) {
-            // A fresh workspace has no roster, and an empty roster is a dead end
-            // the CHO cannot resolve from the UI. Seed it rather than failing.
-            await seedRoster(db, workspaceId);
-            agents = await listAgents(db, workspaceId);
-        }
+        const agents = await listAgents(db, workspaceId);
         if (agents.length === 0) {
             return { ok: false, error: 'The roster could not be seeded. Check the database connection.' };
         }

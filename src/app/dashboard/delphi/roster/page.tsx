@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, ShieldCheck, UserPlus } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
+import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
 
 export const dynamic = 'force-dynamic'
 
@@ -90,6 +91,8 @@ export default async function RosterPage() {
         return <p className="text-muted-foreground">Supabase is not configured.</p>
     }
 
+    await bootstrapDelphi(supabase)
+
     const [{ data: agents }, { data: stats }] = await Promise.all([
         supabase.from('delphi_agents').select('*').is('archived_at', null).order('slug'),
         supabase.from('delphi_agent_stats').select('*'),
@@ -119,8 +122,7 @@ export default async function RosterPage() {
             {all.length === 0 ? (
                 <Card className="bg-black/40 border-white/10 border-dashed">
                     <CardContent className="py-12 text-center text-sm text-muted-foreground">
-                        The roster is empty. Run <code className="font-mono">npm run delphi:seed</code> to
-                        populate it.
+                        The roster could not be provisioned. Open Delphi and it will try again.
                     </CardContent>
                 </Card>
             ) : (
