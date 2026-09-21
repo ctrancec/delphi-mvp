@@ -25,7 +25,17 @@ export function DashboardChrome({
 }) {
     const pathname = usePathname();
 
-    if (!pathname.startsWith('/dashboard/delphi')) {
+    // Account settings is Delphi's, not the old app's — the top bar links to it
+    // from mission control, and landing in the finance sidebar to change your
+    // password is a different application answering the door.
+    // Matched exactly rather than by prefix: the old app has a /dashboard/accounts,
+    // and a prefix test would quietly swallow it.
+    const isDelphi =
+        pathname.startsWith('/dashboard/delphi') ||
+        pathname === '/dashboard/account' ||
+        pathname.startsWith('/dashboard/account/');
+
+    if (!isDelphi) {
         return <>{legacy}</>;
     }
 

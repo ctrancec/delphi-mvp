@@ -4,6 +4,9 @@
     "devCommand": "npm run dev",
     "installCommand": "npm install",
     "outputDirectory": ".next",
+    "regions": [
+        "pdx1"
+    ],
     "crons": [
         {
             "path": "/api/delphi/run",
