@@ -7,7 +7,7 @@
  */
 
 import Link from 'next/link';
-import { ArrowLeft, FolderOpen, Inbox } from 'lucide-react';
+import { FolderOpen, Inbox } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent } from '@/components/ui/card';
 import { OutputCard, KIND_META } from '@/components/delphi/output-card';
@@ -126,13 +126,6 @@ export default async function OutputsPage({
 
     return (
         <div className="space-y-6">
-            <Link
-                href="/dashboard/delphi"
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-white"
-            >
-                <ArrowLeft className="h-4 w-4" /> Delphi
-            </Link>
-
             <div>
                 <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                     <FolderOpen className="h-6 w-6" /> Outputs
@@ -194,7 +187,7 @@ export default async function OutputsPage({
                 <Empty filtered={isFiltered && all.length > 0} />
             ) : (
                 <>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
                         {visible.map((r) => (
                             <OutputCard key={r.artifact.id} record={r} />
                         ))}

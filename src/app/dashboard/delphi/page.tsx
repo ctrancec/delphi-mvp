@@ -7,7 +7,6 @@ import {
     Activity,
     AlertTriangle,
     Building2,
-    FolderOpen,
     Plus,
     ShieldCheck,
     Users,
@@ -94,36 +93,17 @@ export default async function DelphiHqPage() {
     return (
         <div className="space-y-6">
             <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">Delphi</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        Your AI CEO. Departments are standing teams; Delphi hires into them and reports to you.
-                    </p>
-                </div>
-                <Button asChild>
+                <p className="text-sm text-muted-foreground">
+                    Your AI CEO. Departments are standing teams; Delphi hires into them and reports to you.
+                </p>
+                <Button asChild className="shrink-0">
                     <Link href="/dashboard/delphi/departments/new">
-                        <Plus className="h-4 w-4 mr-2" /> New department
+                        <Plus className="h-4 w-4 mr-2" /> <span className="hidden inner:inline">New department</span><span className="inner:hidden">New</span>
                     </Link>
                 </Button>
             </div>
 
-            <nav className="flex flex-wrap gap-1.5">
-                {[
-                    { href: '/dashboard/delphi/outputs', label: 'Outputs', icon: FolderOpen },
-                    { href: '/dashboard/delphi/roster', label: 'Roster', icon: Users },
-                ].map(({ href, label, icon: Icon }) => (
-                    <Link
-                        key={href}
-                        href={href}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-white/25 hover:text-zinc-200"
-                    >
-                        <Icon className="h-3 w-3" />
-                        {label}
-                    </Link>
-                ))}
-            </nav>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 desk:grid-cols-4 desk:gap-4">
                 <Stat icon={<Building2 className="h-4 w-4" />} label="Departments" value={String(depts.length)} />
                 <Stat
                     icon={<Users className="h-4 w-4" />}
@@ -149,7 +129,7 @@ export default async function DelphiHqPage() {
             {depts.length === 0 ? (
                 <Empty hasRoster={workerCount > 0} />
             ) : (
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-3 inner:grid-cols-2 desk:gap-4">
                     {depts.map((d) => (
                         <Link key={d.id} href={`/dashboard/delphi/departments/${d.id}`}>
                             <Card className="bg-black/40 border-white/10 hover:border-white/25 transition-colors h-full">

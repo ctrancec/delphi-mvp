@@ -21,29 +21,49 @@ export interface Provisioned {
 }
 
 /**
- * The caller's workspace, created on first use.
+ * The caller's workspace, or null. Never creates one.
  *
- * `bootstrap_workspace()` depends on `auth.uid()`, which is null in the
- * Supabase SQL editor — so it cannot usefully be run by hand there. The app is
- * the only place with a real session.
+ * Always the oldest, so every caller agrees on which workspace is "the" one
+ * even if a duplicate ever gets through.
  */
-export async function ensureWorkspace(db: Db): Promise<string | null> {
+export async function findWorkspace(db: Db): Promise<string | null> {
     const { data } = await db
         .from('workspaces')
         .select('id')
         .order('created_at', { ascending: true })
         .limit(1);
 
-    if (data?.[0]?.id) return data[0].id as string;
+    return (data?.[0]?.id as string) ?? null;
+}
 
-    const { data: created, error } = await db.rpc('bootstrap_workspace', {
+/**
+ * The caller's workspace, created on first use.
+ *
+ * `bootstrap_workspace()` depends on `auth.uid()`, which is null in the
+ * Supabase SQL editor — so it cannot usefully be run by hand there. The app is
+ * the only place with a real session.
+ *
+ * Only one place may call this. A layout and its page render concurrently, so
+ * when both created, both saw an empty table and both inserted — which is
+ * exactly what happened on the first run: two workspaces 0.4ms apart, one of
+ * them empty. Read-only callers use findWorkspace().
+ */
+export async function ensureWorkspace(db: Db): Promise<string | null> {
+    const existing = await findWorkspace(db);
+    if (existing) return existing;
+
+    const { error } = await db.rpc('bootstrap_workspace', {
         workspace_name: 'Delphi',
     });
     if (error) {
         console.error('[delphi] bootstrap_workspace failed:', error.message);
         return null;
     }
-    return (created as string) ?? null;
+
+    // Re-read rather than trusting the returned id: if a concurrent request
+    // also inserted, this converges on the oldest, which is what every other
+    // caller will pick too.
+    return findWorkspace(db);
 }
 
 /**

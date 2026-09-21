@@ -1,8 +1,7 @@
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, ShieldCheck, UserPlus } from 'lucide-react'
+import { ShieldCheck, UserPlus } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
 
@@ -105,13 +104,6 @@ export default async function RosterPage() {
 
     return (
         <div className="space-y-6">
-            <Link
-                href="/dashboard/delphi"
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-white"
-            >
-                <ArrowLeft className="h-4 w-4" /> Delphi
-            </Link>
-
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Roster</h1>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -131,7 +123,7 @@ export default async function RosterPage() {
                         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                             Specialists ({workers.length})
                         </h2>
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
                             {workers.map((a) => (
                                 <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} />
                             ))}
@@ -146,7 +138,7 @@ export default async function RosterPage() {
                             <p className="text-xs text-muted-foreground -mt-1">
                                 Attached to every department. They review and advise; only you approve.
                             </p>
-                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                            <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
                                 {board.map((a) => (
                                     <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} />
                                 ))}

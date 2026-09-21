@@ -26,6 +26,7 @@ import {
 } from './db';
 import { hiringScore, shortlistCandidates } from './delphi';
 import type { CostTier } from './types';
+import type { SystemMode } from './db';
 
 export interface ActionResult<T = void> {
     ok: boolean;
@@ -319,6 +320,45 @@ export async function seedRosterAction(): Promise<ActionResult<{ inserted: numbe
         const { inserted } = await seedRoster(db, workspaceId);
         revalidatePath('/dashboard/delphi/roster');
         return { ok: true, data: { inserted } };
+    } catch (err) {
+        return { ok: false, error: (err as Error).message };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The master switch
+// ---------------------------------------------------------------------------
+
+/**
+ * Turn the whole organisation on or off.
+ *
+ * The switch lives in the database rather than in any client, so flipping it
+ * on the phone stops the engine everywhere — the runtime checks it before
+ * every task, and departments keep to their cadence with every app closed.
+ */
+export async function setSystemModeAction(
+    mode: SystemMode,
+    reason?: string
+): Promise<ActionResult<{ mode: SystemMode }>> {
+    const ctx = await getDb();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const { db, workspaceId } = ctx;
+
+    try {
+        const { setSystemMode } = await import('./db');
+        await setSystemMode(db, workspaceId, mode, reason);
+
+        await emitEvent(db, {
+            workspaceId,
+            type: 'system_mode_changed',
+            actor: 'CHO',
+            verb: mode === 'running' ? 'started the system' : `set the system to ${mode}`,
+            object: reason,
+        });
+
+        // Every Delphi surface shows the switch, so none of them may go stale.
+        revalidatePath('/dashboard/delphi', 'layout');
+        return { ok: true, data: { mode } };
     } catch (err) {
         return { ok: false, error: (err as Error).message };
     }

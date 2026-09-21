@@ -25,6 +25,36 @@
   /* Center containers by default */
   --container-center: true;
   --container-padding: 2rem;
+
+  /*
+   * Surface classes, not device widths.
+   *
+   * Reference device is a Galaxy Z Fold 8, whose two panels are genuinely
+   * different shapes rather than two sizes of the same shape. The cover panel
+   * is 1248x1972 physical, which at its device pixel ratio lands near 416 CSS
+   * px — unusually *wide* for a folded phone, so cover layouts get real
+   * horizontal room and should go two-up rather than stacking everything.
+   * The inner panel is 1848x2448, about 616 CSS px portrait, and behaves like
+   * a small tablet in landscape.
+   */
+  --breakpoint-cover: 400px;
+  --breakpoint-inner: 600px;
+  --breakpoint-desk: 1100px;
+}
+
+/*
+ * How much room anything fixed to the bottom must leave for the tab bar.
+ * Only the cover panel shows one — at `inner` and up the rail takes over, so
+ * this falls back to zero and overlays sit flush again.
+ */
+:root {
+  --tabbar-height: 58px;
+}
+
+@media (min-width: 600px) {
+  :root {
+    --tabbar-height: 0px;
+  }
 }
 
 @layer base {
