@@ -5,7 +5,9 @@ import { usePathname, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
     Settings,
-    LogOut
+    LogOut,
+    Bot,
+    Users
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useWorkspace } from '@/lib/contexts/workspace-context'
@@ -37,6 +39,34 @@ export function Sidebar() {
                 <div className="text-xs font-semibold text-muted-foreground px-3 mb-2 uppercase tracking-wide">
                     {activeWorkspace.name} ({activeWorkspace.tier})
                 </div>
+
+                {/* Delphi is the core surface, not a workspace-gated tool. */}
+                <Link
+                    href="/dashboard/delphi"
+                    className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                        pathname === '/dashboard/delphi' || (pathname.startsWith('/dashboard/delphi/') && !pathname.startsWith('/dashboard/delphi/roster'))
+                            ? "bg-white/10 text-white"
+                            : "hover:bg-white/5 text-muted-foreground hover:text-white"
+                    )}
+                >
+                    <Bot className="h-4 w-4" />
+                    Delphi
+                </Link>
+                <Link
+                    href="/dashboard/delphi/roster"
+                    className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                        pathname.startsWith('/dashboard/delphi/roster')
+                            ? "bg-white/10 text-white"
+                            : "hover:bg-white/5 text-muted-foreground hover:text-white"
+                    )}
+                >
+                    <Users className="h-4 w-4" />
+                    Roster
+                </Link>
+
+                <div className="h-px bg-white/5 my-2" />
 
                 {/* Dynamically Render Tools */}
                 <ToolList tools={activeWorkspace.enabledTools} pathname={pathname} role={currentUserRole} />
