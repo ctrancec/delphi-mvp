@@ -1,10 +1,11 @@
 import {
+    Brain,
     Building2,
     FolderOpen,
     Gavel,
     Globe2,
-    Brain,
     ShieldCheck,
+    Stethoscope,
     Users,
     type LucideIcon,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ export const NAV: NavItem[] = [
     { href: '/dashboard/delphi/roster', label: 'Roster', short: 'Roster', icon: Users, live: true, onCover: true },
     { href: '/dashboard/delphi/world', label: 'World', short: 'World', icon: Globe2, live: true },
     { href: '/dashboard/delphi/memory', label: 'Memory', short: 'Memory', icon: Brain, live: true },
+    { href: '/dashboard/delphi/diagnostics', label: 'Diagnostics', short: 'Health', icon: Stethoscope, live: true },
 ];
 
 /**
