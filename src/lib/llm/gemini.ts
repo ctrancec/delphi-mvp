@@ -11,7 +11,12 @@
  * is deliberate — a task that produced nothing usable must show as failed.
  */
 
-import { GoogleGenAI, type GenerateContentResponse, type Schema } from '@google/genai';
+import {
+    GoogleGenAI,
+    type FunctionDeclaration,
+    type GenerateContentResponse,
+    type Schema,
+} from '@google/genai';
 import { computeCost, type TokenUsage } from './cost';
 import { extractJson, JsonExtractionError } from './json';
 
@@ -303,6 +308,178 @@ export async function generateStructured<T>(
             throw new SchemaValidationError(
                 `Gemini output failed validation after one repair attempt: ${(repairError as Error).message}`,
                 secondRaw || firstRaw
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tool-calling
+// ---------------------------------------------------------------------------
+
+export interface ToolLoopResult<T> extends GenerateResult<T> {
+    /** How many tool calls were executed across the loop. */
+    toolCalls: number;
+    /** Billable third-party searches, for cost accounting. */
+    searchRequests: number;
+}
+
+/**
+ * Structured generation with tool use.
+ *
+ * Gemini cannot combine `responseSchema` with function declarations, so this
+ * runs in two phases: a tool-use loop where the model gathers evidence, then a
+ * final schema-constrained call over the transcript. That split is also what
+ * lets the caller capture every tool result — which is how citations get
+ * checked against what the channels actually returned.
+ */
+export async function generateWithTools<T>(
+    prompt: string,
+    tools: FunctionDeclaration[],
+    execute: (name: string, args: Record<string, unknown>) => Promise<{ content: string; searchRequests?: number }>,
+    schema: Schema,
+    validate: (value: unknown) => T,
+    options: GenerateOptions & { maxToolTurns?: number } = {}
+): Promise<ToolLoopResult<T>> {
+    const ai = getGeminiClient();
+    if (!ai) throw new GeminiNotConfiguredError();
+
+    const model = options.model ?? DEFAULT_MODEL;
+    const maxTurns = options.maxToolTurns ?? 6;
+
+    const usage: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
+    const addUsage = (u: TokenUsage) => {
+        usage.promptTokens += u.promptTokens;
+        usage.completionTokens += u.completionTokens;
+        usage.cachedTokens = (usage.cachedTokens ?? 0) + (u.cachedTokens ?? 0);
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const contents: any[] = [{ role: 'user', parts: [{ text: prompt }] }];
+    let toolCalls = 0;
+    let searchRequests = 0;
+    let servedBy = model;
+
+    if (tools.length > 0) {
+        for (let turn = 0; turn < maxTurns; turn++) {
+            const { response, servedBy: by } = await callWithFallback(model, (m) =>
+                ai.models.generateContent({
+                    model: m,
+                    contents,
+                    config: {
+                        ...(options.system ? { systemInstruction: options.system } : {}),
+                        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+                        tools: [{ functionDeclarations: tools }],
+                    },
+                })
+            );
+            servedBy = by;
+            addUsage(readUsage(response));
+
+            const calls = response.functionCalls ?? [];
+            if (calls.length === 0) {
+                // Nothing more to gather; keep the model's own words as context.
+                if (response.text) contents.push({ role: 'model', parts: [{ text: response.text }] });
+                break;
+            }
+
+            contents.push({
+                role: 'model',
+                parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args } })),
+            });
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const responseParts: any[] = [];
+            for (const call of calls) {
+                toolCalls++;
+                try {
+                    const out = await execute(call.name ?? '', (call.args ?? {}) as Record<string, unknown>);
+                    searchRequests += out.searchRequests ?? 0;
+                    responseParts.push({
+                        functionResponse: { name: call.name, response: { result: out.content } },
+                    });
+                } catch (err) {
+                    // A failed tool is reported back rather than thrown, so the
+                    // model can try a different approach instead of the whole
+                    // task dying on one bad call.
+                    responseParts.push({
+                        functionResponse: {
+                            name: call.name,
+                            response: { error: (err as Error).message },
+                        },
+                    });
+                }
+            }
+            contents.push({ role: 'user', parts: responseParts });
+        }
+    }
+
+    // Final pass: same transcript, now constrained to the output schema.
+    contents.push({
+        role: 'user',
+        parts: [
+            {
+                text: 'Now produce your deliverable, conforming exactly to the required schema. Cite only sources the tools actually returned.',
+            },
+        ],
+    });
+
+    const config = {
+        ...(options.system ? { systemInstruction: options.system } : {}),
+        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+    };
+
+    const final = await callWithFallback(servedBy, (m) =>
+        ai.models.generateContent({ model: m, contents, config })
+    );
+    addUsage(readUsage(final.response));
+    const raw = final.response.text ?? '';
+
+    try {
+        return {
+            data: validate(extractJson(raw)),
+            raw,
+            model: final.servedBy,
+            usage,
+            costUsd: computeCost(final.servedBy, usage),
+            repaired: false,
+            toolCalls,
+            searchRequests,
+        };
+    } catch (initialError) {
+        const repairPrompt = [
+            `Your response was rejected: ${(initialError as Error).message}`,
+            '',
+            'Previous response:',
+            raw.slice(0, 4000),
+            '',
+            'Return ONLY schema-conformant JSON. Cite only sources the tools returned.',
+        ].join('\n');
+
+        contents.push({ role: 'user', parts: [{ text: repairPrompt }] });
+        const second = await callWithFallback(final.servedBy, (m) =>
+            ai.models.generateContent({ model: m, contents, config })
+        );
+        addUsage(readUsage(second.response));
+        const secondRaw = second.response.text ?? '';
+
+        try {
+            return {
+                data: validate(extractJson(secondRaw)),
+                raw: secondRaw,
+                model: second.servedBy,
+                usage,
+                costUsd: computeCost(second.servedBy, usage),
+                repaired: true,
+                toolCalls,
+                searchRequests,
+            };
+        } catch (repairError) {
+            throw new SchemaValidationError(
+                `Output failed validation after one repair attempt: ${(repairError as Error).message}`,
+                secondRaw || raw
             );
         }
     }

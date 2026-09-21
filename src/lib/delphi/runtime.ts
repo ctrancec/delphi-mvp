@@ -14,9 +14,10 @@
  */
 
 import { Type, type Schema } from '@google/genai';
-import { generateStructured, SchemaValidationError } from '@/lib/llm/gemini';
-import { emitEvent, getSystemMode, type Db, type SourceLocator } from './db';
-import type { ArtifactKind } from './types';
+import { generateWithTools, SchemaValidationError } from '@/lib/llm/gemini';
+import { toolsForChannels } from '@/lib/channels/registry';
+import { emitEvent, getSystemMode, listChannels, type Db } from './db';
+import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
 
 /** How long a `running` task may sit before it is presumed dead. */
 const STALE_RUN_MINUTES = 10;
@@ -146,7 +147,30 @@ function validLocator(raw: unknown): SourceLocator | undefined {
     }
 }
 
-export function validateAgentOutput(value: unknown): AgentOutput {
+/** Canonical form of a locator, for comparing a citation to a tool result. */
+function locatorKey(l: SourceLocator): string {
+    switch (l.kind) {
+        case 'url':
+            // Ignore trailing slashes and query noise; the document is the thing.
+            try {
+                const u = new URL(l.url);
+                return `url:${u.origin}${u.pathname.replace(/\/$/, '')}`;
+            } catch {
+                return `url:${l.url}`;
+            }
+        case 'series':
+            return `series:${l.seriesId}:${l.date}`;
+        case 'video':
+            return `video:${l.path}`;
+        case 'doc':
+            return `doc:${l.artifactId}`;
+    }
+}
+
+export function validateAgentOutput(
+    value: unknown,
+    allowed?: Set<string>
+): AgentOutput {
     const o = value as Record<string, unknown>;
     if (!o || typeof o !== 'object') throw new Error('output must be an object');
 
@@ -157,13 +181,32 @@ export function validateAgentOutput(value: unknown): AgentOutput {
     const claims: AgentOutput['claims'] = [];
     const unsourced: string[] = [];
 
+    const fabricated: string[] = [];
+
     for (const c of rawClaims) {
         const r = c as Record<string, unknown>;
         const claim = String(r.claim ?? '').trim();
         if (!claim) continue;
+
         const locator = validLocator(r.locator);
-        if (locator) claims.push({ claim, locator });
-        else unsourced.push(claim);
+        if (!locator) {
+            unsourced.push(claim);
+            continue;
+        }
+
+        // The anti-fabrication check. An agent may only cite a source a channel
+        // actually returned this run. Checking a URL's *shape* is not enough —
+        // a model with no web access will happily emit a well-formed URL that
+        // points nowhere. Checking it against the tool results makes inventing
+        // a citation structurally impossible rather than merely detectable.
+        // `doc` locators are exempt: those reference upstream artifacts in this
+        // pipeline, which no channel returns.
+        if (allowed && locator.kind !== 'doc' && !allowed.has(locatorKey(locator))) {
+            fabricated.push(claim);
+            continue;
+        }
+
+        claims.push({ claim, locator });
     }
 
     // The accuracy guarantee is only real if this is enforced. An agent that
@@ -173,6 +216,13 @@ export function validateAgentOutput(value: unknown): AgentOutput {
         throw new Error(
             `${unsourced.length} claim(s) have no valid source locator: ` +
                 unsourced.slice(0, 3).map((c) => `"${c.slice(0, 80)}"`).join(', ')
+        );
+    }
+
+    if (fabricated.length > 0) {
+        throw new Error(
+            `${fabricated.length} claim(s) cite a source no tool returned — cite only what your channels gave you: ` +
+                fabricated.slice(0, 3).map((c) => `"${c.slice(0, 80)}"`).join(', ')
         );
     }
 
@@ -252,6 +302,7 @@ function buildPrompt(opts: {
     projectBrief: string;
     upstream: { title: string; contentMd: string; handoffNote?: string } | null;
     handoffDossier: string | null;
+    toolNames?: string[];
 }): string {
     const parts: string[] = [];
 
@@ -277,6 +328,23 @@ function buildPrompt(opts: {
             '--- YOU ARE TAKING OVER THIS TASK ---',
             opts.handoffDossier,
             'Continue from where your predecessor stopped. Do not redo work already verified.',
+            ''
+        );
+    }
+
+    if (opts.toolNames?.length) {
+        parts.push(
+            '--- YOUR CHANNELS ---',
+            `You can call: ${opts.toolNames.join(', ')}. Use them before asserting anything current.`,
+            'Citations are checked against what these tools actually return. A source you did not',
+            'receive from a tool will be rejected, so do not reconstruct URLs from memory.',
+            ''
+        );
+    } else {
+        parts.push(
+            '--- NO CHANNELS ---',
+            'You have no external tools this run. Work only from the input above, and do not',
+            'assert anything you cannot attribute to it.',
             ''
         );
     }
@@ -429,7 +497,20 @@ export async function runNextTask(
     const startedAt = Date.now();
 
     try {
-        const result = await generateStructured<AgentOutput>(
+        // The agent's tool surface is exactly the channels it was hired with.
+        const allChannels = await listChannels(db, workspaceId, true);
+        const agentChannelIds: string[] = (task.agent as unknown as { channel_ids?: string[] })
+            .channel_ids ?? [];
+        const kinds = allChannels
+            .filter((c) => agentChannelIds.includes(c.id))
+            .map((c) => c.kind as ChannelKind);
+        const tools = toolsForChannels(kinds);
+
+        // Every locator a channel hands back this run. Citations are checked
+        // against this set, so an agent cannot invent a source.
+        const allowedLocators = new Set<string>();
+
+        const result = await generateWithTools<AgentOutput>(
             buildPrompt({
                 objective: task.objective,
                 projectBrief: project.brief,
@@ -442,9 +523,30 @@ export async function runNextTask(
                           `Already consulted: ${JSON.stringify(dossier.sources_consulted)}`,
                       ].join('\n')
                     : null,
+                toolNames: tools.map((t) => t.declaration.name ?? ''),
             }),
+            tools.map((t) => t.declaration),
+            async (name, args) => {
+                const tool = tools.find((t) => t.declaration.name === name);
+                if (!tool) throw new Error(`No such tool: ${name}`);
+
+                const out = await tool.execute(args);
+                for (const loc of out.locators) allowedLocators.add(locatorKey(loc));
+
+                await emitEvent(db, {
+                    workspaceId,
+                    projectId,
+                    taskId: task.id,
+                    type: 'task_started',
+                    actor: agent.name,
+                    verb: `queried ${name}`,
+                    object: String(args.query ?? args.seriesId ?? '').slice(0, 80),
+                });
+
+                return { content: out.content, searchRequests: out.searchRequests };
+            },
             TASK_OUTPUT_SCHEMA,
-            validateAgentOutput,
+            (value) => validateAgentOutput(value, tools.length > 0 ? allowedLocators : undefined),
             { system: agent.system_prompt, model: agent.model, temperature: 0.4 }
         );
 

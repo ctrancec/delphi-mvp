@@ -9,7 +9,8 @@
     "lint": "eslint",
     "delphi:hire": "tsx --env-file-if-exists=.env.local scripts/test_hiring.ts",
     "delphi:board": "tsx --env-file-if-exists=.env.local scripts/test_board.ts",
-    "delphi:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts"
+    "delphi:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
+    "delphi:channels": "tsx --env-file-if-exists=.env.local scripts/check_channels.ts"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

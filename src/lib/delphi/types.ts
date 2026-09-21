@@ -236,6 +236,16 @@ export interface Memory {
     createdAt: string;
 }
 
+/**
+ * A typed pointer back to where a claim came from.
+ * This is what makes the activity log clickable and accuracy checkable.
+ */
+export type SourceLocator =
+    | { kind: 'video'; path: string; tMs: number }
+    | { kind: 'url'; url: string; quote?: string }
+    | { kind: 'series'; seriesId: string; date: string }
+    | { kind: 'doc'; artifactId: string; section?: string };
+
 /** Event types written to delphi_events; the UI renders these as the live feed. */
 export type DelphiEventType =
     | 'department_created'

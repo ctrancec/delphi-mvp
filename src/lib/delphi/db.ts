@@ -24,6 +24,7 @@ import type {
     DelphiEventType,
     Memory,
     Project,
+    SourceLocator,
     Task,
 } from './types';
 
@@ -489,15 +490,8 @@ export async function writeMemory(
 // Events — the activity log
 // ---------------------------------------------------------------------------
 
-/**
- * A typed pointer back to where a claim came from.
- * This is what makes the activity log clickable and accuracy checkable.
- */
-export type SourceLocator =
-    | { kind: 'video'; path: string; tMs: number }
-    | { kind: 'url'; url: string; quote?: string }
-    | { kind: 'series'; seriesId: string; date: string }
-    | { kind: 'doc'; artifactId: string; section?: string };
+// Declared in ./types alongside the rest of the domain model.
+export type { SourceLocator } from './types';
 
 export interface EmitEventInput {
     workspaceId: string;
