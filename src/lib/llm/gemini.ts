@@ -377,15 +377,41 @@ export async function generateWithTools<T>(
             addUsage(readUsage(response));
 
             const calls = response.functionCalls ?? [];
+
+            // The model's turn goes back verbatim.
+            //
+            // Gemini 3 attaches a `thoughtSignature` to each functionCall part
+            // and requires it echoed when the function response is sent. This
+            // used to rebuild the turn from `response.functionCalls`, which
+            // carries the name and args but not the signature — so every agent
+            // holding a tool died on the second turn with
+            //
+            //   400 Function call is missing a thought_signature in
+            //   functionCall parts
+            //
+            // and only the one agent with no channels ever completed. Passing
+            // the candidate's own parts through keeps the signature, and any
+            // interleaved text, exactly as sent.
+            const modelParts = response.candidates?.[0]?.content?.parts;
+
             if (calls.length === 0) {
                 // Nothing more to gather; keep the model's own words as context.
-                if (response.text) contents.push({ role: 'model', parts: [{ text: response.text }] });
+                if (modelParts?.length) {
+                    contents.push({ role: 'model', parts: modelParts });
+                } else if (response.text) {
+                    contents.push({ role: 'model', parts: [{ text: response.text }] });
+                }
                 break;
             }
 
             contents.push({
                 role: 'model',
-                parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args } })),
+                parts: modelParts?.length
+                    ? modelParts
+                    : // Only reachable if a model returns calls with no parts,
+                      // which should not happen — but losing the turn entirely
+                      // would be worse than losing the signature.
+                      calls.map((c) => ({ functionCall: { name: c.name, args: c.args } })),
             });
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
