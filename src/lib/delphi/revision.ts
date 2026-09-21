@@ -167,3 +167,68 @@ export async function sendTaskBack(
 export async function clearRevisionNote(db: Db, taskId: string): Promise<void> {
     await db.from('delphi_tasks').update({ cho_note: null }).eq('id', taskId);
 }
+
+/**
+ * Take back a decision to send something back.
+ *
+ * Declining is cheap to do and, until now, impossible to undo — the task was
+ * already in the queue and the next tick would spend real money redoing work
+ * that was fine. A mis-click cost a run.
+ *
+ * So the refusal is reversible for exactly as long as it has not taken effect:
+ * once the agent has produced a new version, there is nothing to cancel and
+ * the honest answer is that it already happened. Everything the decline
+ * changed is put back — the note, the attempt count, and the later steps that
+ * were re-queued only because they were built on this one.
+ */
+export async function undoSendBack(
+    db: Db,
+    workspaceId: string,
+    taskId: string
+): Promise<{ undone: boolean; reason?: string }> {
+    const { data: task } = await db
+        .from('delphi_tasks')
+        .select('id, title, project_id, status, revision_count')
+        .eq('id', taskId)
+        .maybeSingle();
+    if (!task) return { undone: false, reason: 'That step no longer exists.' };
+
+    if (task.status === 'running') {
+        return { undone: false, reason: 'It is being redone right now. Let it finish, then rule on what comes back.' };
+    }
+    if (task.status !== 'pending') {
+        return { undone: false, reason: 'It has already been redone.' };
+    }
+
+    // Whatever was re-queued because it depended on this goes back too — but
+    // only what has not since re-run. A step that has already produced a new
+    // version is not ours to reverse.
+    const downstream = task.project_id
+        ? await dependantsOf(db, task.project_id as string, taskId)
+        : [];
+
+    const restorable = [taskId, ...downstream];
+    await db
+        .from('delphi_tasks')
+        .update({ status: 'done', cho_note: null })
+        .in('id', restorable)
+        .eq('status', 'pending');
+
+    await db
+        .from('delphi_tasks')
+        .update({ revision_count: Math.max(0, Number(task.revision_count ?? 1) - 1) })
+        .eq('id', taskId);
+
+    await emitEvent(db, {
+        workspaceId,
+        projectId: (task.project_id as string) ?? undefined,
+        taskId,
+        type: 'revision_requested',
+        actor: 'CHO',
+        verb: 'took back sending it to be redone —',
+        object: task.title as string,
+        payload: { undo: true, restored: restorable.length },
+    });
+
+    return { undone: true };
+}

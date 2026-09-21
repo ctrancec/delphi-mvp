@@ -733,3 +733,94 @@ export async function setWorkScheduleAction(
         return { ok: false, error: (err as Error).message };
     }
 }
+
+/**
+ * Actions that have left the building.
+ *
+ * Once something has been posted, published or sent, no button here unsends
+ * it. Offering an undo that cannot work would be worse than not offering one,
+ * so these are named and refused by name.
+ */
+const IRREVERSIBLE: string[] = ['social_post', 'publish', 'send_email', 'send_message'];
+
+/**
+ * Put a decided approval back in the queue.
+ *
+ * A decision made in one tap should be undoable in one tap, because the way
+ * people actually get these wrong is by tapping the wrong one — not by
+ * reasoning badly. So everything a decision changed is put back: a refused
+ * task stops being skipped, and an approved hire is un-hired, with the agent
+ * archived and the task returned to whoever held it before.
+ *
+ * The exception is work that has already reached the outside world, which is
+ * refused by name rather than pretended away.
+ */
+export async function reopenApprovalAction(
+    approvalId: string
+): Promise<ActionResult<{ reopened: true }>> {
+    const ctx = await getDb();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const { db, workspaceId } = ctx;
+
+    const { data: approval, error: readErr } = await db
+        .from('delphi_approvals')
+        .select('id, task_id, project_id, status, summary, action_type, payload')
+        .eq('id', approvalId)
+        .maybeSingle();
+
+    if (readErr) return { ok: false, error: readErr.message };
+    if (!approval) return { ok: false, error: 'That approval no longer exists.' };
+    if (approval.status === 'pending') return { ok: false, error: 'It is still waiting on you.' };
+
+    if (approval.status === 'approved' && IRREVERSIBLE.includes(approval.action_type as string)) {
+        return {
+            ok: false,
+            error: `This was a ${String(approval.action_type).replace('_', ' ')} and it has already gone out. Nothing here can take it back.`,
+        };
+    }
+
+    const isStaffing = (approval.payload as { kind?: string } | null)?.kind === 'staffing';
+
+    // Un-hire before reopening, so a failure leaves the decision standing
+    // rather than a queue entry for a hire that already happened.
+    if (isStaffing && approval.status === 'approved' && approval.task_id) {
+        const { undoHire } = await import('./replacement');
+        const undone = await undoHire(db, workspaceId, approval.task_id);
+        if (!undone.ok) return { ok: false, error: undone.reason ?? 'Could not un-hire them.' };
+    }
+
+    const { error: updErr } = await db
+        .from('delphi_approvals')
+        .update({
+            status: 'pending',
+            decided_by: null,
+            decided_at: null,
+            conditions: null,
+            revision_note: null,
+        })
+        .eq('id', approvalId);
+
+    if (updErr) return { ok: false, error: updErr.message };
+
+    if (approval.task_id) {
+        await db
+            .from('delphi_tasks')
+            .update({ status: 'awaiting_approval' })
+            .eq('id', approval.task_id);
+    }
+
+    await emitEvent(db, {
+        workspaceId,
+        projectId: approval.project_id ?? undefined,
+        taskId: approval.task_id ?? undefined,
+        type: 'approval_decided',
+        actor: 'CHO',
+        verb: 'took back their decision on',
+        object: approval.summary,
+        payload: { reopened: true, was: approval.status },
+    });
+
+    revalidatePath('/dashboard/delphi/approvals');
+    revalidatePath('/dashboard/delphi', 'layout');
+    return { ok: true, data: { reopened: true } };
+}

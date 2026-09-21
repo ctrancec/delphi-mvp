@@ -8,6 +8,13 @@
  * on "no", so requiring it is not ceremony, it is the mechanism by which the
  * next attempt differs from this one.
  *
+ * **Neither is final.** Every verdict can be changed afterwards. Accepting by
+ * accident used to be permanent, which quietly made Accept the most dangerous
+ * control on the page; declining by accident cost a real run. Withdrawing a
+ * verdict clears it, and walking back a decline cancels the redo it started —
+ * for exactly as long as the agent has not begun. Once they have, that is said
+ * outright rather than offered and then refused.
+ *
  * Deliberately below the deliverable rather than above it. A decision made
  * before reading is not a review, and putting the buttons at the top invites
  * exactly that.
@@ -15,7 +22,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Loader2, RotateCcw, TriangleAlert, X } from 'lucide-react';
+import { Check, Loader2, RotateCcw, TriangleAlert, Undo2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
@@ -40,7 +47,7 @@ export function OutputReview({ state }: { state: OutputReviewState }) {
     const [escalatedTo, setEscalatedTo] = useState<string | null>(null);
     const [pending, startTransition] = useTransition();
 
-    function rule(decision: 'approved' | 'declined') {
+    function rule(decision: 'approved' | 'declined' | 'pending') {
         setError(null);
         if (decision === 'declined' && note.trim().length < 10) {
             setShowNote(true);
@@ -72,12 +79,59 @@ export function OutputReview({ state }: { state: OutputReviewState }) {
     if (state.status === 'approved') {
         return (
             <Card className="border-emerald-400/20 bg-emerald-400/5">
-                <CardContent className="space-y-1 py-4 text-sm">
+                <CardContent className="space-y-3 py-4 text-sm">
                     <p className="flex items-center gap-2 text-emerald-400">
                         <Check className="h-4 w-4" /> You accepted this
                         {state.revision > 1 && ` — revision ${state.revision}`}
                     </p>
                     {state.note && <p className="pl-6 text-xs text-muted-foreground">{state.note}</p>}
+
+                    {showNote && (
+                        <Textarea
+                            value={note}
+                            onChange={(e) => setNote(e.target.value)}
+                            placeholder="What was wrong with it after all."
+                            className="min-h-20 border-white/10 bg-white/5 text-sm"
+                        />
+                    )}
+
+                    {error && (
+                        <p className="flex items-start gap-2 text-xs text-red-400">
+                            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            {error}
+                        </p>
+                    )}
+
+                    {/* Accepting by accident used to be permanent, which made
+                        this the most dangerous button on the page. */}
+                    <div className="flex flex-wrap gap-2 pl-6">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => rule('pending')}
+                            disabled={pending}
+                            className="border-white/10"
+                        >
+                            {pending ? (
+                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Undo2 className="mr-2 h-3.5 w-3.5" />
+                            )}
+                            Un-accept
+                        </Button>
+                        {state.canSendBack && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => rule('declined')}
+                                disabled={pending}
+                                className="border-amber-400/30 text-amber-400 hover:bg-amber-400/10 hover:text-amber-300"
+                            >
+                                <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                                Send it back after all
+                            </Button>
+                        )}
+                    </div>
                 </CardContent>
             </Card>
         );
@@ -100,6 +154,41 @@ export function OutputReview({ state }: { state: OutputReviewState }) {
                         The new version appears here when it is ready. This draft stays, so you can
                         compare.
                     </p>
+
+                    {error && (
+                        <p className="flex items-start gap-2 pl-6 text-xs text-red-400">
+                            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            {error}
+                        </p>
+                    )}
+
+                    {/* Until the agent starts, this costs nothing to take back.
+                        Once it has, the button says so rather than pretending. */}
+                    <div className="flex flex-wrap gap-2 pl-6">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => rule('approved')}
+                            disabled={pending}
+                            className="border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                        >
+                            {pending ? (
+                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Undo2 className="mr-2 h-3.5 w-3.5" />
+                            )}
+                            Actually, accept it
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => rule('pending')}
+                            disabled={pending}
+                            className="border-white/10"
+                        >
+                            Cancel the redo
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
         );

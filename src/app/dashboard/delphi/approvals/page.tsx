@@ -10,6 +10,7 @@ import { ShieldCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ReopenApproval } from '@/components/delphi/reopen-approval';
 import { ApprovalCard } from '@/components/delphi/approval-card';
 import { listApprovals, ACTION_LABELS } from '@/lib/delphi/approvals';
 import { formatDistanceToNow } from 'date-fns';
@@ -106,6 +107,7 @@ export default async function ApprovalsPage() {
                                             {formatDistanceToNow(new Date(a.decidedAt), { addSuffix: true })}
                                         </span>
                                     )}
+                                    <ReopenApproval approvalId={a.id} />
                                     {a.conditions && (
                                         <span className="w-full text-amber-400/80">
                                             Conditions: {a.conditions}

@@ -17,7 +17,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { emitEvent, isMissingColumn, type Db } from './db';
 import { findWorkspace } from './bootstrap';
-import { sendTaskBack } from './revision';
+import { sendTaskBack, undoSendBack } from './revision';
 
 export interface ReviewResult {
     ok: boolean;
@@ -41,9 +41,22 @@ const ctx = cache(async function ctx(): Promise<
     return { db, workspaceId, userId: user.id };
 });
 
+/**
+ * Rule on a deliverable, or change your mind about one.
+ *
+ * Every verdict is reversible. Accepting something by accident used to be
+ * permanent, which made the Accept button quietly the most dangerous control
+ * on the page — and declining by accident cost a real run. Neither is now:
+ * `pending` withdraws a verdict outright, and moving off `declined` cancels
+ * the redo it started, for exactly as long as the agent has not begun it.
+ *
+ * What cannot be taken back is said plainly rather than hidden. Once the work
+ * has been redone there is nothing left to cancel, and pretending otherwise
+ * would be worse than the honest refusal.
+ */
 export async function reviewOutputAction(
     artifactId: string,
-    decision: 'approved' | 'declined',
+    decision: 'approved' | 'declined' | 'pending',
     note?: string
 ): Promise<ReviewResult> {
     const c = await ctx();
@@ -66,13 +79,30 @@ export async function reviewOutputAction(
     if (readErr) return { ok: false, error: readErr.message };
     if (!artifact) return { ok: false, error: 'That deliverable no longer exists.' };
 
+    if (artifact.review_status === 'superseded') {
+        return {
+            ok: false,
+            error: 'A later version replaced this one. Rule on that instead.',
+        };
+    }
+
+    // Walking back a decline means cancelling the redo it started — which is
+    // only possible while the agent has not started. Done first, so a failure
+    // to cancel does not leave the verdict changed and the queue still moving.
+    if (artifact.review_status === 'declined' && decision !== 'declined' && artifact.task_id) {
+        const undo = await undoSendBack(db, workspaceId, artifact.task_id as string);
+        if (!undo.undone) return { ok: false, error: undo.reason ?? 'That can no longer be undone.' };
+    }
+
     const { error: updErr } = await db
         .from('delphi_artifacts')
         .update({
             review_status: decision,
             review_note: trimmed || null,
-            reviewed_by: userId,
-            reviewed_at: new Date().toISOString(),
+            // Cleared on withdrawal rather than left behind: a timestamp for a
+            // verdict nobody holds any more is a record of nothing.
+            reviewed_by: decision === 'pending' ? null : userId,
+            reviewed_at: decision === 'pending' ? null : new Date().toISOString(),
         })
         .eq('id', artifactId);
 
@@ -93,7 +123,14 @@ export async function reviewOutputAction(
         taskId: (artifact.task_id as string) ?? undefined,
         type: 'output_reviewed',
         actor: 'CHO',
-        verb: decision === 'approved' ? 'accepted' : 'declined',
+        verb:
+            decision === 'approved'
+                ? artifact.review_status === 'declined'
+                    ? 'took back sending it back, and accepted'
+                    : 'accepted'
+                : decision === 'pending'
+                  ? 'withdrew their verdict on'
+                  : 'declined',
         object: artifact.title as string,
         payload: { decision, note: trimmed || null },
     });

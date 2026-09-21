@@ -708,3 +708,84 @@ export async function hireProposedAgent(
         return { replaced: false };
     }
 }
+
+/**
+ * Un-hire someone the CHO approved by mistake.
+ *
+ * The agent is archived rather than deleted: they did work, and the run that
+ * records it must keep pointing at somebody. Archiving takes them out of
+ * hiring consideration everywhere without falsifying the history of the task
+ * they were briefly on.
+ *
+ * Refused once they have actually started, because at that point there is a
+ * run in flight and undoing the hire would strand it.
+ */
+export async function undoHire(
+    db: Db,
+    workspaceId: string,
+    taskId: string
+): Promise<{ ok: boolean; reason?: string }> {
+    const { data: task } = await db
+        .from('delphi_tasks')
+        .select('id, title, agent_id, project_id, status, replacement_count')
+        .eq('id', taskId)
+        .maybeSingle();
+    if (!task) return { ok: false, reason: 'That step no longer exists.' };
+
+    if (task.status === 'running') {
+        return { ok: false, reason: 'They have already started. Let the run finish first.' };
+    }
+
+    // The handoff written when they were hired says who held it before.
+    const { data: handoff } = await db
+        .from('delphi_handoffs')
+        .select('from_agent_id, to_agent_id')
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (!handoff?.from_agent_id) {
+        return { ok: false, reason: 'No record of who held this before, so there is nobody to give it back to.' };
+    }
+
+    const hiredId = handoff.to_agent_id as string;
+
+    const { data: hired } = await db
+        .from('delphi_agents')
+        .select('id, name, origin')
+        .eq('id', hiredId)
+        .maybeSingle();
+
+    // Only ever archive an agent Delphi invented for this. A seed agent who
+    // happened to take the task over is somebody else's colleague too.
+    if (hired?.origin === 'invented') {
+        await db
+            .from('delphi_agents')
+            .update({ archived_at: new Date().toISOString() })
+            .eq('id', hiredId);
+    }
+
+    await db
+        .from('delphi_tasks')
+        .update({
+            agent_id: handoff.from_agent_id,
+            replacement_count: Math.max(0, Number(task.replacement_count ?? 1) - 1),
+        })
+        .eq('id', taskId);
+
+    await db.from('delphi_handoffs').delete().eq('task_id', taskId).eq('to_agent_id', hiredId);
+
+    await emitEvent(db, {
+        workspaceId,
+        projectId: (task.project_id as string) ?? undefined,
+        taskId,
+        type: 'agent_rehired',
+        actor: 'CHO',
+        verb: 'took back the hire on',
+        object: `${task.title} — ${hired?.name ?? 'the new agent'} archived, task returned`,
+        payload: { undo: true, archived: hired?.origin === 'invented' },
+    });
+
+    return { ok: true };
+}
