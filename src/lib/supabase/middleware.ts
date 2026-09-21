@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { TOOL_REGISTRY, UserRole } from '@/lib/types/tool-registry'
 import { readAnonEnv } from './env'
+import { canSkipRefresh, readSessionCookie, storageKeyFor } from './session-cookie'
 
 /**
  * Session refresh and route guarding, on every request.
@@ -9,10 +10,20 @@ import { readAnonEnv } from './env'
  * `getUser()` is a network round trip to Supabase's auth server by design — it
  * revalidates the token rather than trusting the cookie. So it is the most
  * expensive thing on this path and it runs before anything is rendered. This
- * used to call it **twice** on every dashboard request (once to resolve a role
- * for RBAC, once to decide the login redirect), which meant every page load
- * paid two serial auth round trips before the first query. It is now resolved
- * once, lazily, and shared.
+ * used to call it **twice** on every request (once to resolve a role for RBAC,
+ * once to decide the login redirect), which meant every page load paid two
+ * serial auth round trips before the first query.
+ *
+ * Now it is made at most once, and usually not at all: the only reason this
+ * function needs the auth server is to refresh a token that is running out,
+ * and the cookie says when that is. A session with fifty minutes left is left
+ * alone.
+ *
+ * Skipping it is safe because this is not where authorization happens. The
+ * dashboard layout calls `getUser()` for real and redirects when it comes back
+ * empty, and every query runs under RLS against a token Postgres verifies
+ * itself. What this decides is only whether someone gets that far before being
+ * sent to the login page.
  */
 export async function updateSession(request: NextRequest) {
     let response = NextResponse.next({
@@ -45,10 +56,17 @@ export async function updateSession(request: NextRequest) {
         },
     })
 
-    // One call, at most, per request — and only once something actually needs
-    // the answer. Two callers below want it; neither should pay for it twice.
+    // What the browser claims, read locally. Never trusted for authorization —
+    // only to work out whether a refresh is due. See session-cookie.ts.
+    const storageKey = storageKeyFor(env.url)
+    const claimed = storageKey
+        ? readSessionCookie(storageKey, (name) => request.cookies.get(name)?.value)
+        : null
+
+    // One verified call, at most, per request, and only when something needs
+    // the answer for real.
     let resolved: { user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] } | null = null
-    const currentUser = async () => {
+    const verifiedUser = async () => {
         if (!resolved) {
             const { data } = await supabase.auth.getUser()
             resolved = { user: data.user }
@@ -79,8 +97,9 @@ export async function updateSession(request: NextRequest) {
             | undefined
 
         if (!userRole) {
-            // In a real app the role would come from a profiles table.
-            if (await currentUser()) userRole = 'owner'
+            // Verified, not claimed: this one is an authorization decision, so
+            // it is worth the round trip on the rare path that reaches it.
+            if (await verifiedUser()) userRole = 'owner'
         }
 
         if (userRole && !tool.allowedRoles.includes(userRole)) {
@@ -92,13 +111,17 @@ export async function updateSession(request: NextRequest) {
     }
     // --- End RBAC ---
 
-    // Signed-out visitors never reach the dashboard. Everywhere else, the call
-    // below still runs: it is what refreshes an expiring session, so skipping
-    // it on public pages would let a session go stale while someone reads one.
-    const user = await currentUser()
+    // Signed-out visitors never reach the dashboard.
+    //
+    // A cookie with plenty of life left answers this without asking Supabase:
+    // there is no refresh to do, and the layout verifies the token for real
+    // before it renders anything. Everything else — no cookie, an unreadable
+    // one, one near expiry — goes to the auth server, which is what refreshes
+    // a session that is running out.
+    const signedIn = canSkipRefresh(claimed) ? true : Boolean(await verifiedUser())
 
     if (
-        !user &&
+        !signedIn &&
         !request.nextUrl.pathname.startsWith('/login') &&
         !request.nextUrl.pathname.startsWith('/auth') &&
         request.nextUrl.pathname.startsWith('/dashboard')
