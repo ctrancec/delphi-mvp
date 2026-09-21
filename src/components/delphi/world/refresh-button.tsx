@@ -13,7 +13,7 @@ import { Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface Summary {
-    ingest?: { sourcesOk: number; sourcesTried: number; itemsInserted: number; failures: { source: string }[] };
+    ingest?: { sourcesOk: number; sourcesEmpty: number; sourcesTried: number; itemsInserted: number; failures: { source: string }[] };
     clusters?: { clusters: number; corroborated: number };
     translation?: { translated: number; costUsd: number };
     error?: string;
@@ -59,7 +59,8 @@ export function WorldRefreshButton() {
 
             {result?.ingest && (
                 <span className="text-xs text-muted-foreground">
-                    {result.ingest.sourcesOk}/{result.ingest.sourcesTried} sources ·{' '}
+                    {result.ingest.sourcesOk - (result.ingest.sourcesEmpty ?? 0)}/
+                    {result.ingest.sourcesTried} sources ·{' '}
                     {result.ingest.itemsInserted} new · {result.clusters?.clusters ?? 0} clusters
                     {result.translation?.translated
                         ? ` · ${result.translation.translated} translated ($${result.translation.costUsd.toFixed(4)})`

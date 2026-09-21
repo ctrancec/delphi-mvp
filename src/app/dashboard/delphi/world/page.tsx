@@ -108,6 +108,10 @@ export default async function WorldPage() {
     const sourceList = (sources ?? []) as { name: string; country: string; health: string; last_error: string | null }[];
     const healthy = sourceList.filter((s) => s.health === 'ok').length;
     const broken = sourceList.filter((s) => s.health === 'error');
+    // Responded but carried nothing. Counted apart from healthy, because a
+    // source contributing no items is not widening the world the
+    // corroboration score is computed over.
+    const degraded = sourceList.filter((s) => s.health === 'degraded');
 
     const streamTiles: StreamTile[] = (streams ?? []).map((s) => ({
         id: s.id as string,
@@ -133,7 +137,16 @@ export default async function WorldPage() {
                 <WorldRefreshButton />
                 {sourceList.length > 0 && (
                     <span className="text-xs text-muted-foreground">
-                        {healthy}/{sourceList.length} sources healthy
+                        {healthy}/{sourceList.length} sources contributing
+                        {degraded.length > 0 && (
+                            <span
+                                className="text-muted-foreground/70"
+                                title={degraded.map((d) => d.name).join('\n')}
+                            >
+                                {' '}
+                                · {degraded.length} empty
+                            </span>
+                        )}
                         {broken.length > 0 && (
                             <span
                                 className="text-amber-400/80"

@@ -88,7 +88,10 @@ export async function seedWorldSources(
 
 export interface IngestResult {
     sourcesTried: number;
+    /** Responded at all, empty ones included. */
     sourcesOk: number;
+    /** Responded but carried nothing — counted separately from healthy. */
+    sourcesEmpty: number;
     itemsInserted: number;
     failures: { source: string; error: string }[];
 }
@@ -116,6 +119,7 @@ export async function ingestNews(
     const result: IngestResult = {
         sourcesTried: list.length,
         sourcesOk: 0,
+        sourcesEmpty: 0,
         itemsInserted: 0,
         failures: [],
     };
@@ -173,9 +177,21 @@ export async function ingestNews(
             if (outcome.status === 'fulfilled') {
                 result.sourcesOk++;
                 result.itemsInserted += outcome.value.count;
+
+                // A feed that parses to nothing is a blind spot wearing a green
+                // badge: it contributes no items, but counted as healthy it
+                // makes coverage look wider than it is, and coverage is what
+                // the corroboration score is computed over.
+                const empty = outcome.value.count === 0;
+                if (empty) result.sourcesEmpty++;
+
                 await db
                     .from('delphi_news_sources')
-                    .update({ health: 'ok', last_ok_at: new Date().toISOString(), last_error: null })
+                    .update({
+                        health: empty ? 'degraded' : 'ok',
+                        last_ok_at: new Date().toISOString(),
+                        last_error: empty ? 'Feed resolved but contained no items.' : null,
+                    })
                     .eq('id', source.id);
             } else {
                 const message = (outcome.reason as Error)?.message ?? 'unknown error';
