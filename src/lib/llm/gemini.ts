@@ -432,13 +432,21 @@ export async function generateStructured<T>(
         };
     } catch (initialError) {
         // Fall through to one repair attempt.
+        //
+        // The rejection is quoted in full and on its own lines. Validators here
+        // do real work explaining what is wrong and what the agent may cite
+        // instead, and squeezing that into a parenthetical made the useful part
+        // of it easy to miss.
         const reason =
             initialError instanceof JsonExtractionError
-                ? 'the output was not parseable JSON'
-                : `the output did not match the required shape (${(initialError as Error).message})`;
+                ? 'the output was not parseable JSON.'
+                : 'the output did not match what was required:';
 
         const repairPrompt = [
-            'Your previous response was rejected because ' + reason + '.',
+            'Your previous response was rejected because ' + reason,
+            ...(initialError instanceof JsonExtractionError
+                ? []
+                : ['', (initialError as Error).message]),
             '',
             'Previous response:',
             '"""',

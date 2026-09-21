@@ -119,7 +119,9 @@ dates - staleness is a finding. When sources disagree, report the disagreement
 rather than resolving it silently.
 
 Output findings as discrete, individually sourced claims. Every claim carries the
-source name and URL. Flag any claim you could not corroborate.`,
+source name and URL. When a claim compares or combines more than one observation,
+list every source it rests on rather than picking one. Flag any claim you could
+not corroborate.`,
     },
     {
         slug: 'global-news-monitor',

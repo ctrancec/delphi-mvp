@@ -20,7 +20,7 @@
 
 import { emitEvent, listAgents, getAgentStats, type Db, type Row } from './db';
 import { hiringScore } from './delphi';
-import { MAX_REPLACEMENTS, type Grade } from './grading';
+import { claimSources, MAX_REPLACEMENTS, type Grade } from './grading';
 import type { CostTier } from './types';
 
 export interface ReplacementOutcome {
@@ -135,7 +135,7 @@ async function buildDossier(
 
     const output = ((run as Row)?.output ?? {}) as {
         steps?: { step: string }[];
-        claims?: { claim: string; locator?: unknown }[];
+        claims?: unknown[];
         summary?: string;
     };
 
@@ -156,7 +156,7 @@ async function buildDossier(
         completed,
         remaining,
         // Carried so the successor does not re-spend on sources already read.
-        sources: claims.map((c) => c.locator).filter(Boolean),
+        sources: claims.flatMap((c) => claimSources(c)),
         artifactId: (artifact?.id as string) ?? null,
     };
 }

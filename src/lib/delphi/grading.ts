@@ -16,7 +16,6 @@
 import { Type, type Schema } from '@google/genai';
 import { generateStructured } from '@/lib/llm/gemini';
 import { emitEvent, type Db, type Row } from './db';
-import type { SourceLocator } from './types';
 
 const MODEL = 'gemini-3.8-flash';
 
@@ -138,15 +137,30 @@ export function overallOf(g: Omit<Grade, 'overall' | 'unsourcedClaims'>): number
     return Math.round(Math.max(0, capped) * 1000) / 1000;
 }
 
+/**
+ * A claim's sources, whichever shape it was recorded in.
+ *
+ * A claim used to carry one `locator`; it now carries `locators`, because a
+ * comparison rests on more than one observation. Runs written before that
+ * change are still in the database and still get graded and read, so both
+ * shapes are understood here rather than at every call site.
+ */
+export function claimSources(claim: unknown): unknown[] {
+    const c = (claim ?? {}) as { locator?: unknown; locators?: unknown };
+    const many = Array.isArray(c.locators) ? c.locators : [];
+    const one = c.locator ? [c.locator] : [];
+    return [...many, ...one].filter((l) => l && typeof l === 'object');
+}
+
 /** Count what is countable, so the grader is given facts rather than vibes. */
 export function measureRun(run: Row | null, artifactExists: boolean): MechanicalFacts {
     const output = (run?.output ?? {}) as {
-        claims?: { claim: string; locator?: SourceLocator }[];
+        claims?: unknown[];
         steps?: unknown[];
     };
 
     const claims = Array.isArray(output.claims) ? output.claims : [];
-    const withLocator = claims.filter((c) => c?.locator && typeof c.locator === 'object');
+    const withLocator = claims.filter((c) => claimSources(c).length > 0);
 
     const started = run?.started_at ? new Date(run.started_at as string).getTime() : 0;
     const finished = run?.finished_at ? new Date(run.finished_at as string).getTime() : 0;

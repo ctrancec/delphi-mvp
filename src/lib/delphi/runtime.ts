@@ -29,20 +29,70 @@ export const MAX_REPLACEMENTS = 2;
 // Agent output contract
 // ---------------------------------------------------------------------------
 
+/**
+ * A source locator, as a discriminated union.
+ *
+ * This used to be one flat object with every field optional and only `kind`
+ * required, which is a shape that cannot be wrong — and so was. Asked to cite
+ * a FRED observation, the model emitted
+ * `{"kind":"series","seriesId":"SP500","url":"https://fred.stlouisfed.org/..."}`
+ * with no `date`: plausible, well-formed, and rejected by `validLocator`,
+ * which needs both `seriesId` and `date` to point at an actual number. The
+ * claim then counted as unsourced. The agent *was* citing its work; the schema
+ * simply never told it what a citation of that kind has to carry.
+ *
+ * `anyOf` with per-variant `required` makes that structurally impossible, and
+ * Gemini honours it — verified against the live API, which now returns
+ * `{"kind":"series","seriesId":"SP500","date":"2026-09-18"}` unprompted.
+ */
 const LOCATOR_SCHEMA: Schema = {
-    type: Type.OBJECT,
-    properties: {
-        kind: { type: Type.STRING, enum: ['video', 'url', 'series', 'doc'] },
-        url: { type: Type.STRING, description: 'For kind=url' },
-        quote: { type: Type.STRING, description: 'The exact passage relied on, for kind=url' },
-        path: { type: Type.STRING, description: 'For kind=video' },
-        tMs: { type: Type.INTEGER, description: 'Milliseconds into the clip, for kind=video' },
-        seriesId: { type: Type.STRING, description: 'For kind=series' },
-        date: { type: Type.STRING, description: 'Observation date, for kind=series' },
-        artifactId: { type: Type.STRING, description: 'For kind=doc' },
-        section: { type: Type.STRING, description: 'For kind=doc' },
-    },
-    required: ['kind'],
+    anyOf: [
+        {
+            type: Type.OBJECT,
+            title: 'url',
+            description: 'A web page. Both fields are needed to check the citation.',
+            properties: {
+                kind: { type: Type.STRING, enum: ['url'] },
+                url: { type: Type.STRING, description: 'The page the claim came from.' },
+                quote: { type: Type.STRING, description: 'The exact passage relied on.' },
+            },
+            required: ['kind', 'url'],
+        },
+        {
+            type: Type.OBJECT,
+            title: 'series',
+            description:
+                'One observation in a data series. The date is not optional — without it this points at a series rather than at a number, and cannot be checked.',
+            properties: {
+                kind: { type: Type.STRING, enum: ['series'] },
+                seriesId: { type: Type.STRING, description: 'e.g. SP500, DGS10.' },
+                date: { type: Type.STRING, description: 'The observation date, YYYY-MM-DD.' },
+            },
+            required: ['kind', 'seriesId', 'date'],
+        },
+        {
+            type: Type.OBJECT,
+            title: 'video',
+            description: 'A moment in a clip.',
+            properties: {
+                kind: { type: Type.STRING, enum: ['video'] },
+                path: { type: Type.STRING },
+                tMs: { type: Type.INTEGER, description: 'Milliseconds into the clip.' },
+            },
+            required: ['kind', 'path', 'tMs'],
+        },
+        {
+            type: Type.OBJECT,
+            title: 'doc',
+            description: 'An artifact produced earlier in this pipeline.',
+            properties: {
+                kind: { type: Type.STRING, enum: ['doc'] },
+                artifactId: { type: Type.STRING },
+                section: { type: Type.STRING },
+            },
+            required: ['kind', 'artifactId'],
+        },
+    ],
 };
 
 const TASK_OUTPUT_SCHEMA: Schema = {
@@ -69,14 +119,25 @@ const TASK_OUTPUT_SCHEMA: Schema = {
         claims: {
             type: Type.ARRAY,
             description:
-                'Every factual assertion in your deliverable, each with the source it came from. A claim without a locator will be rejected.',
+                'Every factual assertion in your deliverable, each with the sources it came from. A claim with no source will be rejected.',
             items: {
                 type: Type.OBJECT,
                 properties: {
                     claim: { type: Type.STRING },
-                    locator: LOCATOR_SCHEMA,
+                    // An array, and required, for two reasons. A comparison is
+                    // the ordinary shape of analysis — "4.94% on the 17th,
+                    // having touched 5.01% on the 16th" rests on two
+                    // observations, and a single field had nowhere to put the
+                    // second, so agents attached neither. And an optional field
+                    // is one the model may simply omit.
+                    locators: {
+                        type: Type.ARRAY,
+                        description:
+                            'Every source this claim rests on: one for a simple fact, several when it compares or combines observations. Copy each exactly as the tool returned it.',
+                        items: LOCATOR_SCHEMA,
+                    },
                 },
-                required: ['claim', 'locator'],
+                required: ['claim', 'locators'],
             },
         },
         proposedAction: {
@@ -111,7 +172,7 @@ export interface AgentOutput {
     contentMd: string;
     kind: ArtifactKind;
     steps: { step: string; locator?: SourceLocator }[];
-    claims: { claim: string; locator: SourceLocator }[];
+    claims: { claim: string; locators: SourceLocator[] }[];
     proposedAction?: { type: string; summary: string; risk?: string; payload?: string };
     handoffNote: string;
 }
@@ -167,9 +228,133 @@ function locatorKey(l: SourceLocator): string {
     }
 }
 
+/** How many of each list to name before the prompt stops being readable. */
+const MAX_LISTED = 12;
+const MAX_SOURCES = 25;
+const MAX_DATES = 60;
+
+/**
+ * The catalogue, grouped by source rather than listed flat.
+ *
+ * A single FRED query returns every observation in the window, and each one is
+ * its own locator — so a flat list is forty consecutive dates of one series
+ * and nothing else. That is exactly what happened the first time this ran: the
+ * analyst was shown forty days of DGS10, never saw that SP500, CPIAUCSL or
+ * FEDFUNDS were also available, and could not cite the claims it most wanted
+ * to make. It had the evidence. We were hiding it.
+ *
+ * Grouping puts every distinct source in front of the agent, and collapses a
+ * series' dates into one line underneath it.
+ */
+function catalogueLines(allowed: Map<string, SourceLocator>): string[] {
+    const series = new Map<string, string[]>();
+    const other: string[] = [];
+
+    for (const loc of allowed.values()) {
+        if (loc.kind === 'series') {
+            const dates = series.get(loc.seriesId) ?? [];
+            dates.push(loc.date);
+            series.set(loc.seriesId, dates);
+        } else {
+            const line = JSON.stringify(loc);
+            if (!other.includes(line)) other.push(line);
+        }
+    }
+
+    const lines: string[] = [];
+
+    for (const [seriesId, dates] of [...series].slice(0, MAX_SOURCES)) {
+        const sorted = [...new Set(dates)].sort();
+        const shown = sorted.slice(-MAX_DATES);
+        lines.push(`  {"kind":"series","seriesId":"${seriesId}","date":"<one of these>"}`);
+        lines.push(
+            `      ${shown.join(', ')}` +
+                (sorted.length > shown.length ? ` (+${sorted.length - shown.length} earlier)` : '')
+        );
+    }
+
+    for (const line of other.slice(0, MAX_SOURCES)) lines.push(`  ${line}`);
+    if (other.length > MAX_SOURCES) lines.push(`  ...and ${other.length - MAX_SOURCES} more.`);
+
+    return lines;
+}
+
+/**
+ * The agent cited, and the citation could not be used.
+ *
+ * Quotes back what it actually sent, because the gap is usually one missing
+ * field and seeing its own output next to a working example closes it faster
+ * than any amount of instruction.
+ */
+function malformedMessage(
+    bad: { claim: string; raw: unknown[] }[],
+    allowed?: Map<string, SourceLocator>
+): string {
+    const lines = [
+        `${bad.length} claim(s) carry a locator that cannot be used. A locator has to identify`,
+        'one specific thing: a `series` needs both `seriesId` and `date`, a `url` needs `url`,',
+        'a `video` needs `path` and `tMs`, a `doc` needs `artifactId`.',
+        '',
+        'What you sent:',
+    ];
+    for (const b of bad.slice(0, MAX_LISTED)) {
+        lines.push(`  - "${b.claim.slice(0, 120)}"`);
+        for (const r of b.raw.slice(0, 3)) lines.push(`      ${JSON.stringify(r).slice(0, 200)}`);
+    }
+    if (bad.length > MAX_LISTED) lines.push(`  ...and ${bad.length - MAX_LISTED} more.`);
+
+    const catalogue = allowed ? catalogueLines(allowed) : [];
+    if (catalogue.length > 0) {
+        lines.push(
+            '',
+            'Copy from what your own tool calls returned, exactly as written here:',
+            '',
+            ...catalogue
+        );
+    }
+    return lines.join('\n');
+}
+
+/**
+ * The rejection an agent can actually act on: which claims are unsourced, and
+ * every source its own tools returned this run, in the shape the schema wants.
+ */
+function unsourcedMessage(unsourced: string[], allowed?: Map<string, SourceLocator>): string {
+    const lines = [
+        `${unsourced.length} claim(s) have no source locator. Every factual claim needs one.`,
+        '',
+        'Unsourced claims:',
+        ...unsourced.slice(0, MAX_LISTED).map((c) => `  - "${c.slice(0, 160)}"`),
+    ];
+    if (unsourced.length > MAX_LISTED) {
+        lines.push(`  ...and ${unsourced.length - MAX_LISTED} more. Every one of them needs a locator.`);
+    }
+
+    const catalogue = allowed ? catalogueLines(allowed) : [];
+    if (catalogue.length > 0) {
+        lines.push(
+            '',
+            'These are the sources your own tool calls returned this run. Attach the ones',
+            'each claim actually came from, copied exactly. A claim that compares two',
+            'observations needs both, in `locators` — that is what the array is for. Do not',
+            'invent sources, and do not drop a claim you cannot source: remove it instead.',
+            '',
+            ...catalogue
+        );
+    } else {
+        lines.push(
+            '',
+            'No tool returned a source this run, so there is nothing you may cite.',
+            'State only what the upstream material supports, and drop the rest.'
+        );
+    }
+
+    return lines.join('\n');
+}
+
 export function validateAgentOutput(
     value: unknown,
-    allowed?: Set<string>
+    allowed?: Map<string, SourceLocator>
 ): AgentOutput {
     const o = value as Record<string, unknown>;
     if (!o || typeof o !== 'object') throw new Error('output must be an object');
@@ -180,7 +365,7 @@ export function validateAgentOutput(
     const rawClaims = Array.isArray(o.claims) ? o.claims : [];
     const claims: AgentOutput['claims'] = [];
     const unsourced: string[] = [];
-
+    const malformed: { claim: string; raw: unknown[] }[] = [];
     const fabricated: string[] = [];
 
     for (const c of rawClaims) {
@@ -188,9 +373,36 @@ export function validateAgentOutput(
         const claim = String(r.claim ?? '').trim();
         if (!claim) continue;
 
-        const locator = validLocator(r.locator);
-        if (!locator) {
-            unsourced.push(claim);
+        // `locators` is what the schema asks for now; the singular `locator`
+        // is still read so runs recorded before that change still parse.
+        const raw = [
+            ...(Array.isArray(r.locators) ? r.locators : []),
+            ...(r.locator ? [r.locator] : []),
+        ];
+        const locators: SourceLocator[] = [];
+        const seen = new Set<string>();
+        let dropped = 0;
+        for (const candidate of raw) {
+            const locator = validLocator(candidate);
+            if (!locator) {
+                dropped++;
+                continue;
+            }
+            const key = locatorKey(locator);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            locators.push(locator);
+        }
+
+        if (locators.length === 0) {
+            // Citing badly and not citing at all are different mistakes and
+            // need different corrections, but both used to land here as
+            // "unsourced". That is how a schema which let a `series` locator
+            // omit its `date` survived four production runs: the agent was
+            // citing, the citations were being dropped as unusable, and the
+            // report said only that the claims had no source.
+            if (dropped > 0) malformed.push({ claim, raw });
+            else unsourced.push(claim);
             continue;
         }
 
@@ -201,22 +413,39 @@ export function validateAgentOutput(
         // a citation structurally impossible rather than merely detectable.
         // `doc` locators are exempt: those reference upstream artifacts in this
         // pipeline, which no channel returns.
-        if (allowed && locator.kind !== 'doc' && !allowed.has(locatorKey(locator))) {
+        //
+        // Every locator on a claim has to hold up. One real source does not
+        // license the invented one standing next to it.
+        const invented =
+            allowed &&
+            locators.some((l) => l.kind !== 'doc' && !allowed.has(locatorKey(l)));
+        if (invented) {
             fabricated.push(claim);
             continue;
         }
 
-        claims.push({ claim, locator });
+        claims.push({ claim, locators });
     }
 
     // The accuracy guarantee is only real if this is enforced. An agent that
     // asserts facts with no traceable source has produced unverifiable work,
     // and the repair round exists precisely to give it a chance to fix that.
+    //
+    // Which is why this says more than "you forgot". The first time it fired in
+    // production, the analyst had done everything right — queried FRED for
+    // SP500, DGS10, T10Y2Y, FEDFUNDS, ran two searches — and then wrote
+    // twenty-three claims off that evidence without attaching it. The repair
+    // round was told only that three of them lacked a locator, so it had no
+    // more to work with than the first attempt did, and failed the same way.
+    //
+    // The runtime knows exactly what the tools returned. Handing that catalogue
+    // back turns the repair from "try harder" into a matching exercise.
+    if (malformed.length > 0) {
+        throw new Error(malformedMessage(malformed, allowed));
+    }
+
     if (unsourced.length > 0) {
-        throw new Error(
-            `${unsourced.length} claim(s) have no valid source locator: ` +
-                unsourced.slice(0, 3).map((c) => `"${c.slice(0, 80)}"`).join(', ')
-        );
+        throw new Error(unsourcedMessage(unsourced, allowed));
     }
 
     if (fabricated.length > 0) {
@@ -555,9 +784,11 @@ export async function runNextTask(
             .map((c) => c.kind as ChannelKind);
         const tools = toolsForChannels(kinds);
 
-        // Every locator a channel hands back this run. Citations are checked
-        // against this set, so an agent cannot invent a source.
-        const allowedLocators = new Set<string>();
+        // Every locator a channel hands back this run, keyed for comparison and
+        // kept whole so it can be handed back. Citations are checked against
+        // this, so an agent cannot invent a source — and when one forgets to
+        // cite at all, this is the catalogue the repair round shows it.
+        const allowedLocators = new Map<string, SourceLocator>();
 
         const result = await generateWithTools<AgentOutput>(
             buildPrompt({
@@ -580,7 +811,7 @@ export async function runNextTask(
                 if (!tool) throw new Error(`No such tool: ${name}`);
 
                 const out = await tool.execute(args);
-                for (const loc of out.locators) allowedLocators.add(locatorKey(loc));
+                for (const loc of out.locators) allowedLocators.set(locatorKey(loc), loc);
 
                 await emitEvent(db, {
                     workspaceId,
