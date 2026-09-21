@@ -8,6 +8,10 @@
         {
             "path": "/api/delphi/run",
             "schedule": "0 7 * * *"
+        },
+        {
+            "path": "/api/delphi/world",
+            "schedule": "0 6 * * *"
         }
     ]
 }

@@ -24,6 +24,17 @@ Add these six on the import screen, **before** clicking Deploy.
 | `GOOGLE_GENERATIVE_AI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | `PERPLEXITY_API_KEY` | perplexity.ai → Settings → API |
 | `FRED_API_KEY` | fred.stlouisfed.org → My Account → API Keys |
+| `CRON_SECRET` | Any long random string you invent |
+
+`CRON_SECRET` is what lets the scheduled tick authenticate as the system rather
+than as you. Without it Delphi still works while you have a tab open, but it
+will not run on its own.
+
+**Paste all seven at once** using *"or paste the .env contents"* rather than
+adding them one at a time. Most first-run failures are a value that was copied
+from a dashboard while it was still masked — the key looks set, and every check
+for "is it set?" passes, but it holds `•` characters and cannot be sent in an
+HTTP header at all. `/api/delphi/health` names the variable when that happens.
 
 The `service_role` key bypasses all row-level security. Treat it like a root
 password: Vercel only, never in a commit, never pasted into a chat.
@@ -71,8 +82,12 @@ Nothing spends money before step 5.
 
 ## When something breaks
 
-**Deployments → the deployment → Runtime Logs.** The red text is the real
-error. Most first-run failures are a missing or mistyped environment variable.
+**Open `/api/delphi/health` first.** It names which variable is wrong and why,
+whether the schema is present, and which channels are connected — no secrets in
+it, and no log-digging. `"ready": true` means the configuration is sound.
+
+If it reads ready and something is still wrong, **Deployments → the deployment
+→ Runtime Logs**; the red text is the real error.
 
 A build that succeeds but shows the old dashboard means step 5 was skipped.
 
@@ -85,3 +100,11 @@ A build that succeeds but shows the old dashboard means step 5 was skipped.
 
 Every department carries a budget cap that halts the pipeline when reached.
 The built-in examples default to $5.
+
+## Optional: one more SQL paste
+
+`supabase/migrations/0003_review_authorship.sql` lets Delphi's own turn appear
+in a board transcript, and makes a duplicate workspace impossible rather than
+merely unlikely. Everything works without it — Delphi's turn is simply missing
+from the transcript, where its consolidated recommendation still shows. Paste
+it into the Supabase SQL editor whenever convenient.
