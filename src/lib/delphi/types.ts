@@ -268,7 +268,9 @@ export type DelphiEventType =
     | 'project_done'
     | 'project_failed'
     | 'memory_written'
-    | 'system_mode_changed';
+    | 'system_mode_changed'
+    | 'review_completed'
+    | 'review_message';
 
 export interface DelphiEvent {
     id: number;

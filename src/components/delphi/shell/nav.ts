@@ -29,8 +29,8 @@ export interface NavItem {
 export const NAV: NavItem[] = [
     { href: '/dashboard/delphi', label: 'Mission control', short: 'HQ', icon: Building2, live: true, onCover: true },
     { href: '/dashboard/delphi/outputs', label: 'Outputs', short: 'Outputs', icon: FolderOpen, live: true, onCover: true },
-    { href: '/dashboard/delphi/approvals', label: 'Approvals', short: 'Approve', icon: ShieldCheck, live: false, onCover: true },
-    { href: '/dashboard/delphi/reviews', label: 'Boardroom', short: 'Board', icon: Gavel, live: false },
+    { href: '/dashboard/delphi/approvals', label: 'Approvals', short: 'Approve', icon: ShieldCheck, live: true, onCover: true },
+    { href: '/dashboard/delphi/reviews', label: 'Boardroom', short: 'Board', icon: Gavel, live: true },
     { href: '/dashboard/delphi/roster', label: 'Roster', short: 'Roster', icon: Users, live: true, onCover: true },
     { href: '/dashboard/delphi/world', label: 'World', short: 'World', icon: Globe2, live: false },
     { href: '/dashboard/delphi/memory', label: 'Memory', short: 'Memory', icon: Brain, live: false },

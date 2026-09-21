@@ -363,3 +363,115 @@ export async function setSystemModeAction(
         return { ok: false, error: (err as Error).message };
     }
 }
+
+// ---------------------------------------------------------------------------
+// Approvals — the CHO's consent
+// ---------------------------------------------------------------------------
+
+export type Decision = 'approved' | 'rejected';
+
+/**
+ * Decide on a pending action.
+ *
+ * The board advises and Delphi recommends, but this is the only place a
+ * decision is actually made. Approving releases the task the runtime parked;
+ * rejecting skips it, which leaves the rest of the pipeline free to continue —
+ * the CHO refused one act, not necessarily the whole project. To stop
+ * everything, there is the master switch.
+ */
+export async function decideApprovalAction(
+    approvalId: string,
+    decision: Decision,
+    conditions?: string
+): Promise<ActionResult<{ decision: Decision }>> {
+    const ctx = await getDb();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const { db, workspaceId } = ctx;
+
+    const {
+        data: { user },
+    } = await db.auth.getUser();
+
+    const { data: approval, error: readErr } = await db
+        .from('delphi_approvals')
+        .select('id, task_id, project_id, status, summary, action_type')
+        .eq('id', approvalId)
+        .maybeSingle();
+
+    if (readErr) return { ok: false, error: readErr.message };
+    if (!approval) return { ok: false, error: 'That approval no longer exists.' };
+    if (approval.status !== 'pending') {
+        return { ok: false, error: `Already ${approval.status}.` };
+    }
+
+    const { error: updErr } = await db
+        .from('delphi_approvals')
+        .update({
+            status: decision,
+            conditions: conditions?.trim() || null,
+            decided_by: user?.id ?? null,
+            decided_at: new Date().toISOString(),
+        })
+        .eq('id', approvalId)
+        // Only a still-pending row, so two tabs cannot both decide it.
+        .eq('status', 'pending');
+
+    if (updErr) return { ok: false, error: updErr.message };
+
+    // Release the task the runtime parked. `done` on approval because the work
+    // itself finished — the gate was on the action, not the output.
+    if (approval.task_id) {
+        await db
+            .from('delphi_tasks')
+            .update({ status: decision === 'approved' ? 'done' : 'skipped' })
+            .eq('id', approval.task_id);
+    }
+
+    await emitEvent(db, {
+        workspaceId,
+        projectId: approval.project_id ?? undefined,
+        taskId: approval.task_id ?? undefined,
+        type: 'approval_decided',
+        actor: 'CHO',
+        verb: decision === 'approved' ? (conditions ? 'approved with conditions' : 'approved') : 'rejected',
+        object: approval.summary,
+        payload: { actionType: approval.action_type, conditions: conditions?.trim() || null },
+    });
+
+    revalidatePath('/dashboard/delphi/approvals');
+    revalidatePath('/dashboard/delphi', 'layout');
+    return { ok: true, data: { decision } };
+}
+
+/** Post into a review thread. Discussions run both ways, not just agent to agent. */
+export async function postToThreadAction(
+    threadId: string,
+    content: string
+): Promise<ActionResult> {
+    const ctx = await getDb();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const { db, workspaceId } = ctx;
+
+    const body = content.trim();
+    if (!body) return { ok: false, error: 'Write something first.' };
+
+    const {
+        data: { user },
+    } = await db.auth.getUser();
+    if (!user) return { ok: false, error: 'You are not signed in.' };
+
+    const { error } = await db.from('delphi_messages').insert({
+        workspace_id: workspaceId,
+        thread_id: threadId,
+        author_agent_id: null,
+        author_user_id: user.id,
+        role: 'cho',
+        content: body,
+        round: 99,
+    });
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath('/dashboard/delphi/reviews');
+    return { ok: true };
+}

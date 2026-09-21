@@ -25,6 +25,8 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
 import { reconcileStaleRuns, runNextTask, type StepOutcome } from '@/lib/delphi/runtime';
 import type { Db } from '@/lib/delphi/db';
+import { runAndStoreReview } from '@/lib/delphi/reviews';
+import type { Deliverable } from '@/lib/delphi/board';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,6 +74,13 @@ async function drive(
         const outcome = await runNextTask(db, workspaceId, project.id);
         outcomes.push(outcome);
 
+        // The board reviews before the CHO sees anything, not after. Doing it
+        // here rather than inside runNextTask keeps the executor to one job and
+        // means a review failure cannot lose a task's recorded cost.
+        if (outcome.status === 'awaiting_approval') {
+            await reviewPendingApproval(db, workspaceId, project.id, outcome.approvalId);
+        }
+
         // Only `done` means there is plausibly another task to take straight
         // away. Everything else is a stopping point: blocked on the CHO, out of
         // budget, switched off, or failed.
@@ -81,6 +90,79 @@ async function drive(
     }
 
     return { outcomes, more: true };
+}
+
+
+/**
+ * Convene the board on a freshly parked approval.
+ *
+ * Failure is logged, never thrown: a review that did not run leaves the
+ * approval visible and marked as unreviewed, which the CHO can act on. An
+ * exception here would instead strand the whole tick.
+ */
+async function reviewPendingApproval(
+    db: Db,
+    workspaceId: string,
+    projectId: string,
+    approvalId: string
+): Promise<void> {
+    try {
+        const { data: approval } = await db
+            .from('delphi_approvals')
+            .select('id, task_id, summary, action_type, payload')
+            .eq('id', approvalId)
+            .maybeSingle();
+        if (!approval) return;
+
+        // Already reviewed — a retry of the same tick must not convene twice.
+        const { data: existing } = await db
+            .from('delphi_reviews')
+            .select('id')
+            .eq('approval_id', approvalId)
+            .maybeSingle();
+        if (existing) return;
+
+        // The deliverable the action would act on, so reviewers judge the work
+        // rather than only its one-line summary.
+        const { data: artifact } = approval.task_id
+            ? await db
+                  .from('delphi_artifacts')
+                  .select('id, title, kind, content_md')
+                  .eq('task_id', approval.task_id)
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle()
+            : { data: null };
+
+        const deliverable: Deliverable = {
+            title: artifact?.title ?? approval.summary,
+            kind: artifact?.kind ?? approval.action_type,
+            content: artifact?.content_md ?? approval.summary,
+            proposedAction: {
+                type: approval.action_type as string,
+                summary: approval.summary as string,
+                payload: (approval.payload as Record<string, unknown>)?.raw ?? null,
+            },
+        };
+
+        // Outward-facing by definition — an approval only exists because the
+        // action reaches the world — so this is always a full round.
+        await runAndStoreReview(
+            db,
+            {
+                workspaceId,
+                projectId,
+                taskId: (approval.task_id as string) ?? null,
+                artifactId: (artifact?.id as string) ?? null,
+                approvalId,
+                subjectKind: 'approval',
+            },
+            deliverable,
+            'full'
+        );
+    } catch (err) {
+        console.error('[delphi] board review failed:', (err as Error).message);
+    }
 }
 
 export async function POST(req: NextRequest) {
