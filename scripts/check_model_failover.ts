@@ -190,6 +190,20 @@ async function walk(respond: (model: string) => Reply) {
     r = await walk((m) => (m === CHAIN[0] ? 'busy' : 'ok'));
     ok(r.servedBy === CHAIN[1], 'a saturated model degrades to the next', String(r.servedBy));
 
+    // A quota window rolls over at midnight Pacific and a warm instance can
+    // outlive that, so the memory of a refusal has to expire — otherwise the
+    // process keeps skipping models that came back hours ago.
+    forgetExhaustedModels();
+    await walk((m) => (m === CHAIN[0] ? 'quota' : 'ok'));
+    const remembered = exhaustedModels().includes(CHAIN[0]);
+    const real = Date.now;
+    Date.now = () => real() + 31 * 60 * 1000;
+    const forgotten = !exhaustedModels().includes(CHAIN[0]);
+    const recovered = await walk(() => 'ok');
+    Date.now = real;
+    ok(remembered && forgotten, 'a refusal is remembered, then expires', 'after 30 minutes');
+    ok(recovered.servedBy === CHAIN[0], 'and the model is asked again', String(recovered.servedBy));
+
     // A malformed request fails the same way everywhere, so trying five models
     // just makes the same mistake five times.
     forgetExhaustedModels();

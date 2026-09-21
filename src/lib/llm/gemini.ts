@@ -193,24 +193,47 @@ export function classifyRefusal(err: unknown): Refusal {
 }
 
 /**
- * Models known to be unusable, for the life of this process.
+ * Models observed refusing, and when to stop taking their word for it.
  *
  * One serverless invocation runs several tasks, and each was rediscovering the
  * same exhausted model by calling it again — so the deeper the hole, the more
- * requests were spent digging. Deliberately not persisted: the quota window
- * rolls over, and a fresh process should find out for itself rather than
- * inherit yesterday's verdict.
+ * requests were spent digging. Remembering the refusal fixes that.
+ *
+ * But it has to expire. A quota window rolls over at midnight Pacific, and a
+ * warm instance can outlive that; without a horizon it would keep skipping
+ * models that came back hours ago and insist the day's quota was gone when it
+ * had been restored. Thirty minutes is short enough to recover promptly and
+ * long enough that re-checking costs one request rather than one per task.
+ *
+ * Not persisted, for the same reason: a fresh process should find out for
+ * itself rather than inherit yesterday's verdict.
  */
-const unusable = new Set<string>();
+const REFUSAL_MEMORY_MS = 30 * 60 * 1000;
+
+const refusedUntil = new Map<string, number>();
+
+function isUnusable(model: string, now = Date.now()): boolean {
+    const until = refusedUntil.get(model);
+    if (until === undefined) return false;
+    if (until > now) return true;
+    // Expired. Forget it so the next caller asks rather than re-checking the
+    // clock on a model that has had its chance to come back.
+    refusedUntil.delete(model);
+    return false;
+}
+
+function rememberRefusal(model: string): void {
+    refusedUntil.set(model, Date.now() + REFUSAL_MEMORY_MS);
+}
 
 /** What the runtime observed, so diagnostics can report it rather than guess. */
 export function exhaustedModels(): string[] {
-    return [...unusable];
+    return [...refusedUntil.keys()].filter((m) => isUnusable(m));
 }
 
-/** Test seam. Nothing in the app forgets a refusal; a process restart does. */
+/** Test seam. Nothing in the app forgets a refusal early; a restart does. */
 export function forgetExhaustedModels(): void {
-    unusable.clear();
+    refusedUntil.clear();
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -254,7 +277,7 @@ export async function callWithFallback(
     const chain = fallbackChain(model);
     // Skip what this process has already watched refuse. Re-asking a model
     // that is out of allowance costs another request from the allowance.
-    const candidates = chain.filter((m) => !unusable.has(m));
+    const candidates = chain.filter((m) => !isUnusable(m));
     let lastError: unknown;
     let sawQuota = false;
 
@@ -275,12 +298,13 @@ export async function callWithFallback(
 
             if (refusal === 'quota') {
                 sawQuota = true;
-                unusable.add(candidate);
+                rememberRefusal(candidate);
                 console.warn(`[delphi] ${candidate} is out of quota for the day`);
             } else if (refusal === 'model_gone') {
                 // Specific to this model, not to the request — the rest of the
-                // chain is still worth trying, and this one never will be again.
-                unusable.add(candidate);
+                // chain is still worth trying, and this one will not come back
+                // on its own, but the same horizon keeps the rule simple.
+                rememberRefusal(candidate);
                 console.warn(`[delphi] ${candidate} is not available to this key`);
             } else {
                 console.warn(`[delphi] ${candidate} unavailable, trying the next model`);
@@ -291,7 +315,7 @@ export async function callWithFallback(
     // Report what is actually wrong. Falling through used to surface whatever
     // the last model in the chain happened to say, which is how a day's quota
     // running out got reported as a missing model.
-    if (sawQuota || chain.every((m) => unusable.has(m))) {
+    if (sawQuota || chain.every((m) => isUnusable(m))) {
         throw new ModelQuotaError(chain, lastError);
     }
     throw lastError ?? new Error(`No Gemini model was reachable (tried ${chain.join(', ')}).`);
@@ -417,7 +441,7 @@ export async function generateStructured<T>(
             // this call adds is priced as that model. But if its allowance ran
             // out between the two calls, say so rather than leaking a raw body.
             if (classifyRefusal(err) === 'quota') {
-                unusable.add(servedBy);
+                rememberRefusal(servedBy);
                 throw new ModelQuotaError([servedBy], err);
             }
             throw err;
