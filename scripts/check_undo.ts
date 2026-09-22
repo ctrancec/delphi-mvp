@@ -68,10 +68,10 @@ function fakeDb(tables: Record<string, Record<string, unknown>[]>) {
 function pipeline() {
     return {
         delphi_tasks: [
-            { id: 't1', project_id: 'p1', title: 'Gather', status: 'done', depends_on: null, agent_id: 'a1', revision_count: 0, cho_note: null },
-            { id: 't2', project_id: 'p1', title: 'Analyse', status: 'done', depends_on: 't1', agent_id: 'a2', revision_count: 0, cho_note: null },
-            { id: 't3', project_id: 'p1', title: 'Write', status: 'done', depends_on: 't2', agent_id: 'a3', revision_count: 0, cho_note: null },
-            { id: 't4', project_id: 'p1', title: 'Audit', status: 'done', depends_on: 't3', agent_id: 'a4', revision_count: 0, cho_note: null },
+            { id: 't1', project_id: 'p1', title: 'Gather', status: 'done', depends_on: null, agent_id: 'a1', revision_count: 0, replacement_count: 0, cho_note: null },
+            { id: 't2', project_id: 'p1', title: 'Analyse', status: 'done', depends_on: 't1', agent_id: 'a2', revision_count: 0, replacement_count: 0, cho_note: null },
+            { id: 't3', project_id: 'p1', title: 'Write', status: 'done', depends_on: 't2', agent_id: 'a3', revision_count: 0, replacement_count: 0, cho_note: null },
+            { id: 't4', project_id: 'p1', title: 'Audit', status: 'done', depends_on: 't3', agent_id: 'a4', revision_count: 0, replacement_count: 0, cho_note: null },
         ],
         delphi_agents: [
             { id: 'a2', name: 'Nadia Brandt', origin: 'seed', archived_at: null },

@@ -10,7 +10,7 @@
  */
 
 import type { Artifact, ArtifactKind } from './types';
-import { DelphiDbError, type Db, type Row } from './db';
+import { DelphiDbError, isMissingColumn, type Db, type Row } from './db';
 
 /** Binaries live here. Text deliverables stay inline in `content_md`. */
 export const ARTIFACT_BUCKET = 'delphi-artifacts';
@@ -34,6 +34,8 @@ export interface OutputReview {
 export interface OutputRecord {
     artifact: Artifact;
     review: OutputReview;
+    /** Set when it is in the trash. Restorable until it is purged. */
+    deletedAt: string | null;
     department: ArtifactRef | null;
     project: ArtifactRef | null;
     task: (ArtifactRef & { seq: number }) | null;
@@ -52,6 +54,13 @@ export interface OutputsFilter {
     kind?: ArtifactKind;
     /** ISO timestamp — artifacts created at or after this moment. */
     since?: string;
+    /**
+     * The trash instead of the library. Deleting is reversible, so a trashed
+     * deliverable is still here and still readable — just not among the ones
+     * the CHO is working with, and no longer fed to the pipeline as an
+     * upstream input.
+     */
+    trashed?: boolean;
     limit?: number;
 }
 
@@ -115,6 +124,7 @@ function toOutput(r: Row): OutputRecord {
             revision: Number(r.revision ?? 1),
             supersedes: r.supersedes ?? null,
         },
+        deletedAt: r.deleted_at ?? null,
         department: department ? { id: department.id, title: department.name } : null,
         project: project ? { id: project.id, title: project.title } : null,
         task: task ? { id: task.id, title: task.title, seq: task.seq } : null,
@@ -123,17 +133,33 @@ function toOutput(r: Row): OutputRecord {
 }
 
 export async function listOutputs(db: Db, filter: OutputsFilter = {}): Promise<OutputRecord[]> {
-    let q = db.from('delphi_artifacts').select(SELECT_WITH_PROVENANCE);
+    // Built twice, not mutated: the second run drops the trash filter when the
+    // column is not there yet, and a half-applied query builder cannot be
+    // rewound.
+    const build = (withTrash: boolean) => {
+        let q = db.from('delphi_artifacts').select(SELECT_WITH_PROVENANCE);
 
-    if (filter.workspaceId) q = q.eq('workspace_id', filter.workspaceId);
-    if (filter.departmentId) q = q.eq('project.department_id', filter.departmentId);
-    if (filter.projectId) q = q.eq('project_id', filter.projectId);
-    if (filter.kind) q = q.eq('kind', filter.kind);
-    if (filter.since) q = q.gte('created_at', filter.since);
+        if (filter.workspaceId) q = q.eq('workspace_id', filter.workspaceId);
+        if (filter.departmentId) q = q.eq('project.department_id', filter.departmentId);
+        if (filter.projectId) q = q.eq('project_id', filter.projectId);
+        if (filter.kind) q = q.eq('kind', filter.kind);
+        if (filter.since) q = q.gte('created_at', filter.since);
+        if (withTrash) {
+            q = filter.trashed ? q.not('deleted_at', 'is', null) : q.is('deleted_at', null);
+        }
 
-    const { data, error } = await q
-        .order('created_at', { ascending: false })
-        .limit(filter.limit ?? 200);
+        return q.order('created_at', { ascending: false }).limit(filter.limit ?? 200);
+    };
+
+    let { data, error } = await build(true);
+
+    if (error && isMissingColumn(error)) {
+        // Migration 0006 has not been applied. Nothing can be in the trash, so
+        // the library is simply everything — and the Trash view is empty
+        // rather than broken.
+        if (filter.trashed) return [];
+        ({ data, error } = await build(false));
+    }
 
     if (error) throw new DelphiDbError('listOutputs', error);
     return (data ?? []).map(toOutput);

@@ -201,7 +201,16 @@ function toMemory(r: Row): Memory {
  */
 export function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
     if (!error) return false;
-    return error.code === 'PGRST204' || /could not find the .* column/i.test(error.message ?? '');
+    // Two codes, because the two directions fail differently. `PGRST204` is the
+    // write path — PostgREST rejects a payload naming a column it cannot find.
+    // `42703` is Postgres itself, on a read whose filter or select names one.
+    // Both mean the same thing here: a migration has not been applied yet.
+    return (
+        error.code === 'PGRST204' ||
+        error.code === '42703' ||
+        /could not find the .* column/i.test(error.message ?? '') ||
+        /column .* does not exist/i.test(error.message ?? '')
+    );
 }
 
 export const DELPHI_SLUG = 'delphi-ceo';

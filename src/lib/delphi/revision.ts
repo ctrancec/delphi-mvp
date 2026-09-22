@@ -37,7 +37,7 @@ export const REVISIONS_BEFORE_ESCALATION = 2;
  * the queue. It re-runs in `seq` order behind the step being redone, which is
  * what `depends_on` already guarantees.
  */
-async function dependantsOf(db: Db, projectId: string, taskId: string): Promise<string[]> {
+export async function dependantsOf(db: Db, projectId: string, taskId: string): Promise<string[]> {
     const { data } = await db
         .from('delphi_tasks')
         .select('id, depends_on')

@@ -70,14 +70,27 @@ export async function reviewOutputAction(
         return { ok: false, error: 'Say what needs to change — the agent works from this.' };
     }
 
+    // `*` rather than a column list on purpose: `deleted_at` only exists once
+    // migration 0006 has been applied, and naming it would break reviewing for
+    // anyone who has not run it yet. A star select simply omits what is absent.
     const { data: artifact, error: readErr } = await db
         .from('delphi_artifacts')
-        .select('id, title, task_id, project_id, review_status')
+        .select('*')
         .eq('id', artifactId)
         .maybeSingle();
 
     if (readErr) return { ok: false, error: readErr.message };
     if (!artifact) return { ok: false, error: 'That deliverable no longer exists.' };
+
+    if (artifact.deleted_at) {
+        // Ruling on something in the trash would be a verdict on a document
+        // that is not in the library and is not feeding anything. Say so,
+        // rather than recording a decision with no effect.
+        return {
+            ok: false,
+            error: 'This is in the trash. Restore it first, then rule on it.',
+        };
+    }
 
     if (artifact.review_status === 'superseded') {
         return {

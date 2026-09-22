@@ -538,10 +538,95 @@ export async function reconcileStaleRuns(db: Db, workspaceId: string): Promise<n
     return stale.length;
 }
 
+/** What the previous step handed over. */
+export interface Upstream {
+    title: string;
+    contentMd: string;
+    handoffNote?: string;
+}
+
+export interface UpstreamResolution {
+    upstream: Upstream | null;
+    /** Set when the chain is broken and the pipeline must stop. */
+    halt?: string;
+}
+
+/**
+ * What the previous step left for this one — or why there is nothing.
+ *
+ * Extracted from the runner so it can be asserted directly, because the way
+ * this fails is silent. A broken chain does not throw; it produces a confident
+ * report written from nothing, which reads exactly like a real one.
+ *
+ * The bar is a deliverable, not a status. A task the CHO rejected at the
+ * approval gate is `skipped` but may still have produced perfectly good work,
+ * and the rest of the pipeline can run on it. The inverse is the bug this was
+ * written to close: the guard used to halt only when the upstream task had not
+ * finished, so a step that finished and whose output was later deleted matched
+ * neither branch — no artifact, no halt — and the next agent was told it was
+ * first in the pipeline.
+ */
+export async function resolveUpstream(db: Db, dependsOn: string): Promise<UpstreamResolution> {
+    // An output in the trash has been withdrawn, so it stops feeding the
+    // pipeline. This is the same query that picks the newest version, so
+    // trashing a v2 falls back to v1 rather than to nothing.
+    const live = () =>
+        db
+            .from('delphi_artifacts')
+            .select('title, content_md, data')
+            .eq('task_id', dependsOn)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+    const [first, { data: prevTask }] = await Promise.all([
+        live(),
+        db.from('delphi_tasks').select('status, title, seq').eq('id', dependsOn).maybeSingle(),
+    ]);
+
+    let prev = first.data;
+
+    if (first.error && isMissingColumn(first.error)) {
+        // Migration 0006 has not been applied. Nothing can be in the trash, so
+        // the filter is meaningless — but left unhandled it would halt a
+        // pipeline that is working perfectly well.
+        const { data } = await db
+            .from('delphi_artifacts')
+            .select('title, content_md, data')
+            .eq('task_id', dependsOn)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        prev = data;
+    }
+
+    if (prev) {
+        return {
+            upstream: {
+                title: prev.title,
+                contentMd: prev.content_md ?? '',
+                handoffNote: (prev.data as Record<string, unknown>)?.handoffNote as string | undefined,
+            },
+        };
+    }
+
+    // Nothing to hand over. The two causes need different answers, so they are
+    // named apart: one is a pipeline that failed, the other is a deliberate
+    // deletion that has left a hole behind it.
+    return {
+        upstream: null,
+        halt:
+            prevTask?.status === 'done'
+                ? `Step ${prevTask.seq} (${prevTask.title}) finished, but its deliverable is gone — deleted, or never recorded. There is nothing to work from.`
+                : `Step ${prevTask?.seq ?? '?'} (${prevTask?.title ?? 'upstream'}) is ${prevTask?.status ?? 'missing'} and produced nothing to work from.`,
+    };
+}
+
 export function buildPrompt(opts: {
     objective: string;
     projectBrief: string;
-    upstream: { title: string; contentMd: string; handoffNote?: string } | null;
+    upstream: Upstream | null;
     handoffDossier: string | null;
     /** What the CHO refused, in their own words. Outranks everything else. */
     choNote?: string | null;
@@ -722,42 +807,20 @@ export async function runNextTask(
     // told it was first in the pipeline, so it correctly refused to invent a
     // brief and shipped a polished statement that it had no data. That is the
     // anti-fabrication rule working and the sequencing failing: it should
-    // never have been asked.
-    //
-    // The bar is a deliverable, not a status. A task the CHO rejected at the
-    // approval gate is `skipped` but may still have produced perfectly good
-    // work, and the rest of the pipeline can run on it.
-    let upstream: { title: string; contentMd: string; handoffNote?: string } | null = null;
+    // never have been asked. So a broken chain stops the project here rather
+    // than buying a model call to produce confident emptiness.
+    let upstream: Upstream | null = null;
     if (task.depends_on) {
-        const [{ data: prev }, { data: prevTask }] = await Promise.all([
-            db
-                .from('delphi_artifacts')
-                .select('title, content_md, data')
-                .eq('task_id', task.depends_on)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle(),
-            db
-                .from('delphi_tasks')
-                .select('status, title, seq')
-                .eq('id', task.depends_on)
-                .maybeSingle(),
-        ]);
+        const resolved = await resolveUpstream(db, task.depends_on as string);
 
-        if (prev) {
-            upstream = {
-                title: prev.title,
-                contentMd: prev.content_md ?? '',
-                handoffNote: (prev.data as Record<string, unknown>)?.handoffNote as string | undefined,
-            };
-        } else if (prevTask?.status !== 'done') {
-            // Nothing to hand over and the step before did not finish. Stop
-            // rather than spend a model call producing confident emptiness.
-            const reason = `Step ${prevTask?.seq ?? '?'} (${prevTask?.title ?? 'upstream'}) is ${prevTask?.status ?? 'missing'} and produced nothing to work from.`;
-
+        if (resolved.halt) {
             await db
                 .from('delphi_projects')
-                .update({ status: 'failed', error: reason, finished_at: new Date().toISOString() })
+                .update({
+                    status: 'failed',
+                    error: resolved.halt,
+                    finished_at: new Date().toISOString(),
+                })
                 .eq('id', projectId);
 
             await emitEvent(db, {
@@ -768,11 +831,13 @@ export async function runNextTask(
                 actor: 'Delphi',
                 verb: 'stopped the pipeline before',
                 object: `${agent.name} — ${task.title}`,
-                payload: { reason },
+                payload: { reason: resolved.halt },
             });
 
             return { status: 'halted', reason: 'upstream_failed' };
         }
+
+        upstream = resolved.upstream;
     }
 
     const { data: dossier } = await db

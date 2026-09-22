@@ -7,7 +7,7 @@
  */
 
 import Link from 'next/link';
-import { FolderOpen, Inbox } from 'lucide-react';
+import { FolderOpen, Inbox, Trash2 } from 'lucide-react';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent } from '@/components/ui/card';
 import { OutputCard, KIND_META } from '@/components/delphi/output-card';
@@ -16,10 +16,11 @@ import type { ArtifactKind } from '@/lib/delphi/types';
 import { cn } from '@/lib/utils';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
 import { markOutputsSeen } from '@/lib/delphi/unread';
+import { EmptyTrash, TrashRow } from '@/components/delphi/trash-panel';
 
 export const dynamic = 'force-dynamic';
 
-type Params = { kind?: string; department?: string; project?: string };
+type Params = { kind?: string; department?: string; project?: string; view?: string };
 
 /** Build an href that changes one filter and leaves the rest alone. */
 function filterHref(current: Params, patch: Partial<Params>): string {
@@ -116,12 +117,21 @@ export default async function OutputsPage({
     // computed over everything the CHO can see — counting a filtered set would
     // make every pill read as the number already on screen.
     let all: OutputRecord[] = [];
+    let trashed: OutputRecord[] = [];
     let loadError: string | null = null;
     try {
-        all = await listOutputs(supabase, { limit: 500 });
+        // Two reads, in parallel. The trash count has to come from the trash:
+        // a badge computed from the library would always read zero, since the
+        // library is defined as what is not in it.
+        [all, trashed] = await Promise.all([
+            listOutputs(supabase, { limit: 500 }),
+            listOutputs(supabase, { trashed: true, limit: 200 }),
+        ]);
     } catch (err) {
         loadError = (err as Error).message;
     }
+
+    const inTrash = params.view === 'trash';
 
     const facets = facetsFrom(all);
 
@@ -138,11 +148,13 @@ export default async function OutputsPage({
         <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                    <FolderOpen className="h-6 w-6" /> Outputs
+                    {inTrash ? <Trash2 className="h-6 w-6" /> : <FolderOpen className="h-6 w-6" />}
+                    {inTrash ? 'Trash' : 'Outputs'}
                 </h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                    Every report, document, dataset and clip your agents have made. Each one traces back to
-                    the agent that produced it and the sources it used.
+                    {inTrash
+                        ? 'Deleted deliverables, kept until you say otherwise. They are out of the library and the pipeline no longer feeds them to the next step — restore one and both go back to how they were.'
+                        : 'Every report, document, dataset and clip your agents have made. Each one traces back to the agent that produced it and the sources it used.'}
                 </p>
             </div>
 
@@ -154,7 +166,7 @@ export default async function OutputsPage({
                 </Card>
             )}
 
-            {all.length > 0 && (
+            {(all.length > 0 || trashed.length > 0) && !inTrash && (
                 <div className="space-y-2">
                     <div className="flex flex-wrap gap-1.5">
                         <Pill href={filterHref(params, { kind: undefined })} active={!params.kind}>
@@ -169,6 +181,11 @@ export default async function OutputsPage({
                                 {(KIND_META[kind as ArtifactKind] ?? KIND_META.other).label} {count}
                             </Pill>
                         ))}
+                        {trashed.length > 0 && (
+                            <Pill href="/dashboard/delphi/outputs?view=trash" active={false}>
+                                Trash {trashed.length}
+                            </Pill>
+                        )}
                     </div>
 
                     {facets.departments.length > 1 && (
@@ -193,7 +210,53 @@ export default async function OutputsPage({
                 </div>
             )}
 
-            {visible.length === 0 ? (
+            {inTrash ? (
+                <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                            href="/dashboard/delphi/outputs"
+                            className="text-sm text-sky-400 hover:underline"
+                        >
+                            ← Back to the library
+                        </Link>
+                        {trashed.length > 0 && (
+                            <span className="ml-auto">
+                                <EmptyTrash count={trashed.length} />
+                            </span>
+                        )}
+                    </div>
+
+                    {trashed.length === 0 ? (
+                        <Card className="bg-black/40 border-white/10 border-dashed">
+                            <CardContent className="py-14 text-center space-y-3">
+                                <Trash2 className="h-10 w-10 mx-auto text-muted-foreground/40" />
+                                <h3 className="text-lg font-semibold">The trash is empty</h3>
+                                <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                                    Deleted deliverables come here first and stay until you destroy
+                                    them, so a mis-tap costs nothing.
+                                </p>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        trashed.map((r) => (
+                            <TrashRow
+                                key={r.artifact.id}
+                                item={{
+                                    id: r.artifact.id,
+                                    title: r.artifact.title,
+                                    kindLabel: (
+                                        KIND_META[r.artifact.kind as ArtifactKind] ?? KIND_META.other
+                                    ).label,
+                                    department: r.department?.title ?? null,
+                                    agent: r.agent?.title ?? null,
+                                    step: r.task?.seq ?? null,
+                                    deletedAt: r.deletedAt,
+                                }}
+                            />
+                        ))
+                    )}
+                </div>
+            ) : visible.length === 0 ? (
                 <Empty filtered={isFiltered && all.length > 0} />
             ) : (
                 <>

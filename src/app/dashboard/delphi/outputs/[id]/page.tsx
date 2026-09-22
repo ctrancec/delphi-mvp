@@ -178,6 +178,7 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
             <OutputReview
                 state={{
                     artifactId: artifact.id,
+                    title: artifact.title,
                     status: review.status,
                     note: review.note,
                     reviewedAt: review.reviewedAt,
@@ -185,6 +186,7 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
                     // Nothing to send back to when no task produced it.
                     canSendBack: Boolean(artifact.taskId),
                     agentName: agent?.title ?? null,
+                    deletedAt: record.deletedAt,
                 }}
             />
 
