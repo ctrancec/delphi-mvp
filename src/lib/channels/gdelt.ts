@@ -18,11 +18,13 @@
  * that comes out plausible and wrong.
  *
  * **GDELT rate-limits per outbound address, not per caller**: one request
- * every five seconds. On shared infrastructure somebody else's traffic can
- * trip it — which happened repeatedly while this was being built. So calls are
- * spaced, a throttled reply is retried once after a pause, and if GDELT is
- * still refusing, the agent is told so plainly and handed no citations rather
- * than being left to fill the silence.
+ * every five seconds. Cloud servers share their addresses with many other
+ * tenants, so GDELT often refuses them outright — seen here from both the
+ * build sandbox and Vercel, with the throttle reply itself taking 11–14s. And
+ * retrying is worse than useless: a block that has started is prolonged by
+ * further requests. So there is one attempt per search, spaced from the last;
+ * if GDELT will not answer, the agent is told plainly, handed no citations,
+ * and pointed at RSS and web search — and GDELT is left alone for a while.
  */
 
 const BASE_URL = 'https://api.gdeltproject.org/api/v2/doc/doc';
@@ -30,8 +32,6 @@ const BASE_URL = 'https://api.gdeltproject.org/api/v2/doc/doc';
 /** GDELT asks for one request every five seconds; a margin keeps us honest. */
 const MIN_GAP_MS = 5_500;
 
-/** One pause this long cleared a throttle every time it was tried live. */
-const BACKOFF_MS = 7_000;
 
 /**
  * GDELT is slow under load: live, even its throttle replies took 11–14s. An
@@ -43,11 +43,12 @@ const REQUEST_TIMEOUT_MS = 25_000;
 const PROBE_TIMEOUT_MS = 8_000;
 
 /**
- * After GDELT turns out to be unavailable, stop asking for a while. An agent
- * told to fall back may still try another query or two, and each would pay
- * the full backoff for the same answer; a run has six tool turns and a clock.
+ * After GDELT turns out to be unavailable, stop asking for a while. A refusal
+ * can last a quarter of an hour, asking again only extends it, and an agent
+ * told to fall back may still try another query — each paying the full wait
+ * for the same answer, out of a run with six tool turns and a clock.
  */
-const COOLDOWN_MS = 60_000;
+const COOLDOWN_MS = 10 * 60_000;
 
 export interface GdeltArticle {
     url: string;
@@ -80,8 +81,8 @@ export interface SearchOptions {
     /** Articles to consider. More gives a truer corroboration count. */
     max?: number;
     /**
-     * A health check: one attempt, no backoff, and it neither honours nor
-     * starts a cooldown — a probe exists to find out, not to wait.
+     * A health check: a shorter wait, and it neither honours nor starts a
+     * cooldown — a probe exists to find out, not to wait.
      */
     probe?: boolean;
 }
@@ -209,15 +210,9 @@ export async function searchGdelt(opts: SearchOptions): Promise<GdeltOutcome> {
         };
     }
 
-    const timeoutMs = opts.probe ? PROBE_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
-    let reply = await politely(url, timeoutMs);
-    let down = unavailability(reply);
-
-    if (down && !opts.probe) {
-        await clock.sleep(BACKOFF_MS);
-        reply = await politely(url, timeoutMs);
-        down = unavailability(reply);
-    }
+    // One attempt. Retrying a refusal only prolongs it.
+    const reply = await politely(url, opts.probe ? PROBE_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+    const down = unavailability(reply);
 
     if (down) {
         if (!opts.probe) {

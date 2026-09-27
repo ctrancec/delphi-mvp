@@ -223,21 +223,24 @@ function channel(id: string, kind: string, label: string): Row {
         let t = 0;
         const slept: number[] = [];
         useGdeltClock({ now: () => t, sleep: async (ms) => { slept.push(ms); t += ms; } });
+        route = (url) => (url.includes('gdeltproject.org') ? json({ articles: [] }) : undefined);
 
-        let calls = 0;
-        route = (url) => {
-            if (!url.includes('gdeltproject.org')) return undefined;
-            calls++;
-            return calls === 1 ? { body: THROTTLE } : json({ articles: [] });
-        };
-
-        const r = await searchGdelt({ query: 'Bank of Canada' });
-        ok(r.kind === 'ok', 'a throttle is waited out and retried once');
-        ok(slept.includes(7_000), 'after a real pause', 'the one that cleared it live');
-
-        slept.length = 0;
+        await searchGdelt({ query: 'Bank of Canada' });
         await searchGdelt({ query: 'Bank of Canada' });
         ok(slept.some((ms) => ms >= 5_000), 'back-to-back calls are spaced', `${Math.max(...slept)}ms`);
+    }
+
+    {
+        // Retrying a refusal only prolongs it — measured by others, and seen
+        // here: from shared cloud addresses the throttle did not lift.
+        let t = 0;
+        useGdeltClock({ now: () => t, sleep: async (ms) => { t += ms; } });
+        route = (url) => (url.includes('gdeltproject.org') ? { status: 429, body: THROTTLE } : undefined);
+
+        const before = requested.length;
+        const r = await searchGdelt({ query: 'Bank of Canada' });
+        ok(r.kind === 'unavailable' && r.reason === 'throttled', 'a throttle is an answer, not a reason to ask again');
+        ok(requested.length - before === 1, 'exactly one request is made', 'no retry to prolong the block');
     }
 
     {
@@ -262,20 +265,10 @@ function channel(id: string, kind: string, label: string): Row {
         // seconds each. However GDELT fails to answer, the agent hears the same.
         let t = 0;
         useGdeltClock({ now: () => t, sleep: async (ms) => { t += ms; } });
-        let calls = 0;
-        route = (url) => {
-            if (!url.includes('gdeltproject.org')) return undefined;
-            calls++;
-            return calls === 1 ? { status: 503, body: 'Service Unavailable' } : json({ articles: [] });
-        };
-        const recovered = await searchGdelt({ query: 'Bank of Canada' });
-        ok(recovered.kind === 'ok', 'a 503 is backed off and retried, not thrown');
-
-        useGdeltClock({ now: () => t, sleep: async (ms) => { t += ms; } });
         route = (url) => (url.includes('gdeltproject.org') ? { status: 503, body: 'Service Unavailable' } : undefined);
         const [tool] = toolsForChannels(['gdelt']);
         const res = await tool.execute({ query: 'Bank of Canada' });
-        ok(res.locators.length === 0 && /not answering right now \(HTTP 503\)/.test(res.content), 'a lasting 503 reads as down, with nothing to cite');
+        ok(res.locators.length === 0 && /not answering right now \(HTTP 503\)/.test(res.content), 'a 503 reads as down, not thrown, with nothing to cite');
 
         // The cooldown: an agent told to fall back may still try once more.
         const before = requested.length;
@@ -283,10 +276,14 @@ function channel(id: string, kind: string, label: string): Row {
         ok(requested.length === before, 'a second try inside the cooldown asks nothing', 'no second wait');
         ok(/still cooling off/.test(again.content) && again.locators.length === 0, 'and says why');
 
-        t += 61_000;
+        t += 5 * 60_000;
+        await tool.execute({ query: 'five minutes later' });
+        ok(requested.length === before, 'still cooling off five minutes on', 'a refusal can last a quarter hour');
+
+        t += 6 * 60_000;
         route = (url) => (url.includes('gdeltproject.org') ? json({ articles: [] }) : undefined);
         const later = await searchGdelt({ query: 'Bank of Canada' });
-        ok(later.kind === 'ok' && requested.length > before, 'after the cooldown it asks again');
+        ok(later.kind === 'ok' && requested.length > before, 'after ten minutes it asks again');
     }
 
     {
