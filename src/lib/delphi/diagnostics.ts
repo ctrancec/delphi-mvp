@@ -12,10 +12,14 @@
  * when something is broken right now.
  */
 
-import { channelHealth, isChannelConfigured } from '@/lib/channels/registry';
+import {
+    CHANNEL_CAPABILITIES,
+    channelHealth,
+    implementedChannelKinds,
+    isChannelConfigured,
+} from '@/lib/channels/registry';
 import { exhaustedModels, MODEL_FALLBACKS } from '@/lib/llm/gemini';
 import { readSupabaseKey, readSupabaseUrl } from '@/lib/supabase/env';
-import type { ChannelKind } from './types';
 import type { Db } from './db';
 
 export type Level = 'ok' | 'degraded' | 'error' | 'absent';
@@ -120,11 +124,8 @@ function envChecks(): Check[] {
 // Channels — the part that decides whether agents touch reality
 // ---------------------------------------------------------------------------
 
-const CHANNEL_PURPOSE: Partial<Record<ChannelKind, string>> = {
-    perplexity: 'Live web search. Most research agents depend on it.',
-    fred: 'US macro and market series. The market analyst depends on it.',
-    rss: 'News ingestion. Feeds both the news agents and Delphi World.',
-};
+/** Channels that run without credentials. "Check the key" is no help for these. */
+const KEYLESS = new Set<string>(['rss', 'boc', 'gdelt']);
 
 async function channelChecks(db: Db | null, workspaceId: string | null): Promise<Check[]> {
     const health = await channelHealth();
@@ -143,7 +144,7 @@ async function channelChecks(db: Db | null, workspaceId: string | null): Promise
         bound = new Set((data ?? []).map((c) => c.kind as string));
     }
 
-    for (const kind of ['perplexity', 'fred', 'rss'] as ChannelKind[]) {
+    for (const kind of implementedChannelKinds()) {
         const configured = isChannelConfigured(kind);
         const probe = health[kind];
         const isBound = bound.has(kind);
@@ -159,18 +160,20 @@ async function channelChecks(db: Db | null, workspaceId: string | null): Promise
         } else if (!probe?.ok) {
             level = 'error';
             detail = probe?.detail ?? 'The live probe failed.';
-            remedy = 'The key is present but the service did not answer. Check the key is still valid.';
+            remedy = KEYLESS.has(kind)
+                ? 'This is a public service that needs no key, so the fault is on its side. Agents fall back to other sources until it recovers.'
+                : 'The key is present but the service did not answer. Check the key is still valid.';
         } else if (!isBound) {
             level = 'degraded';
             detail = 'Reachable, but not bound to this workspace.';
             remedy =
-                'No agent has this channel in its tool set, so none will use it. It binds itself when Delphi next staffs a department.';
+                'No agent has this channel in its tool set yet, so none will use it. It binds itself on the next engine run, or when Delphi next staffs a department — a newly added kind may first need its database migration.';
         } else {
             level = 'ok';
             detail = probe.detail ?? 'Answering, and bound to agents.';
         }
 
-        checks.push({ name: kind, level, detail: `${detail} ${CHANNEL_PURPOSE[kind] ?? ''}`.trim(), remedy });
+        checks.push({ name: kind, level, detail: `${detail} ${CHANNEL_CAPABILITIES[kind] ?? ''}`.trim(), remedy });
     }
 
     return checks;

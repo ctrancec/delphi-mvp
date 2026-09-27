@@ -12,7 +12,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ALL_SEED_AGENTS, composeSystemPrompt, type SeedAgent } from './roster';
+import { ALL_SEED_AGENTS, composeSystemPrompt, seedAgentBySlug, type SeedAgent } from './roster';
 import { DEFAULT_SCHEDULE, effectiveState, type SystemState } from './schedule';
 import type {
     Agent,
@@ -444,6 +444,8 @@ export async function seedChannels(
         { kind: 'perplexity', label: 'Perplexity Web Search', credentialRef: 'PERPLEXITY_API_KEY' },
         { kind: 'fred', label: 'FRED Economic Data', credentialRef: 'FRED_API_KEY' },
         { kind: 'rss', label: 'Global News Feeds', credentialRef: null },
+        { kind: 'boc', label: 'Bank of Canada', credentialRef: null },
+        { kind: 'gdelt', label: 'GDELT Global News', credentialRef: null },
     ];
 
     const usable = candidates.filter((c) => isChannelConfigured(c.kind));
@@ -459,19 +461,113 @@ export async function seedChannels(
 
     if (toInsert.length === 0) return { inserted: 0, skipped: have.size };
 
-    const { error } = await db.from('delphi_channels').insert(
-        toInsert.map((c) => ({
+    // One row at a time, so a kind this database cannot hold yet costs only
+    // that row. Inserted as a batch, one unknown kind failed the lot — and the
+    // channels that did work never arrived either.
+    let inserted = 0;
+    for (const c of toInsert) {
+        const { error } = await db.from('delphi_channels').insert({
             workspace_id: workspaceId,
             kind: c.kind,
             label: c.label,
             credential_ref: c.credentialRef,
             enabled: true,
             health: 'unknown',
-        }))
-    );
-    if (error) throw new DelphiDbError('seedChannels/insert', error);
+        });
 
-    return { inserted: toInsert.length, skipped: have.size };
+        if (!error) {
+            inserted++;
+        } else if (error.code === '23514') {
+            // The kind check predates this channel. Skipped, not thrown: the
+            // CHO runs the migration, and until then everything else works.
+            console.warn(
+                `[delphi] channel "${c.kind}" needs a migration before it can be recorded (0007 adds boc and gdelt); skipped.`
+            );
+        } else if (error.code !== '23505') {
+            // 23505 is a concurrent sync that got there first — the row exists,
+            // which is all this wanted.
+            throw new DelphiDbError('seedChannels/insert', error);
+        }
+    }
+
+    return { inserted, skipped: have.size };
+}
+
+/**
+ * Hand already-hired agents the channels their role now calls for.
+ *
+ * An agent's tools are fixed when it is inserted: `seedRoster` resolves its
+ * required channels to ids once, and nothing looked again. So a channel added
+ * later never reached anyone who already existed — the market analyst would
+ * have gone on without the Bank of Canada however long it had been connected.
+ *
+ * Adds, never removes. An agent may hold more than its role lists, because the
+ * CHO or a re-staffing gave it more; taking a channel away mid-run would strip
+ * a working agent's tools. Idempotent: a second run changes nothing.
+ */
+export async function bindRosterChannels(
+    db: Db,
+    workspaceId: string
+): Promise<{ updated: number }> {
+    const channels = await listChannels(db, workspaceId);
+    const channelsByKind = new Map<string, string>();
+    for (const c of channels) if (!channelsByKind.has(c.kind)) channelsByKind.set(c.kind, c.id);
+
+    const { data: agents, error } = await db
+        .from('delphi_agents')
+        .select('id, slug, channel_ids')
+        .eq('workspace_id', workspaceId)
+        .eq('origin', 'seed');
+    if (error) throw new DelphiDbError('bindRosterChannels/read', error);
+
+    let updated = 0;
+    for (const a of agents ?? []) {
+        const spec = seedAgentBySlug(a.slug as string);
+        if (!spec) continue;
+
+        const held = ((a.channel_ids as string[] | null) ?? []).filter(Boolean);
+        const missing = spec.requiredChannels
+            .map((k) => channelsByKind.get(k))
+            .filter((id): id is string => Boolean(id) && !held.includes(id as string));
+        if (!missing.length) continue;
+
+        const { error: upErr } = await db
+            .from('delphi_agents')
+            .update({ channel_ids: [...held, ...new Set(missing)] })
+            .eq('id', a.id);
+        if (upErr) throw new DelphiDbError('bindRosterChannels/update', upErr);
+        updated++;
+    }
+
+    return { updated };
+}
+
+/**
+ * Bring a workspace's channels up to date with this deployment, and give them
+ * to the agents whose roles call for them.
+ *
+ * Provisioning only seeds channels for a brand-new workspace, so without this a
+ * channel shipped later never got a row in an existing one — and nobody could
+ * be bound to it. Runs at the top of each engine tick and before Delphi
+ * staffs, which is when a new channel has to be in place; deliberately not on
+ * page load, which stays one query.
+ *
+ * Never throws. A failed sync leaves every agent exactly the tools it had,
+ * which is a worse outcome than a working sync but a far better one than a
+ * tick that dies before running anything.
+ */
+export async function syncChannels(
+    db: Db,
+    workspaceId: string
+): Promise<{ inserted: number; bound: number } | null> {
+    try {
+        const { inserted } = await seedChannels(db, workspaceId);
+        const { updated } = await bindRosterChannels(db, workspaceId);
+        return { inserted, bound: updated };
+    } catch (err) {
+        console.warn(`[delphi] channel sync failed for ${workspaceId}: ${(err as Error).message}`);
+        return null;
+    }
 }
 
 /** Channel kinds an agent may actually be assigned work against. */

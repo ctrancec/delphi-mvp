@@ -68,7 +68,10 @@ const LOCATOR_SCHEMA: Schema = {
                 'One observation in a data series. The date is not optional — without it this points at a series rather than at a number, and cannot be checked.',
             properties: {
                 kind: { type: Type.STRING, enum: ['series'] },
-                seriesId: { type: Type.STRING, description: 'e.g. SP500, DGS10.' },
+                seriesId: {
+                    type: Type.STRING,
+                    description: 'Exactly as the tool gave it, e.g. SP500 or DGS10 (FRED), BOC:FXUSDCAD (Bank of Canada).',
+                },
                 date: { type: Type.STRING, description: 'The observation date, YYYY-MM-DD.' },
             },
             required: ['kind', 'seriesId', 'date'],

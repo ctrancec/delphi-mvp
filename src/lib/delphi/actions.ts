@@ -19,12 +19,13 @@ import { ensureWorkspace, provisionWorkspace } from './bootstrap';
 import { sendTaskBack } from './revision';
 import { hireProposedAgent } from './replacement';
 import {
-    availableChannelKinds,
     emitEvent,
     getAgentStats,
     insertInventedAgent,
     listAgents,
+    listChannels,
     recallMemories,
+    syncChannels,
     type Db,
 } from './db';
 import { hiringScore, shortlistCandidates } from './delphi';
@@ -149,20 +150,26 @@ export async function proposeHiringAction(
         // CHO cannot resolve from the UI. Provision rather than failing.
         await provisionWorkspace(db, workspaceId);
 
+        // Before the roster is read, so Delphi plans with every channel this
+        // deployment has — and sees each agent holding what its role calls for.
+        await syncChannels(db, workspaceId);
+
         const agents = await listAgents(db, workspaceId);
         if (agents.length === 0) {
             return { ok: false, error: 'The roster could not be seeded. Check the database connection.' };
         }
 
         const stats = await getAgentStats(db, workspaceId);
-        const channels = await availableChannelKinds(db, workspaceId);
+        const connected = await listChannels(db, workspaceId, true);
         const memories = await recallMemories(db, workspaceId, dept.charter);
         const shortlist = shortlistCandidates(agents, stats, dept.charter);
 
         const result = await proposePlan({
             brief: dept.charter,
             candidates: shortlist,
-            availableChannels: channels,
+            availableChannels: [...new Set(connected.map((c) => c.kind))],
+            // So each candidate is shown with the channels it actually holds.
+            channelKindsById: Object.fromEntries(connected.map((c) => [c.id, c.kind])),
             memories,
             departmentName: dept.name,
         });

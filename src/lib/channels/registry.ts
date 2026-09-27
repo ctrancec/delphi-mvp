@@ -13,7 +13,9 @@
 
 import { Type, type FunctionDeclaration } from '@google/genai';
 import type { ChannelKind, SourceLocator } from '@/lib/delphi/types';
+import { BOC_PREFIX, COMMON_BOC_SERIES, fetchBocSeries, isBocConfigured } from './boc';
 import { COMMON_SERIES, fetchSeries, isFredConfigured } from './fred';
+import { corroborate, isGdeltConfigured, searchGdelt } from './gdelt';
 import { isPerplexityConfigured, webSearch } from './perplexity';
 import { fetchFeeds, isRssConfigured } from './rss';
 
@@ -171,6 +173,179 @@ const rssTool: ChannelTool = {
     },
 };
 
+const bocTool: ChannelTool = {
+    declaration: {
+        name: 'boc_series',
+        description:
+            'Fetch official Bank of Canada data: USD/CAD, the overnight policy rate, Government of Canada bond yields, core CPI. Returns dated observations. Cite as a series locator with the BOC: id and the exact date.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                seriesIds: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: `Valet series ids. Common ones: ${Object.entries(COMMON_BOC_SERIES)
+                        .map(([id, label]) => `${id} (${label})`)
+                        .join('; ')}`,
+                },
+                recent: {
+                    type: Type.INTEGER,
+                    description: 'How many recent observations per series (default 10).',
+                },
+            },
+            required: ['seriesIds'],
+        },
+    },
+    async execute(args) {
+        const ids = Array.isArray(args.seriesIds)
+            ? args.seriesIds.map(String)
+            : [String(args.seriesIds ?? '')];
+        const { series, unknown } = await fetchBocSeries(ids, {
+            recent: args.recent ? Number(args.recent) : 10,
+        });
+
+        // Every observation is citable, so a claim about any point is checkable.
+        const locators: SourceLocator[] = series.flatMap((s) =>
+            s.points.map((p) => ({
+                kind: 'series' as const,
+                seriesId: `${BOC_PREFIX}${s.seriesId}`,
+                date: p.date,
+            }))
+        );
+
+        const blocks = series.map((s) =>
+            s.latest
+                ? [
+                      `${s.label} (${BOC_PREFIX}${s.seriesId})`,
+                      `Latest: ${s.latest.value} on ${s.latest.date}`,
+                      'Observations (oldest first):',
+                      s.points.map((p) => `  ${p.date}  ${p.value}`).join('\n'),
+                  ].join('\n')
+                : `${BOC_PREFIX}${s.seriesId}: Valet returned no observations. Do not assert a value for it.`
+        );
+
+        if (unknown.length) {
+            blocks.push(
+                `Valet has no series named ${unknown.join(', ')}. Do not assert anything for ${unknown.length === 1 ? 'it' : 'them'}.`
+            );
+        }
+
+        return {
+            content: [
+                ...blocks,
+                locators.length
+                    ? 'Cite any of these as {kind:"series", seriesId:"BOC:<id>", date} using the exact date shown.'
+                    : 'NOTHING CITABLE RETURNED — do not assert any Bank of Canada figure from this call.',
+            ].join('\n\n'),
+            locators,
+        };
+    },
+};
+
+/** How many reports, and outlets per report, to spell out. The count covers all of them. */
+const GDELT_REPORTS_SHOWN = 15;
+const GDELT_OUTLETS_PER_REPORT = 5;
+
+const gdeltTool: ChannelTool = {
+    declaration: {
+        name: 'global_news_search',
+        description:
+            'Search world news in 65+ languages (GDELT). Every article carries its source country and language, and results are grouped by report, so you can tell real corroboration — distinct reports from unrelated outlets — from one wire story republished many times. Cite the exact URLs it returns.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                query: {
+                    type: Type.STRING,
+                    description: 'Keywords or a "quoted phrase". Be specific; very short or very common terms are rejected.',
+                },
+                languages: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'Only articles in these languages, named in English: french, spanish, arabic, chinese, russian. Omit for all.',
+                },
+                countries: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'Only outlets in these countries, named in English without spaces: france, unitedkingdom, china. Omit for all.',
+                },
+                days: { type: Type.INTEGER, description: 'How far back, in days (default 3, max 90).' },
+                max: { type: Type.INTEGER, description: 'Articles to consider (default 50, max 100).' },
+            },
+            required: ['query'],
+        },
+    },
+    async execute(args) {
+        const days = args.days ? Number(args.days) : 3;
+        const outcome = await searchGdelt({
+            query: String(args.query ?? ''),
+            languages: Array.isArray(args.languages) ? args.languages.map(String) : undefined,
+            countries: Array.isArray(args.countries) ? args.countries.map(String) : undefined,
+            days,
+            max: args.max ? Number(args.max) : 50,
+        });
+
+        if (outcome.kind === 'unavailable') {
+            const why =
+                outcome.reason === 'throttled'
+                    ? 'GDELT is rate-limiting requests from this server right now'
+                    : `GDELT is not answering right now (${outcome.detail})`;
+            return {
+                content: `${why}, so it returned nothing. Use rss_headlines or web_search instead. Assert nothing from this call.`,
+                locators: [],
+            };
+        }
+        if (outcome.kind === 'refused') {
+            return {
+                content: `GDELT rejected the query "${outcome.query}": ${outcome.message}\nRephrase it with longer, more specific terms, or use another source. Assert nothing from this call.`,
+                locators: [],
+            };
+        }
+        if (!outcome.articles.length) {
+            return {
+                content: `GDELT found no coverage of "${outcome.query}" in the last ${days} day(s). Absence here is not evidence either way — say only that this search found nothing.`,
+                locators: [],
+            };
+        }
+
+        const c = corroborate(outcome.articles);
+        const shown = c.reports.slice(0, GDELT_REPORTS_SHOWN);
+
+        // Only what is shown is citable: a URL the agent never saw cannot be
+        // the source of anything it wrote.
+        const locators: SourceLocator[] = shown.flatMap((r) =>
+            r.articles.slice(0, GDELT_OUTLETS_PER_REPORT).map((a) => ({ kind: 'url' as const, url: a.url }))
+        );
+
+        const reportLines = shown.map((r, i) => {
+            const carried =
+                r.outlets.length > 1
+                    ? `${r.outlets.length} outlets — ONE report, republished; not ${r.outlets.length} confirmations`
+                    : '1 outlet';
+            return [
+                `${i + 1}. "${r.headline}"`,
+                `   ${carried} · ${r.countries.join(', ') || 'country unknown'} · ${r.languages.join(', ') || 'language unknown'} · first seen ${r.firstSeen}`,
+                ...r.articles
+                    .slice(0, GDELT_OUTLETS_PER_REPORT)
+                    .map((a) => `   - ${a.domain} (${a.country || '?'}, ${a.language || '?'}) ${a.url}`),
+            ].join('\n');
+        });
+
+        return {
+            content: [
+                `GDELT, last ${days} day(s): ${c.articles} articles from ${c.outlets} outlets in ${c.countries.length} countr${c.countries.length === 1 ? 'y' : 'ies'} (${c.countries.join(', ')}), in ${c.languages.join(', ')}.`,
+                `Distinct reports: ${c.reports.length}. Syndicated copies: ${c.syndicatedCopies} — outlets carrying a headline another outlet already ran.`,
+                'Corroboration means distinct reports from unrelated outlets, ideally in different countries. A headline carried verbatim by several outlets is a single source.',
+                '',
+                `Reports, most widely carried first${c.reports.length > shown.length ? ` (top ${shown.length} of ${c.reports.length})` : ''}:`,
+                reportLines.join('\n'),
+                '',
+                'Titles are in the original language; translate what you rely on. Cite the exact URLs above.',
+            ].join('\n'),
+            locators,
+        };
+    },
+};
+
 // ---------------------------------------------------------------------------
 // Resolution
 // ---------------------------------------------------------------------------
@@ -179,6 +354,31 @@ const BY_KIND: Partial<Record<ChannelKind, ChannelTool[]>> = {
     perplexity: [webSearchTool],
     fred: [fredTool],
     rss: [rssTool],
+    boc: [bocTool],
+    gdelt: [gdeltTool],
+};
+
+/** Every kind the registry can actually run, in a stable order. */
+export function implementedChannelKinds(): ChannelKind[] {
+    return Object.keys(BY_KIND) as ChannelKind[];
+}
+
+/**
+ * What each channel can do — and, as much to the point, what it cannot.
+ *
+ * Delphi reads these when it staffs a department. Before this it saw bare
+ * names ("- perplexity"), which is how it came to hand equity screening to an
+ * analyst whose only tool was web search: nothing told it that web search
+ * cannot screen stocks. The "cannot" half of each line is what prevents that,
+ * and it is also what the health page shows beside each channel.
+ */
+export const CHANNEL_CAPABILITIES: Partial<Record<ChannelKind, string>> = {
+    perplexity:
+        'Live web search with cited answers — current events and general research. Not a data feed: it cannot screen stocks or return reliable prices, ratios or time series.',
+    fred: 'US macro and market time series from the St. Louis Fed — rates, yields, CPI, jobs, GDP, the S&P 500 level, some FX. Dated observations. No per-company or per-ticker data.',
+    rss: 'Recent headlines from a fixed set of major English-language outlets. Headlines and links only.',
+    boc: 'Official Bank of Canada data — USD/CAD, the overnight policy rate, Government of Canada 2/5/10-year and long bond yields, core CPI. Dated observations. Canada only; no company data.',
+    gdelt: 'World news in 65+ languages, each article tagged with its source country and language, grouped so syndicated copies are not mistaken for independent confirmation. Headlines and links, not full text.',
 };
 
 /** Whether a channel kind has credentials to actually run. */
@@ -190,6 +390,10 @@ export function isChannelConfigured(kind: ChannelKind): boolean {
             return isFredConfigured();
         case 'rss':
             return isRssConfigured();
+        case 'boc':
+            return isBocConfigured();
+        case 'gdelt':
+            return isGdeltConfigured();
         default:
             // Not implemented yet: worldmonitor, higgsfield, gdrive, telegram,
             // local_fs, mcp, http.
@@ -226,12 +430,16 @@ export async function channelHealth(): Promise<
     const { checkPerplexityHealth } = await import('./perplexity');
     const { checkFredHealth } = await import('./fred');
     const { checkRssHealth } = await import('./rss');
+    const { checkBocHealth } = await import('./boc');
+    const { checkGdeltHealth } = await import('./gdelt');
 
-    const [perplexity, fred, rss] = await Promise.all([
+    const [perplexity, fred, rss, boc, gdelt] = await Promise.all([
         checkPerplexityHealth(),
         checkFredHealth(),
         checkRssHealth(),
+        checkBocHealth(),
+        checkGdeltHealth(),
     ]);
 
-    return { perplexity, fred, rss };
+    return { perplexity, fred, rss, boc, gdelt };
 }

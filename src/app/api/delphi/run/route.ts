@@ -24,7 +24,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
 import { reconcileStaleRuns, runNextTask, type StepOutcome } from '@/lib/delphi/runtime';
-import type { Db } from '@/lib/delphi/db';
+import { syncChannels, type Db } from '@/lib/delphi/db';
 import { runAndStoreReview } from '@/lib/delphi/reviews';
 import type { Deliverable } from '@/lib/delphi/board';
 import { runRetrospective } from '@/lib/delphi/retrospective';
@@ -59,6 +59,10 @@ async function drive(
 
     // Anything that died mid-flight would otherwise block its pipeline forever.
     await reconcileStaleRuns(db, workspaceId);
+
+    // Before any agent picks up work, make sure it holds every channel its role
+    // calls for — including ones shipped after it was hired. Never throws.
+    await syncChannels(db, workspaceId);
 
     for (let step = 0; step < MAX_STEPS; step++) {
         if (Date.now() > deadline) return { outcomes, more: true };

@@ -17,6 +17,7 @@
 
 import { Type, type Schema } from '@google/genai';
 import { generateStructured, type GenerateResult } from '@/lib/llm/gemini';
+import { CHANNEL_CAPABILITIES } from '@/lib/channels/registry';
 import { AGENT_PROTOCOL } from './roster';
 import type {
     Agent,
@@ -56,7 +57,10 @@ WHAT YOU WEIGH
 - Track record: completion rate, quality score, and cost history where present.
   An agent with no history is unproven, not bad - weigh it neutrally.
 - Channel availability. Do not assign an agent work that needs a channel this
-  workspace has not connected. Say so instead.
+  workspace has not connected. Say so instead. Each candidate lists the
+  channels it holds, and each connected channel says what it can and cannot
+  supply: give data work only to an agent holding a channel that supplies that
+  data. Web search is not a data feed.
 
 Be concrete and decisive. Your rationale is read by the CHO before they approve
 the hire, so it must say what this agent will actually contribute.
@@ -365,7 +369,7 @@ export function validateStaffingPlan(value: unknown, knownSlugs: Set<string>): S
 // Prompt assembly
 // ---------------------------------------------------------------------------
 
-function renderCandidate(c: Candidate): string {
+function renderCandidate(c: Candidate, channelKindsById?: Record<string, ChannelKind>): string {
     const s = c.stats;
     const history =
         s && s.tasksCompleted + s.tasksFailed > 0
@@ -374,13 +378,21 @@ function renderCandidate(c: Candidate): string {
               `, avg cost $${(s.totalCostUsd / Math.max(1, s.tasksCompleted)).toFixed(4)}`
             : 'no history yet (unproven)';
 
-    return [
+    const lines = [
         `- slug: ${c.agent.slug}`,
         `  name: ${c.agent.name} — ${c.agent.title}`,
         `  skills: ${c.agent.skills.join(', ') || '(none)'}`,
-        `  cost tier: ${c.agent.costTier}`,
-        `  track record: ${history}`,
-    ].join('\n');
+    ];
+
+    // What this agent can actually reach. Without it Delphi matched on skills
+    // alone, and handed equity screening to an analyst who only had web search.
+    if (channelKindsById) {
+        const held = [...new Set(c.agent.channelIds.map((id) => channelKindsById[id]).filter(Boolean))];
+        lines.push(`  channels: ${held.length ? held.join(', ') : 'none — cannot reach any live source'}`);
+    }
+
+    lines.push(`  cost tier: ${c.agent.costTier}`, `  track record: ${history}`);
+    return lines.join('\n');
 }
 
 export interface ProposePlanInput {
@@ -388,6 +400,8 @@ export interface ProposePlanInput {
     candidates: Candidate[];
     /** Channel kinds this workspace actually has connected and enabled. */
     availableChannels: ChannelKind[];
+    /** Enabled channel id → kind, so each candidate is shown with what it holds. */
+    channelKindsById?: Record<string, ChannelKind>;
     /** Organizational memory retrieved for this brief. */
     memories?: Memory[];
     departmentName?: string;
@@ -405,14 +419,17 @@ export function buildPlanPrompt(input: ProposePlanInput): string {
     sections.push(
         '',
         'ROSTER — agents available to hire:',
-        input.candidates.map(renderCandidate).join('\n') || '(roster is empty)'
+        input.candidates.map((c) => renderCandidate(c, input.channelKindsById)).join('\n') ||
+            '(roster is empty)'
     );
 
     sections.push(
         '',
-        'CONNECTED CHANNELS (an agent can only use these):',
+        'CONNECTED CHANNELS (an agent can only use these, and only if it holds them):',
         input.availableChannels.length
-            ? input.availableChannels.map((c) => `- ${c}`).join('\n')
+            ? input.availableChannels
+                  .map((c) => `- ${c} — ${CHANNEL_CAPABILITIES[c] ?? 'no description available'}`)
+                  .join('\n')
             : '- (none connected yet)'
     );
 

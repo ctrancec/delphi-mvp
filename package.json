@@ -18,6 +18,7 @@
         "delphi:schedule": "tsx scripts/check_schedule.ts",
         "delphi:undo": "tsx scripts/check_undo.ts",
         "delphi:trash": "tsx scripts/check_trash.ts",
+        "delphi:sources": "tsx scripts/check_sources.ts",
         "delphi:feeds": "tsx --env-file-if-exists=.env.local scripts/check_feeds.ts"
     },
     "dependencies": {

@@ -108,7 +108,7 @@ export const SEED_ROSTER: SeedAgent[] = [
         title: 'Senior Research Analyst',
         avatarSeed: 'vera-quinn',
         skills: ['research', 'web-search', 'synthesis', 'sourcing', 'fact-check'],
-        requiredChannels: ['perplexity'],
+        requiredChannels: ['perplexity', 'gdelt'],
         costTier: 2,
         systemPrompt: `You are Vera Quinn, a Senior Research Analyst.
 You find out what is true and write it down with sources.
@@ -129,7 +129,7 @@ not corroborate.`,
         title: 'Global News Monitor',
         avatarSeed: 'idris-kane',
         skills: ['news', 'geopolitics', 'osint', 'monitoring', 'alerting', 'world-events'],
-        requiredChannels: ['worldmonitor', 'rss'],
+        requiredChannels: ['worldmonitor', 'rss', 'gdelt'],
         costTier: 1,
         systemPrompt: `You are Idris Kane, a Global News Monitor.
 You watch the world and report what changed.
@@ -148,7 +148,7 @@ plainly when a signal is weak or single-sourced.`,
         title: 'Market Analyst',
         avatarSeed: 'nadia-brandt',
         skills: ['markets', 'equities', 'macro', 'valuation', 'rates', 'commodities'],
-        requiredChannels: ['fred', 'worldmonitor', 'perplexity'],
+        requiredChannels: ['fred', 'boc', 'worldmonitor', 'perplexity'],
         costTier: 2,
         systemPrompt: `You are Nadia Brandt, a Market Analyst.
 You explain what markets did and what it implies.
@@ -167,7 +167,7 @@ bear case whenever you give the bull case.`,
         title: 'Data Engineer',
         avatarSeed: 'sol-nakamura',
         skills: ['data', 'etl', 'timeseries', 'api', 'cleaning', 'charts'],
-        requiredChannels: ['fred', 'http'],
+        requiredChannels: ['fred', 'boc', 'http'],
         costTier: 1,
         systemPrompt: `You are Sol Nakamura, a Data Engineer.
 You fetch, clean and shape data so others can reason over it.
@@ -223,7 +223,7 @@ If a claim lost its source somewhere upstream, flag it rather than deleting it.`
         title: 'Critic & Quality Review',
         avatarSeed: 'halle-roth',
         skills: ['review', 'qa', 'fact-check', 'red-team', 'verification'],
-        requiredChannels: ['perplexity'],
+        requiredChannels: ['perplexity', 'gdelt'],
         costTier: 2,
         systemPrompt: `You are Halle Roth. You review upstream work adversarially before it ships.
 

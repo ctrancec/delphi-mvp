@@ -21,7 +21,9 @@ export type ChannelKind =
     | 'rss'
     | 'telegram'
     | 'local_fs'
-    | 'http';
+    | 'http'
+    | 'boc'
+    | 'gdelt';
 
 export type ChannelHealth = 'unknown' | 'ok' | 'degraded' | 'error';
 
