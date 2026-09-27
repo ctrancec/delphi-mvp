@@ -31,7 +31,8 @@ import {
     implementedChannelKinds,
     toolsForChannels,
 } from '../src/lib/channels/registry';
-import { bindRosterChannels, seedChannels, syncChannels } from '../src/lib/delphi/db';
+import { bindRosterChannels, listChannels, seedChannels, syncChannels } from '../src/lib/delphi/db';
+import { channelChecks, worst } from '../src/lib/delphi/diagnostics';
 import { buildPlanPrompt } from '../src/lib/delphi/delphi';
 import type { Candidate } from '../src/lib/delphi/types';
 
@@ -442,6 +443,61 @@ function channel(id: string, kind: string, label: string): Row {
         ok(kinds.every((k) => Boolean(CHANNEL_CAPABILITIES[k])), 'and every channel has a capability line');
         const names = toolsForChannels(['boc', 'gdelt', 'worldmonitor']).map((t) => t.declaration.name);
         ok(names.join(',') === 'boc_series,global_news_search', 'an unbuilt channel is still dropped, not faked');
+    }
+
+    console.log('\nSwitched off means off\n' + '─'.repeat(74));
+
+    const REASON = 'Switched off by the CHO: its news API refuses shared cloud servers.';
+    const off = (row: Row): Row => ({ ...row, enabled: false, health_detail: REASON });
+
+    {
+        const tables: Record<string, Row[]> = {
+            delphi_channels: [
+                channel('c-rss', 'rss', 'Global News Feeds'),
+                channel('c-boc', 'boc', 'Bank of Canada'),
+                off(channel('c-gdelt', 'gdelt', 'GDELT Global News')),
+            ],
+        };
+        const db = fakeDb(tables);
+
+        await seedChannels(db, 'ws-1');
+        const rows = tables.delphi_channels.filter((c) => c.kind === 'gdelt');
+        ok(rows.length === 1 && rows[0].enabled === false, 'a sync neither re-enables it nor adds a second row');
+        ok(rows[0].health_detail === REASON, 'and the reason stays on record');
+
+        const live = await listChannels(db, 'ws-1', true);
+        ok(!live.some((c) => c.kind === 'gdelt'), 'it is not among the channels tools are built from', 'what the runtime reads');
+    }
+
+    {
+        // Everything but the Bank of Canada is off, so the only probe allowed
+        // to run is one the fake network can answer. GDELT's must not run.
+        const tables: Record<string, Row[]> = {
+            delphi_channels: [
+                off(channel('c-pplx', 'perplexity', 'Perplexity Web Search')),
+                off(channel('c-fred', 'fred', 'FRED Economic Data')),
+                off(channel('c-rss', 'rss', 'Global News Feeds')),
+                channel('c-boc', 'boc', 'Bank of Canada'),
+                off(channel('c-gdelt', 'gdelt', 'GDELT Global News')),
+            ],
+        };
+        route = (url) =>
+            url.includes('bankofcanada.ca')
+                ? json({ observations: [{ d: '2026-09-25', FXUSDCAD: { v: '1.4145' } }] })
+                : undefined;
+
+        const before = requested.length;
+        const checks = await channelChecks(fakeDb(tables), 'ws-1');
+        const made = requested.slice(before);
+        const gdelt = checks.find((c) => c.name === 'gdelt')!;
+        const boc = checks.find((c) => c.name === 'boc')!;
+
+        ok(gdelt.level === 'off', 'diagnostics shows it as switched off, not broken');
+        ok(gdelt.detail.startsWith(REASON), 'with the reason it was switched off');
+        const toGdelt = made.filter((u) => u.includes('gdeltproject.org')).length;
+        ok(toGdelt === 0, 'and never contacts it', `${toGdelt} of ${made.length} request(s) went to GDELT`);
+        ok(boc.level === 'ok', 'a channel that is on is still checked', 'Bank of Canada');
+        ok(worst(checks) === 'ok', 'switching things off does not make the verdict worse');
     }
 
     console.log(`\n${failed ? R + failed + ' failed' : G + 'all passed'}${RS}\n`);

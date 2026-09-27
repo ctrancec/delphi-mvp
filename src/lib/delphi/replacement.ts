@@ -353,7 +353,9 @@ async function draftSpecialist(
     incumbentName: string
 ): Promise<InventedAgentSpec | null> {
     try {
-        const kinds = (await listChannels(db, workspaceId)).map((c) => c.kind);
+        // Only channels that are switched on: a specialist drafted around one
+        // the CHO turned off would be hired unable to do the work.
+        const kinds = (await listChannels(db, workspaceId, true)).map((c) => c.kind);
 
         const { data } = await generateStructured<InventedAgentSpec>(
             [

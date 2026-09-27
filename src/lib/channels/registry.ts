@@ -423,23 +423,30 @@ export function toolsForChannels(kinds: ChannelKind[]): ChannelTool[] {
     return tools;
 }
 
-/** Health across every channel kind the registry knows how to run. */
-export async function channelHealth(): Promise<
-    Record<string, { ok: boolean; detail?: string }>
-> {
-    const { checkPerplexityHealth } = await import('./perplexity');
-    const { checkFredHealth } = await import('./fred');
-    const { checkRssHealth } = await import('./rss');
-    const { checkBocHealth } = await import('./boc');
-    const { checkGdeltHealth } = await import('./gdelt');
+type HealthCheck = () => Promise<{ ok: boolean; detail?: string }>;
 
-    const [perplexity, fred, rss, boc, gdelt] = await Promise.all([
-        checkPerplexityHealth(),
-        checkFredHealth(),
-        checkRssHealth(),
-        checkBocHealth(),
-        checkGdeltHealth(),
-    ]);
+/** Loaded on demand, so a probe that is not asked for is never even imported. */
+const HEALTH_CHECKS: Partial<Record<ChannelKind, () => Promise<HealthCheck>>> = {
+    perplexity: async () => (await import('./perplexity')).checkPerplexityHealth,
+    fred: async () => (await import('./fred')).checkFredHealth,
+    rss: async () => (await import('./rss')).checkRssHealth,
+    boc: async () => (await import('./boc')).checkBocHealth,
+    gdelt: async () => (await import('./gdelt')).checkGdeltHealth,
+};
 
-    return { perplexity, fred, rss, boc, gdelt };
+/**
+ * Live health for the channels the registry can run — or just the ones named.
+ *
+ * `only` exists for channels the CHO has switched off: probing one of those
+ * spends a request on a service Delphi has stopped using, and GDELT's probe
+ * alone can hold the diagnostics page for eight seconds.
+ */
+export async function channelHealth(
+    only?: ChannelKind[]
+): Promise<Record<string, { ok: boolean; detail?: string }>> {
+    const kinds = (only ?? implementedChannelKinds()).filter((k) => HEALTH_CHECKS[k]);
+    const results = await Promise.all(
+        kinds.map(async (k) => [k, await (await HEALTH_CHECKS[k]!())()] as const)
+    );
+    return Object.fromEntries(results);
 }

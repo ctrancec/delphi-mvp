@@ -22,7 +22,12 @@ import { exhaustedModels, MODEL_FALLBACKS } from '@/lib/llm/gemini';
 import { readSupabaseKey, readSupabaseUrl } from '@/lib/supabase/env';
 import type { Db } from './db';
 
-export type Level = 'ok' | 'degraded' | 'error' | 'absent';
+/**
+ * `off` is a decision, not a fault: a channel the CHO switched off. It ranks
+ * with `ok`, so choosing to stop using something never makes the page read
+ * worse than it did before.
+ */
+export type Level = 'ok' | 'degraded' | 'error' | 'absent' | 'off';
 
 export interface Check {
     name: string;
@@ -44,9 +49,10 @@ export interface DiagnosticsReport {
     generatedAt: string;
 }
 
-const WORST: Record<Level, number> = { ok: 0, degraded: 1, absent: 2, error: 3 };
+const WORST: Record<Level, number> = { ok: 0, off: 0, degraded: 1, absent: 2, error: 3 };
 
-function worst(checks: Check[]): Level {
+/** Exported for scripts/check_sources.ts. */
+export function worst(checks: Check[]): Level {
     return checks.reduce<Level>(
         (acc, c) => (WORST[c.level] > WORST[acc] ? c.level : acc),
         'ok'
@@ -127,22 +133,32 @@ function envChecks(): Check[] {
 /** Channels that run without credentials. "Check the key" is no help for these. */
 const KEYLESS = new Set<string>(['rss', 'boc', 'gdelt']);
 
-async function channelChecks(db: Db | null, workspaceId: string | null): Promise<Check[]> {
-    const health = await channelHealth();
+/** Exported for scripts/check_sources.ts. */
+export async function channelChecks(db: Db | null, workspaceId: string | null): Promise<Check[]> {
     const checks: Check[] = [];
 
     // What is bound in the database, as opposed to merely configured in the
     // environment. A channel with no row is unreachable no matter how valid
     // its API key is — which is a failure that looks exactly like success.
-    let bound = new Set<string>();
+    //
+    // Read before probing, because a channel the CHO has switched off is not
+    // probed at all: it would spend a request on a service Delphi has stopped
+    // using, and then report a failure nobody needs to act on.
+    const bound = new Set<string>();
+    const switchedOff = new Map<string, string | null>();
     if (db && workspaceId) {
         const { data } = await db
             .from('delphi_channels')
-            .select('kind')
-            .eq('workspace_id', workspaceId)
-            .eq('enabled', true);
-        bound = new Set((data ?? []).map((c) => c.kind as string));
+            .select('kind, enabled, health_detail')
+            .eq('workspace_id', workspaceId);
+        const rows = (data ?? []) as { kind: string; enabled: boolean; health_detail: string | null }[];
+        for (const r of rows) if (r.enabled) bound.add(r.kind);
+        for (const r of rows) {
+            if (!r.enabled && !bound.has(r.kind)) switchedOff.set(r.kind, r.health_detail);
+        }
     }
+
+    const health = await channelHealth(implementedChannelKinds().filter((k) => !switchedOff.has(k)));
 
     for (const kind of implementedChannelKinds()) {
         const configured = isChannelConfigured(kind);
@@ -153,7 +169,10 @@ async function channelChecks(db: Db | null, workspaceId: string | null): Promise
         let detail: string;
         let remedy: string | undefined;
 
-        if (!configured) {
+        if (switchedOff.has(kind)) {
+            level = 'off';
+            detail = `${switchedOff.get(kind) ?? 'Switched off.'} Agents are not given its tools, and it is not checked.`;
+        } else if (!configured) {
             level = 'absent';
             detail = 'No API key configured.';
             remedy = `Agents will never call ${kind}. Add its key and redeploy.`;

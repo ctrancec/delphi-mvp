@@ -8,7 +8,7 @@
  * a source. That is the failure this page is built to make loud.
  */
 
-import { Activity, AlertTriangle, CheckCircle2, CircleSlash, Stethoscope, XCircle } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, CircleSlash, PowerOff, Stethoscope, XCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
@@ -24,6 +24,7 @@ const LEVELS: Record<Level, { icon: typeof CheckCircle2; tone: string; label: st
     ok: { icon: CheckCircle2, tone: 'text-emerald-400', label: 'ok' },
     degraded: { icon: AlertTriangle, tone: 'text-amber-400', label: 'degraded' },
     absent: { icon: CircleSlash, tone: 'text-muted-foreground', label: 'not configured' },
+    off: { icon: PowerOff, tone: 'text-muted-foreground', label: 'switched off' },
     error: { icon: XCircle, tone: 'text-red-400', label: 'error' },
 };
 
