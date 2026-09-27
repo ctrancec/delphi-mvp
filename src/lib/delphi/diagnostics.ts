@@ -130,6 +130,18 @@ function envChecks(): Check[] {
 // Channels — the part that decides whether agents touch reality
 // ---------------------------------------------------------------------------
 
+/** What a missing setting actually costs, where "add its key" would undersell or mislead. */
+const NOT_CONFIGURED: Partial<Record<string, { detail: string; remedy: string }>> = {
+    sec: {
+        detail: 'SEC_CONTACT is not set. SEC refuses requests that do not name a contact address.',
+        remedy: 'Add SEC_CONTACT in Vercel — an email SEC may use to reach you about Delphi\'s requests — and redeploy. Until then there are no fundamentals and no stock screens.',
+    },
+    finnhub: {
+        detail: 'No Finnhub key. Screens run on SEC fundamentals alone, without prices.',
+        remedy: 'A free key from finnhub.io, added in Vercel as FINNHUB_API_KEY, adds prices, 52-week ranges, returns and news for US listings.',
+    },
+};
+
 /** Channels that run without credentials. "Check the key" is no help for these. */
 const KEYLESS = new Set<string>(['rss', 'boc', 'gdelt']);
 
@@ -174,8 +186,8 @@ export async function channelChecks(db: Db | null, workspaceId: string | null): 
             detail = `${switchedOff.get(kind) ?? 'Switched off.'} Agents are not given its tools, and it is not checked.`;
         } else if (!configured) {
             level = 'absent';
-            detail = 'No API key configured.';
-            remedy = `Agents will never call ${kind}. Add its key and redeploy.`;
+            detail = NOT_CONFIGURED[kind]?.detail ?? 'No API key configured.';
+            remedy = NOT_CONFIGURED[kind]?.remedy ?? `Agents will never call ${kind}. Add its key and redeploy.`;
         } else if (!probe?.ok) {
             level = 'error';
             detail = probe?.detail ?? 'The live probe failed.';

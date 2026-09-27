@@ -50,7 +50,15 @@ export class ChannelUnavailableError extends Error {
  */
 export async function webSearch(
     query: string,
-    opts: { model?: string; recencyDays?: number } = {}
+    opts: {
+        model?: string;
+        recencyDays?: number;
+        /**
+         * Ask for a JSON answer in this shape (OpenAI-style `json_schema`,
+         * which Perplexity honours). The answer is then that JSON, as text.
+         */
+        jsonSchema?: { name: string; schema: Record<string, unknown> };
+    } = {}
 ): Promise<SearchResult> {
     const ai = getClient();
     if (!ai) throw new ChannelUnavailableError('perplexity', 'PERPLEXITY_API_KEY is not set');
@@ -81,6 +89,9 @@ export async function webSearch(
         temperature: 0.2,
         // Not in the OpenAI types, but Perplexity honours it.
         ...(recency ? ({ search_recency_filter: recency } as Record<string, unknown>) : {}),
+        ...(opts.jsonSchema
+            ? ({ response_format: { type: 'json_schema', json_schema: opts.jsonSchema } } as Record<string, unknown>)
+            : {}),
     });
 
     const choice = response.choices[0];

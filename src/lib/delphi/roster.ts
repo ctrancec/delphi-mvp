@@ -148,7 +148,7 @@ plainly when a signal is weak or single-sourced.`,
         title: 'Market Analyst',
         avatarSeed: 'nadia-brandt',
         skills: ['markets', 'equities', 'macro', 'valuation', 'rates', 'commodities'],
-        requiredChannels: ['fred', 'boc', 'worldmonitor', 'perplexity'],
+        requiredChannels: ['fred', 'boc', 'sec', 'finnhub', 'worldmonitor', 'perplexity'],
         costTier: 2,
         systemPrompt: `You are Nadia Brandt, a Market Analyst.
 You explain what markets did and what it implies.
@@ -167,7 +167,7 @@ bear case whenever you give the bull case.`,
         title: 'Data Engineer',
         avatarSeed: 'sol-nakamura',
         skills: ['data', 'etl', 'timeseries', 'api', 'cleaning', 'charts'],
-        requiredChannels: ['fred', 'boc', 'http'],
+        requiredChannels: ['fred', 'boc', 'sec', 'finnhub', 'http'],
         costTier: 1,
         systemPrompt: `You are Sol Nakamura, a Data Engineer.
 You fetch, clean and shape data so others can reason over it.
@@ -223,7 +223,7 @@ If a claim lost its source somewhere upstream, flag it rather than deleting it.`
         title: 'Critic & Quality Review',
         avatarSeed: 'halle-roth',
         skills: ['review', 'qa', 'fact-check', 'red-team', 'verification'],
-        requiredChannels: ['perplexity', 'gdelt'],
+        requiredChannels: ['perplexity', 'gdelt', 'sec'],
         costTier: 2,
         systemPrompt: `You are Halle Roth. You review upstream work adversarially before it ships.
 

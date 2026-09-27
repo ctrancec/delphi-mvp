@@ -18,6 +18,35 @@ import { COMMON_SERIES, fetchSeries, isFredConfigured } from './fred';
 import { corroborate, isGdeltConfigured, searchGdelt } from './gdelt';
 import { isPerplexityConfigured, webSearch } from './perplexity';
 import { fetchFeeds, isRssConfigured } from './rss';
+import {
+    fundamentalsFor,
+    isSecConfigured,
+    MAX_DEBT_YEARS,
+    qualityLeaders,
+    recentFilings,
+    type Fundamentals,
+} from './sec';
+import {
+    companyNews,
+    isFinnhubConfigured,
+    MAX_TICKERS_PER_CALL,
+    snapshots,
+    upcomingEarnings,
+    type Snapshot,
+} from './finnhub';
+import {
+    filingsOf,
+    money,
+    NEAR_LOW,
+    pct,
+    publishedLists,
+    screenMomentum,
+    screenValue,
+    TOP_N,
+    type ListKind,
+    type Market,
+    type ScreenResult,
+} from './screens';
 
 export interface ToolCallResult {
     /** Shown to the model. */
@@ -346,6 +375,405 @@ const gdeltTool: ChannelTool = {
     },
 };
 
+
+// ---------------------------------------------------------------------------
+// Market data: SEC filings, Finnhub prices, and the screens built on both
+// ---------------------------------------------------------------------------
+
+const tickerList = (v: unknown): string[] =>
+    (Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : []).map((x) => String(x).trim()).filter(Boolean);
+
+const urlLocators = (urls: string[]): SourceLocator[] => [...new Set(urls)].map((url) => ({ kind: 'url', url }));
+
+/** One company's fundamentals as the agent reads them, figures first, filings after. */
+function describeFundamentals(f: Fundamentals): string {
+    const cur = f.currency;
+    const lines = [
+        `${f.ticker} — ${f.name} (${f.taxonomy === 'ifrs-full' ? 'IFRS' : 'US GAAP'}, ${cur})${f.revenue ? ` — fiscal year to ${f.revenue.end}` : ''}`,
+    ];
+    const rev = f.revenue ? `revenue ${money(f.revenue.value, cur)}${f.revenueGrowth !== undefined ? ` (${pct(f.revenueGrowth)} y/y)` : ''}` : null;
+    const ni = f.netIncome ? `net income ${money(f.netIncome.value, cur)}${f.earningsGrowth !== undefined ? ` (${pct(f.earningsGrowth)} y/y)` : ''}` : null;
+    if (rev || ni) lines.push(`  ${[rev, ni].filter(Boolean).join(' · ')}`);
+    if (f.freeCashFlow !== undefined) {
+        lines.push(
+            `  operating cash flow ${money(f.operatingCashFlow?.value, cur)} − capex ${money(Math.abs(f.capex?.value ?? 0), cur)} = free cash flow ${money(f.freeCashFlow, cur)}${f.fcfMargin !== undefined ? ` (margin ${pct(f.fcfMargin)})` : ''}`
+        );
+    }
+    if (f.debt) {
+        lines.push(
+            `  debt ${money(f.debt.value, cur)} · cash ${money(f.cash?.value, cur)} · net debt ${money(f.netDebt, cur)}${f.netDebtToFcf !== undefined ? ` = ${f.netDebtToFcf.toFixed(1)} years of free cash flow` : ''}${f.debtToEquity !== undefined ? ` · debt/equity ${f.debtToEquity.toFixed(2)}` : ''}`
+        );
+    }
+    if (f.quarterlyGrowth) {
+        const q = f.quarterlyGrowth;
+        lines.push(`  latest quarter sales ${pct(q.latest)} y/y, previous quarter ${pct(q.previous)} — ${q.accelerating ? 'accelerating' : 'not accelerating'}`);
+    }
+    const filings = filingsOf(f);
+    if (filings.length) lines.push(`  from: ${filings.join(' , ')}`);
+    return lines.join('\n');
+}
+
+function describeSnapshot(s: Snapshot): string {
+    const lines = [`${s.symbol}${s.asked.toUpperCase() !== s.symbol ? ` (asked as ${s.asked})` : ''} — as of ${s.asOf}${s.note ? ` — ${s.note}` : ''}`];
+    lines.push(
+        `  price ${s.price.toFixed(2)} (day ${s.dayChangePct !== undefined ? `${s.dayChangePct >= 0 ? '+' : '−'}${Math.abs(s.dayChangePct).toFixed(2)}%` : '—'}) · 5-day ${fmtPts(s.ret5d)} · 13-week ${fmtPts(s.ret13w)} · 26-week ${fmtPts(s.ret26w)} · 52-week ${fmtPts(s.ret52w)}`
+    );
+    if (s.low52 !== undefined && s.high52 !== undefined) {
+        lines.push(
+            `  52-week range ${s.low52.toFixed(2)}${s.low52Date ? ` (${s.low52Date})` : ''} – ${s.high52.toFixed(2)}${s.high52Date ? ` (${s.high52Date})` : ''} → ${pct(s.aboveLow)} above the low, ${pct(s.belowHigh !== undefined ? -s.belowHigh : undefined)} from the high`
+        );
+    }
+    const ratios = [
+        s.pe !== undefined ? `P/E ${s.pe.toFixed(1)}` : null,
+        s.fcfYield !== undefined ? `FCF yield ${s.fcfYield.toFixed(1)}%` : null,
+        s.debtToEquity !== undefined ? `debt/equity ${s.debtToEquity.toFixed(2)}` : null,
+        s.dividendYield !== undefined ? `dividend yield ${s.dividendYield.toFixed(2)}%` : null,
+        s.beta !== undefined ? `beta ${s.beta.toFixed(2)}` : null,
+        s.marketCapM !== undefined ? `market value ${money(s.marketCapM * 1e6)}` : null,
+    ].filter(Boolean);
+    if (ratios.length) lines.push(`  ${ratios.join(' · ')}`);
+    if (s.volumeRatio !== undefined) {
+        // The ratio only: it holds whatever unit the averages come in.
+        lines.push(`  volume: 10-day average ${s.volumeRatio.toFixed(2)}× the 3-month average`);
+    }
+    const rs = [
+        s.rs4w !== undefined ? `4-week ${fmtPts(s.rs4w)}` : null,
+        s.rs13w !== undefined ? `13-week ${fmtPts(s.rs13w)}` : null,
+        s.rs26w !== undefined ? `26-week ${fmtPts(s.rs26w)}` : null,
+    ].filter(Boolean);
+    if (rs.length) lines.push(`  relative to the S&P 500: ${rs.join(' · ')}`);
+    if (s.missing.length) lines.push(`  not reported: ${s.missing.join(', ')}`);
+    return lines.join('\n');
+}
+
+const fmtPts = (v: number | undefined) =>
+    v === undefined || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
+
+const snapshotLocator = (s: Snapshot): SourceLocator => ({ kind: 'series', seriesId: `FINNHUB:${s.symbol}`, date: s.asOf });
+
+/** The method note first: a screen that hid how it was built would read as a full-market scan. */
+function describeScreen(r: ScreenResult): { content: string; locators: SourceLocator[] } {
+    const origins = new Map<string, number>();
+    for (const row of r.rows) for (const o of row.origins) origins.set(o, (origins.get(o) ?? 0) + 1);
+
+    const head = [
+        `HOW THIS ${r.kind.toUpperCase()} SCREEN WAS BUILT — emulated from free sources, not a scan of every listed stock.`,
+        `Stages: ${r.stages.map((st) => `${st.count} ${st.label}`).join(' → ')}.`,
+        `Data: SEC filings (latest fiscal year and quarters)${r.priced ? '; Finnhub prices, 52-week ranges and returns' : ''}.`,
+        `Not checked: ${r.notChecked.join('; ')}.`,
+        '',
+    ];
+
+    const locators: SourceLocator[] = [];
+    const body = r.rows.map((row, i) => {
+        const f = row.fundamentals;
+        const s = row.snapshot;
+        const bits = [
+            s ? `price ${s.price.toFixed(2)} (${s.asOf})` : null,
+            s?.aboveLow !== undefined ? `${pct(s.aboveLow)} above the 52-week low` : null,
+            s?.ret13w !== undefined ? `13-week ${fmtPts(s.ret13w)}` : null,
+            s?.ret26w !== undefined ? `26-week ${fmtPts(s.ret26w)}` : null,
+            f?.freeCashFlow !== undefined ? `FCF ${money(f.freeCashFlow, f.currency)}` : null,
+            f?.fcfMargin !== undefined ? `FCF margin ${pct(f.fcfMargin)}` : null,
+            f?.netDebtToFcf !== undefined ? `net debt ${f.netDebtToFcf.toFixed(1)} yrs of FCF` : null,
+            f?.quarterlyGrowth ? `latest-quarter sales ${pct(f.quarterlyGrowth.latest)}` : null,
+            s?.pe !== undefined ? `P/E ${s.pe.toFixed(1)}` : null,
+            s?.volumeRatio !== undefined ? `volume ${s.volumeRatio.toFixed(2)}× normal` : null,
+        ].filter(Boolean);
+        if (s) locators.push(snapshotLocator(s));
+        const filings = filingsOf(f);
+        locators.push(...urlLocators(filings));
+        return [
+            `${i + 1}. ${row.symbol} — ${row.name} (${row.origins.join('; ') || 'candidate'})`,
+            `   ${bits.join(' · ') || 'no figures'}`,
+            ...(row.flags.length ? [`   flags: ${row.flags.join('; ')}`] : []),
+            ...(filings.length ? [`   filings: ${filings.join(' , ')}`] : []),
+        ].join('\n');
+    });
+
+    const tail = r.unscreened.length
+        ? [
+              '',
+              `NOT SCREENED BY THE NUMBERS (${r.unscreened.length}) — no free data; report these only from web-sourced facts, and say so:`,
+              ...r.unscreened.map((u) => `- ${u.symbol}: ${u.why}`),
+          ]
+        : [];
+
+    return {
+        content: [
+            ...head,
+            r.rows.length ? `Top ${Math.min(r.rows.length, TOP_N)}:` : 'Nothing passed every test. Say so plainly rather than loosening the tests.',
+            ...body,
+            ...tail,
+            '',
+            'Cite a price figure as {kind:"series", seriesId:"FINNHUB:<SYMBOL>", date} and a fundamental as the filing URL shown with it.',
+        ].join('\n'),
+        locators,
+    };
+}
+
+const secFundamentalsTool: ChannelTool = {
+    declaration: {
+        name: 'sec_fundamentals',
+        description:
+            'Official fundamentals from SEC filings for US-listed companies (and Canadian or foreign companies that file with the SEC): revenue and growth, net income, operating cash flow, capex, free cash flow and margin, debt, cash, leverage, and whether sales growth is accelerating. Every figure comes with the filing it was reported in. No share prices.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                tickers: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'US ticker symbols, e.g. AAPL, CNI, CCJ. For a Toronto listing use its US ticker if it has one.',
+                },
+            },
+            required: ['tickers'],
+        },
+    },
+    async execute(args) {
+        const { found, unknown, noData } = await fundamentalsFor(tickerList(args.tickers).slice(0, 40));
+        const blocks = found.map(describeFundamentals);
+        if (unknown.length) blocks.push(`SEC has no company with the ticker ${unknown.join(', ')}. Do not assert fundamentals for ${unknown.length === 1 ? 'it' : 'them'} from this tool.`);
+        if (noData.length) blocks.push(`SEC knows ${noData.join(', ')} but has no usable financial data for ${noData.length === 1 ? 'it' : 'them'}.`);
+        return {
+            content: [...blocks, 'Cite a figure as the filing URL shown with it.'].join('\n\n'),
+            locators: urlLocators(found.flatMap(filingsOf)),
+        };
+    },
+};
+
+const secFilingsTool: ChannelTool = {
+    declaration: {
+        name: 'sec_filings',
+        description:
+            'Recent SEC filings for companies — earnings releases, material events, leadership changes, annual and quarterly reports — each with a plain description and a link. Use for catalysts and corporate events.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                tickers: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'US ticker symbols.' },
+                days: { type: Type.INTEGER, description: 'How far back, in days (default 30).' },
+            },
+            required: ['tickers'],
+        },
+    },
+    async execute(args) {
+        const days = args.days ? Number(args.days) : 30;
+        const { filings, unknown } = await recentFilings(tickerList(args.tickers).slice(0, 40), days);
+        const lines = filings.map((f) => `- ${f.filed} ${f.ticker} ${f.form}: ${f.what}\n  ${f.url}`);
+        return {
+            content: [
+                filings.length ? `${filings.length} filings in the last ${days} days:\n${lines.join('\n')}` : `No filings in the last ${days} days.`,
+                ...(unknown.length ? [`SEC has no company with the ticker ${unknown.join(', ')}.`] : []),
+                'Cite the exact filing URLs above.',
+            ].join('\n\n'),
+            locators: urlLocators(filings.map((f) => f.url)),
+        };
+    },
+};
+
+const secLeadersTool: ChannelTool = {
+    declaration: {
+        name: 'sec_quality_leaders',
+        description:
+            'Rank the whole US market on fundamentals alone, from SEC filings. "value": profitable, cash-generative companies whose net debt is at most four years of free cash flow. "momentum": companies whose sales are growing and accelerating. Revenue of at least $500M stands in for size. No prices — pair with market_snapshot or a screen.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                style: { type: Type.STRING, enum: ['value', 'momentum'], description: 'Which kind of strength to rank on.' },
+                limit: { type: Type.INTEGER, description: 'How many to return (default 25, max 100).' },
+            },
+            required: ['style'],
+        },
+    },
+    async execute(args) {
+        const style = args.style === 'momentum' ? 'momentum' : 'value';
+        const leaders = await qualityLeaders(style, args.limit ? Number(args.limit) : 25);
+        return {
+            content: [
+                `The ${leaders.length} strongest US companies on ${style === 'value' ? 'cash generation, profit and manageable debt' : 'accelerating sales growth'}, from SEC filings${style === 'value' ? ` (net debt ≤ ${MAX_DEBT_YEARS} years of free cash flow)` : ''}:`,
+                '',
+                leaders.map((l, i) => `${i + 1}. ${describeFundamentals(l.fundamentals)}`).join('\n\n'),
+            ].join('\n'),
+            locators: urlLocators(leaders.flatMap((l) => filingsOf(l.fundamentals))),
+        };
+    },
+};
+
+const publishedListsTool: ChannelTool = {
+    declaration: {
+        name: 'published_stock_lists',
+        description:
+            'Collect the stock lists finance sites and the TSX publish — stocks near their 52-week lows, or momentum leaders — for the US or Canada, through web search. Returns each source with its link and date, the symbols it names, and how many independent sources named each. These are candidates to screen, not conclusions: pass the symbols to screen_value or screen_momentum.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                list: { type: Type.STRING, enum: ['near_52_week_lows', 'momentum_leaders'], description: 'Which kind of list.' },
+                market: { type: Type.STRING, enum: ['us', 'canada'], description: 'US exchanges or the Toronto Stock Exchange.' },
+            },
+            required: ['list', 'market'],
+        },
+    },
+    async execute(args) {
+        if (!isPerplexityConfigured()) {
+            return { content: 'Web search is not configured, so published lists cannot be read. Assert nothing from this call.', locators: [] };
+        }
+        const list = (args.list === 'momentum_leaders' ? 'momentum_leaders' : 'near_52_week_lows') as ListKind;
+        const market = (args.market === 'canada' ? 'canada' : 'us') as Market;
+        const r = await publishedLists(list, market);
+
+        if (!r.sources.length) {
+            return {
+                content: `No list could be traced to a page the search actually read${r.dropped.uncited ? ` (${r.dropped.uncited} symbols came from sources it could not cite, and were dropped)` : ''}. Assert nothing from this call.`,
+                locators: [],
+                searchRequests: 1,
+            };
+        }
+
+        return {
+            content: [
+                `${r.sources.length} published ${list === 'near_52_week_lows' ? '52-week-low' : 'momentum'} list(s) for ${market === 'us' ? 'US exchanges' : 'the TSX'}:`,
+                ...r.sources.map((s) => `- ${s.name}${s.asOf ? ` (as of ${s.asOf})` : ''}: ${s.symbols.join(', ')}\n  ${s.url}`),
+                '',
+                `Named by more than one source: ${r.symbols.filter((x) => x.sources > 1).map((x) => `${x.symbol} (${x.sources})`).join(', ') || 'none'}.`,
+                ...(r.dropped.uncited ? [`Dropped ${r.dropped.uncited} symbols from sources the search could not cite.`] : []),
+                ...(r.dropped.unknown.length ? [`Dropped symbols SEC has never heard of: ${r.dropped.unknown.join(', ')}.`] : []),
+                '',
+                'These lists skew towards small, distressed companies. They are candidates, not findings: screen them before naming any. Cite the list URLs above.',
+            ].join('\n'),
+            locators: urlLocators(r.sources.map((s) => s.url)),
+            searchRequests: 1,
+        };
+    },
+};
+
+const screenValueTool: ChannelTool = {
+    declaration: {
+        name: 'screen_value',
+        description: `Value screen: stocks within ${NEAR_LOW * 100}% of their 52-week low with positive free cash flow, profit (or a clear recovery) and net debt of at most ${MAX_DEBT_YEARS} years of free cash flow, ranked. Candidates are the ones you pass (e.g. from published_stock_lists, or a watchlist) plus the strongest US companies from SEC filings. Returns the top ${TOP_N} with a note on exactly how the screen was built.`,
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                candidates: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'Ticker symbols to include, US or Toronto (e.g. CNR.TO).',
+                },
+            },
+        },
+    },
+    async execute(args) {
+        return describeScreen(await screenValue(tickerList(args.candidates)));
+    },
+};
+
+const screenMomentumTool: ChannelTool = {
+    declaration: {
+        name: 'screen_momentum',
+        description: `Momentum screen: stocks up over both 13 and 26 weeks, ranked on strength relative to the S&P 500, volume confirmation and accelerating sales, with over-extended runs flagged. Candidates are the ones you pass (e.g. from published_stock_lists) plus the US companies whose sales growth is accelerating in SEC filings. Returns the top ${TOP_N} with a note on exactly how the screen was built.`,
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                candidates: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'Ticker symbols to include, US or Toronto (e.g. SHOP.TO).',
+                },
+            },
+        },
+    },
+    async execute(args) {
+        return describeScreen(await screenMomentum(tickerList(args.candidates)));
+    },
+};
+
+const marketSnapshotTool: ChannelTool = {
+    declaration: {
+        name: 'market_snapshot',
+        description: `Current price, day and 5-day moves, 13-, 26- and 52-week returns, the 52-week range and how far the price sits from each end, P/E, free-cash-flow yield, dividend yield, market value, volume against its norm, and strength relative to the S&P 500 — for up to ${MAX_TICKERS_PER_CALL} US-listed stocks. Toronto listings are covered only through a verified US listing (e.g. CNR.TO via CNI, in USD).`,
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                tickers: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'Ticker symbols, US or Toronto (e.g. NVDA, CNR.TO).',
+                },
+            },
+            required: ['tickers'],
+        },
+    },
+    async execute(args) {
+        const { found, unavailable } = await snapshots(tickerList(args.tickers));
+        const blocks = found.map(describeSnapshot);
+        if (unavailable.length) {
+            blocks.push(
+                `No free price data for:\n${unavailable.map((u) => `- ${u.symbol}: ${u.why}`).join('\n')}\nDo not assert prices for these from this tool.`
+            );
+        }
+        return {
+            content: [
+                ...blocks,
+                found.length ? 'Cite any of these as {kind:"series", seriesId:"FINNHUB:<SYMBOL>", date} with the as-of date shown.' : 'NOTHING CITABLE RETURNED.',
+            ].join('\n\n'),
+            locators: found.map(snapshotLocator),
+        };
+    },
+};
+
+const companyNewsTool: ChannelTool = {
+    declaration: {
+        name: 'company_news',
+        description: `Recent news headlines for up to ${MAX_TICKERS_PER_CALL} US-listed companies, with links. Toronto listings only through a verified US listing.`,
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                tickers: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Ticker symbols.' },
+                days: { type: Type.INTEGER, description: 'How far back, in days (default 7).' },
+            },
+            required: ['tickers'],
+        },
+    },
+    async execute(args) {
+        const days = args.days ? Number(args.days) : 7;
+        const items = await companyNews(tickerList(args.tickers), days);
+        return {
+            content: items.length
+                ? [`${items.length} headlines, last ${days} days:`, ...items.map((n) => `- [${n.symbol}] ${n.published} ${n.source}: ${n.headline}\n  ${n.url}`), '', 'Cite the exact URLs above.'].join('\n')
+                : `No headlines in the last ${days} days.`,
+            locators: urlLocators(items.map((n) => n.url)),
+        };
+    },
+};
+
+const upcomingEarningsTool: ChannelTool = {
+    declaration: {
+        name: 'upcoming_earnings',
+        description: `Scheduled earnings dates in the next weeks for up to ${MAX_TICKERS_PER_CALL} US-listed companies, with the consensus EPS estimate where there is one.`,
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                tickers: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Ticker symbols.' },
+                days: { type: Type.INTEGER, description: 'How far ahead, in days (default 30).' },
+            },
+            required: ['tickers'],
+        },
+    },
+    async execute(args) {
+        const days = args.days ? Number(args.days) : 30;
+        const events = await upcomingEarnings(tickerList(args.tickers), days);
+        return {
+            content: events.length
+                ? [
+                      `Earnings in the next ${days} days:`,
+                      ...events.map((e) => `- ${e.date} ${e.symbol}, ${e.hour}${e.epsEstimate !== undefined ? ` — EPS estimate ${e.epsEstimate}` : ''}`),
+                      '',
+                      'Cite a date as {kind:"series", seriesId:"FINNHUB:<SYMBOL>:earnings", date}.',
+                  ].join('\n')
+                : `No earnings scheduled in the next ${days} days for these companies.`,
+            locators: events.map((e) => ({ kind: 'series' as const, seriesId: `FINNHUB:${e.symbol}:earnings`, date: e.date })),
+        };
+    },
+};
+
 // ---------------------------------------------------------------------------
 // Resolution
 // ---------------------------------------------------------------------------
@@ -356,6 +784,15 @@ const BY_KIND: Partial<Record<ChannelKind, ChannelTool[]>> = {
     rss: [rssTool],
     boc: [bocTool],
     gdelt: [gdeltTool],
+    sec: [
+        secFundamentalsTool,
+        secFilingsTool,
+        secLeadersTool,
+        publishedListsTool,
+        screenValueTool,
+        screenMomentumTool,
+    ],
+    finnhub: [marketSnapshotTool, companyNewsTool, upcomingEarningsTool],
 };
 
 /** Every kind the registry can actually run, in a stable order. */
@@ -379,6 +816,8 @@ export const CHANNEL_CAPABILITIES: Partial<Record<ChannelKind, string>> = {
     rss: 'Recent headlines from a fixed set of major English-language outlets. Headlines and links only.',
     boc: 'Official Bank of Canada data — USD/CAD, the overnight policy rate, Government of Canada 2/5/10-year and long bond yields, core CPI. Dated observations. Canada only; no company data.',
     gdelt: 'World news in 65+ languages, each article tagged with its source country and language, grouped so syndicated copies are not mistaken for independent confirmation. Headlines and links, not full text.',
+    sec: 'Official US company fundamentals and filings from the SEC — revenue, profit, free cash flow, debt, growth, recent events — plus Delphi\'s value and momentum stock screens, built from those filings, published stock lists and (with Finnhub) prices. No share prices on its own; no Toronto-only companies.',
+    finnhub: 'US stock prices, 52-week ranges, returns over several windows, relative strength, volume, valuation ratios, company news and earnings dates (free tier). No price history, and no Toronto-only companies except through a verified US listing.',
 };
 
 /** Whether a channel kind has credentials to actually run. */
@@ -394,6 +833,10 @@ export function isChannelConfigured(kind: ChannelKind): boolean {
             return isBocConfigured();
         case 'gdelt':
             return isGdeltConfigured();
+        case 'sec':
+            return isSecConfigured();
+        case 'finnhub':
+            return isFinnhubConfigured();
         default:
             // Not implemented yet: worldmonitor, higgsfield, gdrive, telegram,
             // local_fs, mcp, http.
@@ -432,6 +875,8 @@ const HEALTH_CHECKS: Partial<Record<ChannelKind, () => Promise<HealthCheck>>> = 
     rss: async () => (await import('./rss')).checkRssHealth,
     boc: async () => (await import('./boc')).checkBocHealth,
     gdelt: async () => (await import('./gdelt')).checkGdeltHealth,
+    sec: async () => (await import('./sec')).checkSecHealth,
+    finnhub: async () => (await import('./finnhub')).checkFinnhubHealth,
 };
 
 /**

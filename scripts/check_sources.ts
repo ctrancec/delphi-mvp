@@ -23,7 +23,7 @@ import {
     corroborate,
     headlineKey,
     searchGdelt,
-    useGdeltClock,
+    setGdeltClock,
     type GdeltArticle,
 } from '../src/lib/channels/gdelt';
 import {
@@ -197,7 +197,7 @@ function channel(id: string, kind: string, label: string): Row {
     }
 
     {
-        useGdeltClock({ now: () => 0, sleep: async () => {} });
+        setGdeltClock({ now: () => 0, sleep: async () => {} });
         route = (url) =>
             url.includes('gdeltproject.org')
                 ? json({
@@ -223,7 +223,7 @@ function channel(id: string, kind: string, label: string): Row {
     {
         let t = 0;
         const slept: number[] = [];
-        useGdeltClock({ now: () => t, sleep: async (ms) => { slept.push(ms); t += ms; } });
+        setGdeltClock({ now: () => t, sleep: async (ms) => { slept.push(ms); t += ms; } });
         route = (url) => (url.includes('gdeltproject.org') ? json({ articles: [] }) : undefined);
 
         await searchGdelt({ query: 'Bank of Canada' });
@@ -235,7 +235,7 @@ function channel(id: string, kind: string, label: string): Row {
         // Retrying a refusal only prolongs it — measured by others, and seen
         // here: from shared cloud addresses the throttle did not lift.
         let t = 0;
-        useGdeltClock({ now: () => t, sleep: async (ms) => { t += ms; } });
+        setGdeltClock({ now: () => t, sleep: async (ms) => { t += ms; } });
         route = (url) => (url.includes('gdeltproject.org') ? { status: 429, body: THROTTLE } : undefined);
 
         const before = requested.length;
@@ -245,7 +245,7 @@ function channel(id: string, kind: string, label: string): Row {
     }
 
     {
-        useGdeltClock({ now: () => 0, sleep: async () => {} });
+        setGdeltClock({ now: () => 0, sleep: async () => {} });
         route = (url) => (url.includes('gdeltproject.org') ? { body: THROTTLE } : undefined);
 
         const [tool] = toolsForChannels(['gdelt']);
@@ -265,7 +265,7 @@ function channel(id: string, kind: string, label: string): Row {
         // Seen live while this was being built: a 503, then 429s taking ten
         // seconds each. However GDELT fails to answer, the agent hears the same.
         let t = 0;
-        useGdeltClock({ now: () => t, sleep: async (ms) => { t += ms; } });
+        setGdeltClock({ now: () => t, sleep: async (ms) => { t += ms; } });
         route = (url) => (url.includes('gdeltproject.org') ? { status: 503, body: 'Service Unavailable' } : undefined);
         const [tool] = toolsForChannels(['gdelt']);
         const res = await tool.execute({ query: 'Bank of Canada' });
@@ -290,7 +290,7 @@ function channel(id: string, kind: string, label: string): Row {
     {
         // A request that never answers. The fake network throws what
         // AbortSignal.timeout throws.
-        useGdeltClock({ now: () => 0, sleep: async () => {} });
+        setGdeltClock({ now: () => 0, sleep: async () => {} });
         route = (url) => {
             if (!url.includes('gdeltproject.org')) return undefined;
             throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
@@ -300,7 +300,7 @@ function channel(id: string, kind: string, label: string): Row {
     }
 
     {
-        useGdeltClock({ now: () => 0, sleep: async () => {} });
+        setGdeltClock({ now: () => 0, sleep: async () => {} });
         route = (url) => (url.includes('gdeltproject.org') ? { body: 'The specified phrase is too short.' } : undefined);
 
         const [tool] = toolsForChannels(['gdelt']);
@@ -479,6 +479,8 @@ function channel(id: string, kind: string, label: string): Row {
                 off(channel('c-rss', 'rss', 'Global News Feeds')),
                 channel('c-boc', 'boc', 'Bank of Canada'),
                 off(channel('c-gdelt', 'gdelt', 'GDELT Global News')),
+                off(channel('c-sec', 'sec', 'SEC EDGAR Filings')),
+                off(channel('c-finnhub', 'finnhub', 'Finnhub Market Data')),
             ],
         };
         route = (url) =>

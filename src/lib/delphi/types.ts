@@ -23,7 +23,9 @@ export type ChannelKind =
     | 'local_fs'
     | 'http'
     | 'boc'
-    | 'gdelt';
+    | 'gdelt'
+    | 'sec'
+    | 'finnhub';
 
 export type ChannelHealth = 'unknown' | 'ok' | 'degraded' | 'error';
 

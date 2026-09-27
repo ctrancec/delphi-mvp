@@ -102,7 +102,7 @@ let unavailableUntil = 0;
 let lastUnavailable: { reason: 'throttled' | 'down'; detail: string } | null = null;
 
 /** Test seam: run the pacing on a fake clock, and forget all history. */
-export function useGdeltClock(fake?: Partial<typeof clock>): void {
+export function setGdeltClock(fake?: Partial<typeof clock>): void {
     clock.now = fake?.now ?? (() => Date.now());
     clock.sleep = fake?.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     lastCallAt = 0;

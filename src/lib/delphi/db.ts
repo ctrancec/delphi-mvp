@@ -446,6 +446,9 @@ export async function seedChannels(
         { kind: 'rss', label: 'Global News Feeds', credentialRef: null },
         { kind: 'boc', label: 'Bank of Canada', credentialRef: null },
         { kind: 'gdelt', label: 'GDELT Global News', credentialRef: null },
+        // Not a secret: the contact address SEC requires every caller to give.
+        { kind: 'sec', label: 'SEC EDGAR Filings', credentialRef: 'SEC_CONTACT' },
+        { kind: 'finnhub', label: 'Finnhub Market Data', credentialRef: 'FINNHUB_API_KEY' },
     ];
 
     const usable = candidates.filter((c) => isChannelConfigured(c.kind));
@@ -481,7 +484,7 @@ export async function seedChannels(
             // The kind check predates this channel. Skipped, not thrown: the
             // CHO runs the migration, and until then everything else works.
             console.warn(
-                `[delphi] channel "${c.kind}" needs a migration before it can be recorded (0007 adds boc and gdelt); skipped.`
+                `[delphi] channel "${c.kind}" needs a migration before it can be recorded (0007 adds boc and gdelt; 0008 adds sec and finnhub); skipped.`
             );
         } else if (error.code !== '23505') {
             // 23505 is a concurrent sync that got there first — the row exists,
