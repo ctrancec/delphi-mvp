@@ -20,6 +20,7 @@
 import {
     derive,
     describeFiling,
+    financialKind,
     filingUrl,
     fromCompanyFacts,
     fundamentalsFor,
@@ -70,7 +71,7 @@ const reset = () => {
 
 const CIK = {
     AAPL: 320193, CNI: 16868, TM: 1094517, BB: 1070235, BUYB: 555555, TINY: 666666,
-    NOK: 924613, HMC: 715153, PROD: 777777, GAP: 777778, TTM: 777779, OLD: 888888, GONE: 999999,
+    NOK: 924613, HMC: 715153, PROD: 777777, GAP: 777778, TTM: 777779, OLD: 888888, GONE: 999999, BANK: 444444, PAYS: 333333,
 };
 
 const TICKERS: Record<string, { cik_str: number; ticker: string; title: string }> = {
@@ -88,17 +89,19 @@ const TICKERS: Record<string, { cik_str: number; ticker: string; title: string }
     '10': { cik_str: CIK.OLD, ticker: 'OLD', title: 'Stopped Filing Corp' },
     '11': { cik_str: CIK.GONE, ticker: 'GONE', title: 'Gone Quiet Corp' },
     '12': { cik_str: CIK.TTM, ticker: 'TTMX', title: 'Trailing Twelve Inc.' },
+    '13': { cik_str: CIK.BANK, ticker: 'BANK', title: 'Big Deposit Bank Corp' },
+    '14': { cik_str: CIK.PAYS, ticker: 'PAYS', title: 'Pays Money Transfer plc' },
 };
 
 type Row = [cik: number, val: number, end: string, accn: string];
 const FRAMES: Record<string, Record<string, Row[]>> = {
     NetCashProvidedByUsedInOperatingActivities: {
-        CY2025: [[CIK.AAPL, 118e9, '2025-09-27', 'A-25'], [CIK.CNI, 5.1e9, '2025-12-31', 'C-25'], [CIK.BUYB, 9e9, '2025-12-31', 'B-25'], [CIK.TINY, 50e6, '2025-12-31', 'T-25'], [CIK.PROD, 150e6, '2025-12-31', 'P-25'], [CIK.GAP, 60e6, '2025-12-31', 'G-25']],
+        CY2025: [[CIK.AAPL, 118e9, '2025-09-27', 'A-25'], [CIK.CNI, 5.1e9, '2025-12-31', 'C-25'], [CIK.BUYB, 9e9, '2025-12-31', 'B-25'], [CIK.TINY, 50e6, '2025-12-31', 'T-25'], [CIK.PROD, 150e6, '2025-12-31', 'P-25'], [CIK.GAP, 60e6, '2025-12-31', 'G-25'], [CIK.BANK, 20e9, '2025-12-31', 'K-25'], [CIK.PAYS, 7.5e9, '2025-12-31', 'W-25']],
         // A large company whose last filing covered the year to mid-2024.
         CY2024: [[CIK.AAPL, 110e9, '2024-09-28', 'A-24'], [CIK.CNI, 5.0e9, '2024-12-31', 'C-24'], [CIK.BUYB, 8.5e9, '2024-12-31', 'B-24'], [CIK.GONE, 3e9, '2024-06-30', 'X-24']],
     },
     PaymentsToAcquirePropertyPlantAndEquipment: {
-        CY2025: [[CIK.AAPL, 12e9, '2025-09-27', 'A-25'], [CIK.CNI, 3.4e9, '2025-12-31', 'C-25'], [CIK.BUYB, 1e9, '2025-12-31', 'B-25'], [CIK.TINY, 5e6, '2025-12-31', 'T-25']],
+        CY2025: [[CIK.AAPL, 12e9, '2025-09-27', 'A-25'], [CIK.CNI, 3.4e9, '2025-12-31', 'C-25'], [CIK.BUYB, 1e9, '2025-12-31', 'B-25'], [CIK.TINY, 5e6, '2025-12-31', 'T-25'], [CIK.BANK, 1e9, '2025-12-31', 'K-25'], [CIK.PAYS, 0.02e9, '2025-12-31', 'W-25']],
         // PROD's capex under this concept stops a year before its cash flow.
         CY2024: [[CIK.PROD, 30e6, '2024-12-31', 'P-24'], [CIK.GONE, 0.5e9, '2024-06-30', 'X-24']],
     },
@@ -107,13 +110,13 @@ const FRAMES: Record<string, Record<string, Row[]>> = {
         CY2025: [[CIK.PROD, 40e6, '2025-12-31', 'P-25']],
     },
     NetIncomeLoss: {
-        CY2025: [[CIK.AAPL, 100e9, '2025-09-27', 'A-25'], [CIK.CNI, 3.5e9, '2025-12-31', 'C-25'], [CIK.BUYB, 7e9, '2025-12-31', 'B-25'], [CIK.TINY, 10e6, '2025-12-31', 'T-25'], [CIK.PROD, 60e6, '2025-12-31', 'P-25'], [CIK.GAP, 20e6, '2025-12-31', 'G-25']],
+        CY2025: [[CIK.AAPL, 100e9, '2025-09-27', 'A-25'], [CIK.CNI, 3.5e9, '2025-12-31', 'C-25'], [CIK.BUYB, 7e9, '2025-12-31', 'B-25'], [CIK.TINY, 10e6, '2025-12-31', 'T-25'], [CIK.PROD, 60e6, '2025-12-31', 'P-25'], [CIK.GAP, 20e6, '2025-12-31', 'G-25'], [CIK.BANK, 8e9, '2025-12-31', 'K-25'], [CIK.PAYS, 0.5e9, '2025-12-31', 'W-25']],
         CY2024: [[CIK.AAPL, 94e9, '2024-09-28', 'A-24'], [CIK.CNI, 3.4e9, '2024-12-31', 'C-24'], [CIK.BUYB, 6.5e9, '2024-12-31', 'B-24'], [CIK.GONE, 2e9, '2024-06-30', 'X-24']],
     },
     // CN Rail reports revenue under one concept, Apple under another.
     Revenues: {
-        CY2025: [[CIK.CNI, 12.4e9, '2025-12-31', 'C-25'], [CIK.BUYB, 25e9, '2025-12-31', 'B-25'], [CIK.TINY, 200e6, '2025-12-31', 'T-25'], [CIK.PROD, 400e6, '2025-12-31', 'P-25'], [CIK.GAP, 300e6, '2025-12-31', 'G-25']],
-        CY2024: [[CIK.CNI, 12.0e9, '2024-12-31', 'C-24'], [CIK.BUYB, 24e9, '2024-12-31', 'B-24'], [CIK.PROD, 350e6, '2024-12-31', 'P-24'], [CIK.GAP, 250e6, '2024-12-31', 'G-24'], [CIK.GONE, 20e9, '2024-06-30', 'X-24']],
+        CY2025: [[CIK.CNI, 12.4e9, '2025-12-31', 'C-25'], [CIK.BUYB, 25e9, '2025-12-31', 'B-25'], [CIK.TINY, 200e6, '2025-12-31', 'T-25'], [CIK.PROD, 400e6, '2025-12-31', 'P-25'], [CIK.GAP, 300e6, '2025-12-31', 'G-25'], [CIK.BANK, 30e9, '2025-12-31', 'K-25'], [CIK.PAYS, 2e9, '2025-12-31', 'W-25']],
+        CY2024: [[CIK.CNI, 12.0e9, '2024-12-31', 'C-24'], [CIK.BUYB, 24e9, '2024-12-31', 'B-24'], [CIK.PROD, 350e6, '2024-12-31', 'P-24'], [CIK.GAP, 250e6, '2024-12-31', 'G-24'], [CIK.GONE, 20e9, '2024-06-30', 'X-24'], [CIK.BANK, 28e9, '2024-12-31', 'K-24'], [CIK.PAYS, 1.7e9, '2024-12-31', 'W-24']],
         CY2026Q2: [[CIK.CNI, 3.2e9, '2026-06-30', 'C-26q2'], [CIK.GAP, 90e6, '2026-06-30', 'G-26q2']],
         CY2025Q2: [[CIK.CNI, 3.1e9, '2025-06-30', 'C-25q2'], [CIK.GAP, 70e6, '2025-06-30', 'G-25q2']],
         CY2026Q1: [[CIK.CNI, 3.0e9, '2026-03-31', 'C-26q1'], [CIK.GAP, 80e6, '2026-03-31', 'G-26q1']],
@@ -334,6 +337,8 @@ const FACTS: Record<number, object> = {
 };
 
 const CNI_SUBMISSIONS = {
+    sic: '4011',
+    sicDescription: 'Railroads, Line-Haul Operating',
     filings: {
         recent: {
             accessionNumber: ['0000016868-26-000031', '0000016868-26-000029', '0000016868-26-000010'],
@@ -378,6 +383,16 @@ const FH: Record<string, { quote: object; metric: Record<string, number | string
 const requests: { url: URL; ua: string; at: number }[] = [];
 /** Companies whose fact set SEC fails to serve. */
 const FAILING = new Set<number>();
+/** Companies whose submissions record — and so industry — SEC fails to serve. */
+const FAILING_SUBMISSIONS = new Set<number>();
+
+const SUBMISSIONS: Record<number, object> = {
+    [CIK.CNI]: CNI_SUBMISSIONS,
+    [CIK.AAPL]: { sic: '3571', sicDescription: 'Electronic Computers' },
+    [CIK.BANK]: { sic: '6021', sicDescription: 'National Commercial Banks' },
+    // Seen live at Wise: a money transmitter, filed under business services.
+    [CIK.PAYS]: { sic: '7389', sicDescription: 'Services-Business Services, NEC' },
+};
 
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
@@ -396,7 +411,9 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         const facts = url.pathname.match(/^\/api\/xbrl\/companyfacts\/CIK(\d{10})\.json$/);
         if (facts && FAILING.has(Number(facts[1]))) return json({ message: 'unavailable' }, 503);
         if (facts) return FACTS[Number(facts[1])] ? json(FACTS[Number(facts[1])]) : json({ message: 'not found' }, 404);
-        if (url.pathname === `/submissions/CIK${String(CIK.CNI).padStart(10, '0')}.json`) return json(CNI_SUBMISSIONS);
+        const sub = url.pathname.match(/^\/submissions\/CIK(\d{10})\.json$/);
+        if (sub && FAILING_SUBMISSIONS.has(Number(sub[1]))) return json({ message: 'unavailable' }, 503);
+        if (sub) return SUBMISSIONS[Number(sub[1])] ? json(SUBMISSIONS[Number(sub[1])]) : json({ message: 'not found' }, 404);
         return json({ message: 'not found' }, 404);
     }
     if (url.hostname === 'finnhub.io') {
@@ -529,6 +546,35 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         ok(!syms.includes('CNI'), 'debt of eleven years of free cash flow is not "manageable"');
         ok(!syms.includes('TINY'), 'a company too small to screen without prices is left out');
         ok(!syms.includes('GONE'), 'a company that stopped filing is no leader', 'last figures mid-2024');
+        ok(!syms.includes('BANK'), 'a bank is no value leader, however its cash flow reads', 'a 63% "margin" of deposits');
+        ok(!syms.includes('PAYS'), 'nor a company whose free cash flow exceeds its sales', 'customer money, as at Wise');
+        ok(leaders.find((l) => l.fundamentals.ticker === 'AAPL')?.fundamentals.industry?.sic === 3571, 'each leader carries its industry');
+    }
+
+    console.log('\nSEC: industries where free cash flow does not apply\n' + '─'.repeat(78));
+
+    {
+        ok([6021, 6199, 6211, 6331, 6324, 6798].every((s) => financialKind(s) !== null), 'banks, lenders, brokers, insurers and REITs are recognised', 'SIC 6021 6199 6211 6331 6324 6798');
+        ok([6200, 6282, 6411, 6500, 3571, 4011].every((s) => financialKind(s) === null), 'exchanges, asset managers and insurance brokers are not', 'nor anyone else');
+    }
+    reset();
+    {
+        const [tool] = toolsForChannels(['sec']).filter((x) => x.declaration.name === 'sec_fundamentals');
+        const said = (await tool.execute({ tickers: ['BANK'] })).content;
+        ok(
+            /industry: National Commercial Banks \(SIC 6021\) — a bank or lender: .*free cash flow does not measure it/.test(said),
+            "a bank's fundamentals say what it is",
+            'and what that means for its cash flow'
+        );
+        const pays = (await tool.execute({ tickers: ['PAYS'] })).content;
+        ok(/more than its sales: customer money or one-offs/.test(pays), 'cash flow larger than sales is called what it is');
+    }
+    reset();
+    {
+        FAILING_SUBMISSIONS.add(CIK.AAPL);
+        const syms = (await qualityLeaders('value')).map((l) => l.fundamentals.ticker);
+        FAILING_SUBMISSIONS.delete(CIK.AAPL);
+        ok(syms.includes('AAPL'), 'a failed industry lookup never leaves a company out');
     }
 
     console.log('\nFinnhub: pacing, caching, and the free tier\'s limits\n' + '─'.repeat(78));
@@ -660,6 +706,21 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         const r = await screenValue(['OLD']);
         const old = r.unscreened.find((u) => u.symbol === 'OLD');
         ok(/2019-12-31, too old to screen on/.test(old?.why ?? ''), 'a company with out-of-date filings is listed, not ranked', 'and says why');
+    }
+    reset();
+    {
+        const r = await screenValue(['BANK', 'PAYS', 'AAPL']);
+        const bank = r.unscreened.find((u) => u.symbol === 'BANK');
+        ok(
+            /^a bank or lender, National Commercial Banks \(SIC 6021\): free cash flow does not measure it$/.test(bank?.why ?? '') &&
+                !r.rows.some((x) => x.symbol === 'BANK') &&
+                r.rows.some((x) => x.symbol === 'AAPL'),
+            'a bank named as a candidate is listed, never ranked',
+            'Apple still ranks'
+        );
+        const pays = r.unscreened.find((u) => u.symbol === 'PAYS');
+        ok(/^free cash flow of \d+% of sales: customer money/.test(pays?.why ?? ''), 'so is a company whose cash flow exceeds its sales', pays?.why.slice(0, 32));
+        ok(r.notChecked.some((n) => n.startsWith('banks, brokers, insurers, REITs, and companies whose free cash flow exceeds')), 'and the screen states the rule');
     }
     reset();
     {

@@ -60,6 +60,7 @@ export function setSecClock(fake?: Partial<typeof clock>): void {
     cache.clear();
     frameSet = null;
     factsRead.clear();
+    industries.clear();
     tickerIndex = null;
     tickerIndexAt = 0;
 }
@@ -330,6 +331,8 @@ export interface Fundamentals {
      */
     netDebtToFcf?: number;
     quarterlyGrowth?: { latest: number; previous: number; accelerating: boolean; figures: Figure[] };
+    /** What the company does, as SEC files it — a bank's "free cash flow" is not a factory's. */
+    industry?: Industry;
 }
 
 /** Latest annual value, and the one a year before it, from frames newest-first. */
@@ -793,7 +796,94 @@ export async function fundamentalsFor(tickers: string[]): Promise<{
         else found.push(f);
     }
 
-    return { found, unknown, noData, stale };
+    return { found: await withIndustries(found), unknown, noData, stale };
+}
+
+// ---------------------------------------------------------------------------
+// Industries: where free cash flow does not apply
+// ---------------------------------------------------------------------------
+
+/** A company's industry as SEC files it: its Standard Industrial Classification. */
+export interface Industry {
+    sic: number;
+    description: string;
+}
+
+/**
+ * Industries whose operating cash flow is mostly other people's money —
+ * deposits, loans, client balances, insurance float — so free cash flow does
+ * not measure them, and a value screen built on it must not rank them. Seen
+ * live: Capital One, Futu and Palomar near the top of the value ranking, Futu
+ * on a "free-cash-flow margin" of 178%.
+ *
+ * Coarse by nature: BlackRock, an asset manager, files as a broker-dealer
+ * (6211) and is left out with them. Exchanges (6200), asset managers (6282),
+ * insurance brokers (64xx) and real-estate services (65xx) are kept: their
+ * cash flow is their own.
+ */
+export function financialKind(sic: number | undefined): string | null {
+    if (sic === undefined || !Number.isFinite(sic)) return null;
+    if (sic >= 6000 && sic <= 6199) return 'a bank or lender';
+    if (sic === 6211 || sic === 6221) return 'a broker-dealer';
+    if (sic >= 6300 && sic <= 6399) return 'an insurer';
+    if (sic === 6798) return 'a REIT';
+    if (sic === 6770) return 'a blank-check company';
+    return null;
+}
+
+/** "National Commercial Banks (SIC 6021)". */
+export function industryLabel(i: Industry): string {
+    return i.description ? `${i.description} (SIC ${i.sic})` : `SIC ${i.sic}`;
+}
+
+/**
+ * Why free cash flow does not measure this company, or null when it does.
+ *
+ * Either its industry is financial, or its free cash flow is larger than its
+ * sales — which no business earns: it is customer money passing through
+ * operating cash flow, or a one-off. Seen live at Wise, a money transmitter
+ * filed under business services, at 398% of sales.
+ */
+export function fcfDoesNotApply(f: Fundamentals): string | null {
+    const kind = financialKind(f.industry?.sic);
+    if (kind && f.industry) return `${kind}, ${industryLabel(f.industry)}: free cash flow does not measure it`;
+    if (f.fcfMargin !== undefined && f.fcfMargin > 1) {
+        return `free cash flow of ${Math.round(f.fcfMargin * 100)}% of sales: customer money or one-offs, not the business's own`;
+    }
+    return null;
+}
+
+/** Each company's industry, kept rather than the filing history it arrives with. */
+const industries = new Map<number, { at: number; value: Industry | null }>();
+
+/**
+ * A company's industry, from its SEC submissions record. Null when SEC gives
+ * none or the request fails: no company is left out for lack of data.
+ */
+export async function industryOf(cik: number): Promise<Industry | null> {
+    const hit = industries.get(cik);
+    if (hit && clock.now() - hit.at < CACHE_TTL_MS) return hit.value;
+
+    let sub: { sic?: string; sicDescription?: string } | null;
+    try {
+        sub = await secGet(`${DATA}/submissions/CIK${String(cik).padStart(10, '0')}.json`, false);
+    } catch {
+        // Unknown, so kept; and not remembered, so the next run asks again.
+        return null;
+    }
+    const sic = Number(sub?.sic);
+    const value = sub?.sic && Number.isFinite(sic) ? { sic, description: sub.sicDescription ?? '' } : null;
+    industries.set(cik, { at: clock.now(), value });
+    return value;
+}
+
+/** The same companies, each with its industry where SEC gives one. */
+async function withIndustries(list: Fundamentals[]): Promise<Fundamentals[]> {
+    const kinds = await Promise.all(list.map((f) => industryOf(f.cik)));
+    return list.map((f, i) => {
+        const industry = kinds[i];
+        return industry ? { ...f, industry } : f;
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -860,7 +950,31 @@ export async function qualityLeaders(style: 'value' | 'momentum', limit = 30): P
         }
     }
 
-    return leaders.sort((a, b) => b.score - a.score).slice(0, Math.max(1, Math.min(limit, 100)));
+    const ranked = leaders.sort((a, b) => b.score - a.score);
+    const n = Math.max(1, Math.min(limit, 100));
+    return style === 'value' ? withoutFinancials(ranked, n) : ranked.slice(0, n);
+}
+
+/**
+ * The top `n` of a value ranking, less the companies free cash flow does not
+ * measure (see fcfDoesNotApply). Industries are looked up down the ranking
+ * in batches — a few dozen requests, not one for every company in the market.
+ */
+async function withoutFinancials(ranked: Leader[], n: number): Promise<Leader[]> {
+    const out: Leader[] = [];
+    const cap = Math.min(ranked.length, n + 60);
+    for (let i = 0; out.length < n && i < cap; ) {
+        const batch = ranked.slice(i, Math.min(cap, i + n - out.length + 10));
+        i += batch.length;
+        const kinds = await Promise.all(batch.map((l) => industryOf(l.fundamentals.cik)));
+        batch.forEach((l, k) => {
+            const industry = kinds[k];
+            const fundamentals = industry ? { ...l.fundamentals, industry } : l.fundamentals;
+            if (out.length >= n || fcfDoesNotApply(fundamentals)) return;
+            out.push({ ...l, fundamentals });
+        });
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------

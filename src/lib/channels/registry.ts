@@ -19,7 +19,9 @@ import { corroborate, isGdeltConfigured, searchGdelt } from './gdelt';
 import { isPerplexityConfigured, webSearch } from './perplexity';
 import { fetchFeeds, isRssConfigured } from './rss';
 import {
+    financialKind,
     fundamentalsFor,
+    industryLabel,
     isSecConfigured,
     MAX_DEBT_YEARS,
     qualityLeaders,
@@ -401,12 +403,18 @@ function describeFundamentals(f: Fundamentals): string {
     const lines = [
         `${f.ticker} — ${f.name} (${f.taxonomy === 'ifrs-full' ? 'IFRS' : 'US GAAP'}, ${cur})${f.revenue ? ` — fiscal year to ${f.revenue.end}` : ''}`,
     ];
+    if (f.industry) {
+        const kind = financialKind(f.industry.sic);
+        lines.push(
+            `  industry: ${industryLabel(f.industry)}${kind ? ` — ${kind}: its cash flow is mostly customer money, so free cash flow does not measure it` : ''}`
+        );
+    }
     const rev = f.revenue ? `revenue ${money(f.revenue.value, cur)}${f.revenueGrowth !== undefined ? ` (${pct(f.revenueGrowth)} y/y)` : ''}` : null;
     const ni = f.netIncome ? `net income ${money(f.netIncome.value, cur)}${f.earningsGrowth !== undefined ? ` (${pct(f.earningsGrowth)} y/y)` : ''}` : null;
     if (rev || ni) lines.push(`  ${[rev, ni].filter(Boolean).join(' · ')}`);
     if (f.freeCashFlow !== undefined) {
         lines.push(
-            `  operating cash flow ${money(f.operatingCashFlow?.value, cur)} − capex ${money(Math.abs(f.capex?.value ?? 0), cur)} = free cash flow ${money(f.freeCashFlow, cur)}${fcfPeriod(f)}${f.fcfMargin !== undefined ? ` (margin ${pct(f.fcfMargin)})` : ''}`
+            `  operating cash flow ${money(f.operatingCashFlow?.value, cur)} − capex ${money(Math.abs(f.capex?.value ?? 0), cur)} = free cash flow ${money(f.freeCashFlow, cur)}${fcfPeriod(f)}${f.fcfMargin !== undefined ? ` (margin ${pct(f.fcfMargin)})` : ''}${f.fcfMargin !== undefined && f.fcfMargin > 1 ? " — more than its sales: customer money or one-offs, not the business's own" : ''}`
         );
     }
     if (f.debt) {
@@ -506,7 +514,7 @@ function describeScreen(r: ScreenResult): { content: string; locators: SourceLoc
     const tail = r.unscreened.length
         ? [
               '',
-              `NOT SCREENED BY THE NUMBERS (${r.unscreened.length}) — no free data; report these only from web-sourced facts, and say so:`,
+              `NOT SCREENED BY THE NUMBERS (${r.unscreened.length}) — each for the reason given; report these only from web-sourced facts, and say so:`,
               ...r.unscreened.map((u) => `- ${u.symbol}: ${u.why}`),
           ]
         : [];
@@ -593,7 +601,7 @@ const secLeadersTool: ChannelTool = {
     declaration: {
         name: 'sec_quality_leaders',
         description:
-            'Rank the whole US market on fundamentals alone, from SEC filings. "value": profitable, cash-generative companies whose net debt is at most four years of free cash flow. "momentum": companies whose sales are growing and accelerating. Revenue of at least $500M stands in for size. No prices — pair with market_snapshot or a screen.',
+            'Rank the whole US market on fundamentals alone, from SEC filings. "value": profitable, cash-generative companies whose net debt is at most four years of free cash flow — banks, brokers, insurers, REITs and any company whose free cash flow exceeds its sales left out, since free cash flow does not measure them. "momentum": companies whose sales are growing and accelerating. Revenue of at least $500M stands in for size. No prices — pair with market_snapshot or a screen.',
         parameters: {
             type: Type.OBJECT,
             properties: {
@@ -667,7 +675,7 @@ const publishedListsTool: ChannelTool = {
 const screenValueTool: ChannelTool = {
     declaration: {
         name: 'screen_value',
-        description: `Value screen: stocks within ${NEAR_LOW * 100}% of their 52-week low with positive free cash flow, profit (or a clear recovery) and net debt of at most ${MAX_DEBT_YEARS} years of free cash flow, ranked. Candidates are the ones you pass (e.g. from published_stock_lists, or a watchlist) plus the strongest US companies from SEC filings. Returns the top ${TOP_N} with a note on exactly how the screen was built.`,
+        description: `Value screen: stocks within ${NEAR_LOW * 100}% of their 52-week low with positive free cash flow, profit (or a clear recovery) and net debt of at most ${MAX_DEBT_YEARS} years of free cash flow, ranked. Candidates are the ones you pass (e.g. from published_stock_lists, or a watchlist) plus the strongest US companies from SEC filings. Banks, brokers, insurers, REITs and companies whose free cash flow exceeds their sales are listed, not ranked: free cash flow does not measure them. Returns the top ${TOP_N} with a note on exactly how the screen was built.`,
         parameters: {
             type: Type.OBJECT,
             properties: {

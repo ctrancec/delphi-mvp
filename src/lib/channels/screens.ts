@@ -22,6 +22,7 @@
 
 import { webSearch } from './perplexity';
 import {
+    fcfDoesNotApply,
     filingUrl,
     fundamentalsFor,
     isSecConfigured,
@@ -338,6 +339,12 @@ export async function screenValue(candidates: string[] = []): Promise<ScreenResu
             unscreened.push({ symbol: r.asked, why: whyUnscreened(r, staleBy), origins: origins.get(key) ?? [] });
             continue;
         }
+        // A bank, an insurer, or cash flow larger than sales: listed, never ranked.
+        const notMeasured = f ? fcfDoesNotApply(f) : null;
+        if (notMeasured) {
+            unscreened.push({ symbol: r.asked, why: notMeasured, origins: origins.get(key) ?? [] });
+            continue;
+        }
         withNumbers++;
 
         // Price position: the charter's first test. Unknown without prices.
@@ -397,6 +404,7 @@ export async function screenValue(candidates: string[] = []): Promise<ScreenResu
         ],
         notChecked: [
             ...(priced ? [] : ['distance from the 52-week low — no Finnhub key, so prices were not checked']),
+            'banks, brokers, insurers, REITs, and companies whose free cash flow exceeds their sales — free cash flow does not measure them, so they are listed, not ranked',
             'EV/EBITDA and valuation against sector history — not available from free sources',
             'Toronto-only companies — no free price or fundamentals source; listed separately if named',
         ],
