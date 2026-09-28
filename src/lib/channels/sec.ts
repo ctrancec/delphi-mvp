@@ -52,13 +52,14 @@ const clock = {
 let nextSlot = 0;
 const cache = new Map<string, { at: number; value: unknown }>();
 
-/** Test seam: a fake clock, and every cache cold — requests, frames and the ticker map. */
+/** Test seam: a fake clock, and every cache cold — requests, frames, fact sets and the ticker map. */
 export function setSecClock(fake?: Partial<typeof clock>): void {
     clock.now = fake?.now ?? (() => Date.now());
     clock.sleep = fake?.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     nextSlot = 0;
     cache.clear();
     frameSet = null;
+    factsRead.clear();
     tickerIndex = null;
     tickerIndexAt = 0;
 }
@@ -75,8 +76,12 @@ async function slot(): Promise<void> {
     if (at > now) await clock.sleep(at - now);
 }
 
-/** GET a JSON document from SEC. Null when it does not exist. */
-async function secGet<T>(url: string): Promise<T | null> {
+/**
+ * GET a JSON document from SEC. Null when it does not exist. `keep: false`
+ * leaves a large document out of the cache, for callers that keep what they
+ * read from it instead.
+ */
+async function secGet<T>(url: string, keep = true): Promise<T | null> {
     const hit = cache.get(url);
     if (hit && clock.now() - hit.at < CACHE_TTL_MS) return hit.value as T | null;
 
@@ -112,7 +117,7 @@ async function secGet<T>(url: string): Promise<T | null> {
     }
 
     const value = (await response.json()) as T;
-    cache.set(url, { at: clock.now(), value });
+    if (keep) cache.set(url, { at: clock.now(), value });
     return value;
 }
 
@@ -227,11 +232,17 @@ function instantPeriods(now = new Date(clock.now())): string[] {
 const REVENUE_TAGS = ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax'];
 
 /**
+ * Capital spending, as most filers tag it, and as Nvidia, Amazon, Ford and
+ * PepsiCo do instead: without the second, their free cash flow is unknown.
+ */
+const CAPEX_TAGS = ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets'];
+
+/**
  * Everything the screens read, for every US-GAAP filer at once.
  *
- * About thirty requests, run concurrently under the rate limit and cached for
- * twelve hours — so the watchlist, the value screen and the momentum screen of
- * one run all share a single load.
+ * About three dozen requests, run concurrently under the rate limit and cached
+ * for twelve hours — so the watchlist, the value screen and the momentum
+ * screen of one run all share a single load.
  */
 export interface FrameSet {
     annual: Record<string, Frame[]>; // concept -> frames, newest period first
@@ -248,12 +259,7 @@ export async function loadFrames(): Promise<FrameSet> {
     const instants = instantPeriods();
     const quarters = quarterPeriods();
 
-    const annualConcepts = [
-        'NetCashProvidedByUsedInOperatingActivities',
-        'PaymentsToAcquirePropertyPlantAndEquipment',
-        'NetIncomeLoss',
-        ...REVENUE_TAGS,
-    ];
+    const annualConcepts = ['NetCashProvidedByUsedInOperatingActivities', ...CAPEX_TAGS, 'NetIncomeLoss', ...REVENUE_TAGS];
     const instantConcepts = [
         'LongTermDebtNoncurrent',
         'LongTermDebt',
@@ -344,6 +350,15 @@ function annualPair(frames: Frame[] | undefined, cik: number, concept: string): 
     return [fig(latest), prior ? fig(prior) : undefined];
 }
 
+/** The annual figure for exactly this period, if the filer reported one under this concept. */
+function annualAt(frames: Frame[] | undefined, cik: number, concept: string, end: string): Figure | undefined {
+    for (const f of frames ?? []) {
+        const r = f.get(cik);
+        if (r?.end === end) return { value: r.val, end: r.end, accn: r.accn, concept };
+    }
+    return undefined;
+}
+
 function latestInstant(frames: Frame[] | undefined, cik: number, concept: string): Figure | undefined {
     const r = (frames ?? []).map((f) => f.get(cik)).find(Boolean);
     return r ? { value: r.val, end: r.end, accn: r.accn, concept } : undefined;
@@ -352,10 +367,15 @@ function latestInstant(frames: Frame[] | undefined, cik: number, concept: string
 /** The arithmetic, in one place, on whatever figures were found. */
 export function derive(f: Fundamentals): Fundamentals {
     const out = { ...f };
-    if (f.operatingCashFlow && f.capex) {
+    // Both halves of free cash flow from the same year: one year's cash flow
+    // less another year's capex is a number no filing supports.
+    if (f.operatingCashFlow && f.capex && f.capex.end === f.operatingCashFlow.end) {
         // Capex is reported as a positive outflow; free cash flow subtracts it.
         out.freeCashFlow = f.operatingCashFlow.value - Math.abs(f.capex.value);
-        out.fcfMargin = f.revenue && f.revenue.value > 0 ? out.freeCashFlow / f.revenue.value : undefined;
+        out.fcfMargin =
+            f.revenue && f.revenue.value > 0 && f.revenue.end === f.operatingCashFlow.end
+                ? out.freeCashFlow / f.revenue.value
+                : undefined;
     }
     if (f.revenue && f.revenuePrior && f.revenuePrior.value > 0) {
         out.revenueGrowth = f.revenue.value / f.revenuePrior.value - 1;
@@ -394,11 +414,11 @@ export function fromFrames(fs: FrameSet, company: SecCompany): Fundamentals | nu
         cik,
         'us-gaap:NetCashProvidedByUsedInOperatingActivities'
     );
-    const [capex] = annualPair(
-        fs.annual.PaymentsToAcquirePropertyPlantAndEquipment,
-        cik,
-        'us-gaap:PaymentsToAcquirePropertyPlantAndEquipment'
-    );
+    // Capital spending for exactly the cash flow's year, under whichever
+    // concept the filer used.
+    const capex = operatingCashFlow
+        ? CAPEX_TAGS.map((tag) => annualAt(fs.annual[tag], cik, `us-gaap:${tag}`, operatingCashFlow.end)).find(Boolean)
+        : undefined;
     const [netIncome, netIncomePrior] = annualPair(fs.annual.NetIncomeLoss, cik, 'us-gaap:NetIncomeLoss');
 
     if (!revenue && !operatingCashFlow && !netIncome) return null;
@@ -480,13 +500,31 @@ type CompanyFacts = {
     facts?: Record<string, Record<string, { units?: Record<string, FactPoint[]> }>>;
 };
 
-/** Concepts to look for, in order of preference, per taxonomy. */
-const FALLBACK_CONCEPTS: Record<'us-gaap' | 'ifrs-full', Record<string, string[]>> = {
+type Taxonomy = 'us-gaap' | 'ifrs-full';
+type Metric = 'revenue' | 'netIncome' | 'operatingCashFlow' | 'capex' | 'debt' | 'cash' | 'equity';
+
+const TAXONOMIES: Taxonomy[] = ['us-gaap', 'ifrs-full'];
+
+/**
+ * The concepts each figure may be filed under.
+ *
+ * The newest series wins, whatever taxonomy or name it is under. Companies
+ * change how they file — Honda moved from US GAAP to IFRS, Nokia from
+ * `Revenue` to `RevenueFromContractsWithCustomers` — and the old series stays
+ * in their fact set, years out of date. Reading the first name that has any
+ * data quoted Honda's 2014 accounts as its latest. The order here only
+ * settles ties: US GAAP first, then as listed.
+ */
+const FALLBACK_CONCEPTS: Record<Taxonomy, Record<Metric, string[]>> = {
     'us-gaap': {
-        revenue: REVENUE_TAGS,
-        netIncome: ['NetIncomeLoss'],
-        operatingCashFlow: ['NetCashProvidedByUsedInOperatingActivities'],
-        capex: ['PaymentsToAcquirePropertyPlantAndEquipment'],
+        revenue: [...REVENUE_TAGS, 'RevenueFromContractWithCustomerIncludingAssessedTax', 'SalesRevenueNet'],
+        netIncome: ['NetIncomeLoss', 'ProfitLoss'],
+        operatingCashFlow: [
+            'NetCashProvidedByUsedInOperatingActivities',
+            'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+        ],
+        capex: CAPEX_TAGS,
+        // A total first; a noncurrent figure is completed from CURRENT_PORTION.
         debt: ['LongTermDebt', 'LongTermDebtNoncurrent'],
         cash: ['CashAndCashEquivalentsAtCarryingValue'],
         equity: ['StockholdersEquity'],
@@ -498,11 +536,25 @@ const FALLBACK_CONCEPTS: Record<'us-gaap' | 'ifrs-full', Record<string, string[]
         capex: [
             'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities',
             'PurchaseOfPropertyPlantAndEquipment',
+            // Nokia's: plant and equipment together with other long-lived assets.
+            'PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets',
         ],
-        debt: ['Borrowings', 'NoncurrentPortionOfNoncurrentBorrowings', 'LongtermBorrowings'],
+        debt: ['Borrowings', 'LongtermBorrowings', 'NoncurrentPortionOfNoncurrentBorrowings'],
         cash: ['CashAndCashEquivalents'],
         equity: ['EquityAttributableToOwnersOfParent', 'Equity'],
     },
+};
+
+/**
+ * The current portion that completes a noncurrent debt figure, as the frames
+ * add them. Honda, Toyota and Nokia file `LongtermBorrowings` as the
+ * noncurrent line only (with all their current borrowings it sums to their
+ * `Borrowings`), so on its own it would understate debt.
+ */
+const CURRENT_PORTION: Record<string, string> = {
+    LongTermDebtNoncurrent: 'LongTermDebtCurrent',
+    LongtermBorrowings: 'CurrentPortionOfLongtermBorrowings',
+    NoncurrentPortionOfNoncurrentBorrowings: 'CurrentPortionOfNoncurrentBorrowings',
 };
 
 const isAnnual = (p: FactPoint) =>
@@ -513,98 +565,211 @@ const isAnnual = (p: FactPoint) =>
           })()
         : false;
 
+/** One concept in one currency, newest point first. */
+interface Series {
+    taxonomy: Taxonomy;
+    name: string;
+    unit: string;
+    points: FactPoint[];
+}
+
+/** Every series a figure was filed under, in either taxonomy and any currency, in tie-break order. */
+function seriesFor(facts: CompanyFacts, metric: Metric, kind: 'annual' | 'instant'): Series[] {
+    const out: Series[] = [];
+    for (const taxonomy of TAXONOMIES) {
+        for (const name of FALLBACK_CONCEPTS[taxonomy][metric]) {
+            for (const [unit, pts] of Object.entries(facts.facts?.[taxonomy]?.[name]?.units ?? {})) {
+                if (!/^[A-Z]{3}$/.test(unit)) continue; // currencies only
+                const points = pts
+                    .filter((p) => (kind === 'annual' ? isAnnual(p) : !p.start))
+                    .sort((a, b) => b.end.localeCompare(a.end));
+                if (points.length) out.push({ taxonomy, name, unit, points });
+            }
+        }
+    }
+    return out;
+}
+
+/** The series that reaches the latest period. The earlier-listed wins a tie. */
+function freshest(series: Series[]): Series | undefined {
+    let best: Series | undefined;
+    for (const s of series) if (!best || s.points[0].end > best.points[0].end) best = s;
+    return best;
+}
+
+const figureOf = (s: Series, p: FactPoint): Figure => ({
+    value: p.val,
+    end: p.end,
+    accn: p.accn,
+    concept: `${s.taxonomy}:${s.name}`,
+});
+
 /**
  * Fundamentals from a company's full fact set, for filers the frames do not
  * cover — foreign filers reporting under IFRS in their own currency (Toyota,
  * Cameco), or US-GAAP filers whose fiscal year does not line up.
  */
 export function fromCompanyFacts(company: SecCompany, facts: CompanyFacts): Fundamentals | null {
-    for (const taxonomy of ['us-gaap', 'ifrs-full'] as const) {
-        const tax = facts.facts?.[taxonomy];
-        if (!tax) continue;
+    const revenueSeries = seriesFor(facts, 'revenue', 'annual');
+    const niSeries = seriesFor(facts, 'netIncome', 'annual');
+    const ocfSeries = seriesFor(facts, 'operatingCashFlow', 'annual');
 
-        // The currency the company reports in: whichever unit its revenue uses.
-        const pick = (names: string[], kind: 'annual' | 'instant') => {
-            for (const n of names) {
-                const units = tax[n]?.units;
-                if (!units) continue;
-                for (const [unit, pts] of Object.entries(units)) {
-                    if (!/^[A-Z]{3}$/.test(unit)) continue; // currencies only
-                    const chosen = pts
-                        .filter((p) => (kind === 'annual' ? isAnnual(p) : !p.start))
-                        .sort((a, b) => b.end.localeCompare(a.end));
-                    if (chosen.length) return { unit, concept: `${taxonomy}:${n}`, points: chosen };
-                }
-            }
-            return null;
-        };
+    // The newest headline figure sets the currency, and every other figure
+    // must be in it: yen of cash flow less dollars of capex means nothing.
+    const anchor = freshest([...revenueSeries, ...niSeries, ...ocfSeries]);
+    if (!anchor) return null;
+    const currency = anchor.unit;
+    const inCurrency = (series: Series[]) => series.filter((s) => s.unit === currency);
 
-        const c = FALLBACK_CONCEPTS[taxonomy];
-        const revenueSeries = pick(c.revenue, 'annual');
-        const niSeries = pick(c.netIncome, 'annual');
-        const ocfSeries = pick(c.operatingCashFlow, 'annual');
-        if (!revenueSeries && !niSeries && !ocfSeries) continue;
-
-        const currency = (revenueSeries ?? niSeries ?? ocfSeries)!.unit;
-        const sameCurrency = (s: ReturnType<typeof pick>) => (s && s.unit === currency ? s : null);
-
-        const pair = (s: ReturnType<typeof pick>): [Figure?, Figure?] => {
-            if (!s) return [];
-            const [latest, ...rest] = s.points;
-            const prior = rest.find((p) => {
-                const gap = (Date.parse(latest.end) - Date.parse(p.end)) / 86_400_000;
-                return gap > 300 && gap < 430;
-            });
-            const fig = (p: FactPoint): Figure => ({ value: p.val, end: p.end, accn: p.accn, concept: s.concept });
-            return [fig(latest), prior ? fig(prior) : undefined];
-        };
-        const single = (s: ReturnType<typeof pick>): Figure | undefined => {
-            if (!s) return undefined;
-            const p = s.points[0];
-            return { value: p.val, end: p.end, accn: p.accn, concept: s.concept };
-        };
-
-        const [revenue, revenuePrior] = pair(sameCurrency(revenueSeries));
-        const [netIncome, netIncomePrior] = pair(sameCurrency(niSeries));
-        const [operatingCashFlow] = pair(sameCurrency(ocfSeries));
-        const [capex] = pair(sameCurrency(pick(c.capex, 'annual')));
-        const debtFig = single(sameCurrency(pick(c.debt, 'instant')));
-
-        return derive({
-            cik: company.cik,
-            ticker: company.ticker,
-            name: company.name,
-            currency,
-            taxonomy,
-            revenue,
-            revenuePrior,
-            netIncome,
-            netIncomePrior,
-            operatingCashFlow,
-            capex,
-            debt: debtFig ? { value: debtFig.value, figures: [debtFig] } : undefined,
-            cash: single(sameCurrency(pick(c.cash, 'instant'))),
-            equity: single(sameCurrency(pick(c.equity, 'instant'))),
+    const pair = (s: Series | undefined): [Figure?, Figure?] => {
+        if (!s) return [];
+        const [latest, ...rest] = s.points;
+        const prior = rest.find((p) => {
+            const gap = (Date.parse(latest.end) - Date.parse(p.end)) / 86_400_000;
+            return gap > 300 && gap < 430;
         });
+        return [figureOf(s, latest), prior ? figureOf(s, prior) : undefined];
+    };
+
+    const [revenue, revenuePrior] = pair(freshest(inCurrency(revenueSeries)));
+    const [netIncome, netIncomePrior] = pair(freshest(inCurrency(niSeries)));
+    const [operatingCashFlow] = pair(freshest(inCurrency(ocfSeries)));
+
+    // Capital spending for exactly the cash flow's year, under whichever
+    // concept has it — never another year's.
+    let capex: Figure | undefined;
+    if (operatingCashFlow) {
+        for (const s of inCurrency(seriesFor(facts, 'capex', 'annual'))) {
+            const p = s.points.find((x) => x.end === operatingCashFlow.end);
+            if (p) {
+                capex = figureOf(s, p);
+                break;
+            }
+        }
     }
-    return null;
+
+    // Balance-sheet figures: the newest, and no older than a year before the
+    // headline figures. Debt from 2014 set against cash flow from 2025 would
+    // be a leverage ratio of two different companies.
+    const floor = new Date(Date.parse(anchor.points[0].end) - 365 * 86_400_000).toISOString().slice(0, 10);
+    const balance = (metric: Metric): Series | undefined => {
+        const s = freshest(inCurrency(seriesFor(facts, metric, 'instant')));
+        return s && s.points[0].end >= floor ? s : undefined;
+    };
+    const newest = (s: Series | undefined) => (s ? figureOf(s, s.points[0]) : undefined);
+
+    let debt: Fundamentals['debt'];
+    const debtSeries = balance('debt');
+    if (debtSeries) {
+        const main = figureOf(debtSeries, debtSeries.points[0]);
+        const currentName = CURRENT_PORTION[debtSeries.name];
+        const cp = currentName
+            ? facts.facts?.[debtSeries.taxonomy]?.[currentName]?.units?.[currency]?.find(
+                  (p) => !p.start && p.end === main.end
+              )
+            : undefined;
+        const current = cp ? figureOf({ ...debtSeries, name: currentName }, cp) : undefined;
+        debt = { value: main.value + (current?.value ?? 0), figures: current ? [main, current] : [main] };
+    }
+
+    return derive({
+        cik: company.cik,
+        ticker: company.ticker,
+        name: company.name,
+        currency,
+        taxonomy: anchor.taxonomy,
+        revenue,
+        revenuePrior,
+        netIncome,
+        netIncomePrior,
+        operatingCashFlow,
+        capex,
+        debt,
+        cash: newest(balance('cash')),
+        equity: newest(balance('equity')),
+    });
+}
+
+/**
+ * What was read from each company's fact set, kept instead of the document:
+ * a large filer's runs to several megabytes, and a screen can need dozens.
+ */
+const factsRead = new Map<number, { at: number; value: Fundamentals | null }>();
+
+async function fundamentalsFromFacts(company: SecCompany): Promise<Fundamentals | null> {
+    let hit = factsRead.get(company.cik);
+    if (!hit || clock.now() - hit.at >= CACHE_TTL_MS) {
+        const facts = await secGet<CompanyFacts>(
+            `${DATA}/api/xbrl/companyfacts/CIK${String(company.cik).padStart(10, '0')}.json`,
+            false
+        );
+        hit = { at: clock.now(), value: facts ? fromCompanyFacts(company, facts) : null };
+        factsRead.set(company.cik, hit);
+    }
+    // Share classes share a fact set: answer under the ticker that was asked.
+    return hit.value && { ...hit.value, ticker: company.ticker, name: company.name };
+}
+
+/**
+ * Figures older than this are history, not fundamentals: the company has
+ * stopped filing, or no longer files under anything read here. Two years,
+ * because a March year-end filer's newest annual figures can be eighteen
+ * months old and still be the latest there are.
+ */
+export const STALE_AFTER_DAYS = 730;
+
+/** The newest period any headline figure covers. */
+export function latestEnd(f: Fundamentals): string | undefined {
+    let end: string | undefined;
+    for (const x of [f.revenue, f.netIncome, f.operatingCashFlow]) if (x && (!end || x.end > end)) end = x.end;
+    return end;
+}
+
+function isStale(f: Fundamentals): boolean {
+    const end = latestEnd(f);
+    return end !== undefined && clock.now() - Date.parse(end) > STALE_AFTER_DAYS * 86_400_000;
+}
+
+/**
+ * The better of two readings of one company: the fresher, then the more
+ * complete — free cash flow counting most, since it is usually what the fact
+ * set was fetched for. The frames win a tie: only they carry quarterly growth.
+ */
+function better(frames: Fundamentals | null, facts: Fundamentals | null): Fundamentals | null {
+    if (!facts) return frames;
+    if (!frames) return facts;
+    const completeness = (f: Fundamentals) =>
+        (f.freeCashFlow !== undefined ? 8 : 0) + (f.revenue ? 4 : 0) + (f.netIncome ? 2 : 0) + (f.debt ? 1 : 0);
+    const a = latestEnd(frames) ?? '';
+    const b = latestEnd(facts) ?? '';
+    if (b < a || (b === a && completeness(facts) <= completeness(frames))) return frames;
+    // Quarterly growth comes only from the frames; it still holds in the same currency.
+    return frames.quarterlyGrowth && facts.currency === frames.currency
+        ? { ...facts, quarterlyGrowth: frames.quarterlyGrowth }
+        : facts;
 }
 
 /**
  * Fundamentals for named companies.
  *
- * Frames first — one shared load covers most US filers. A company the frames
- * miss costs one extra request for its own fact set.
+ * Frames first — one shared load covers most US filers. A company they leave
+ * short, with no revenue or no free cash flow, costs one more request for its
+ * own fact set, and the better reading is kept. A company whose newest figures
+ * are over two years old is reported as out of date, never as current.
  */
-export async function fundamentalsFor(
-    tickers: string[]
-): Promise<{ found: Fundamentals[]; unknown: string[]; noData: string[] }> {
+export async function fundamentalsFor(tickers: string[]): Promise<{
+    found: Fundamentals[];
+    unknown: string[];
+    noData: string[];
+    stale: { ticker: string; latestEnd: string }[];
+}> {
     const { byTicker } = await secCompanies();
     const fs = await loadFrames();
 
     const found: Fundamentals[] = [];
     const unknown: string[] = [];
     const noData: string[] = [];
+    const stale: { ticker: string; latestEnd: string }[] = [];
 
     for (const raw of [...new Set(tickers.map(normalizeUsTicker).filter(Boolean))]) {
         const company = byTicker.get(raw);
@@ -614,20 +779,21 @@ export async function fundamentalsFor(
         }
 
         let f = fromFrames(fs, company);
-        const thin = !f || (!f.revenue && !f.operatingCashFlow);
-        if (thin) {
-            const facts = await secGet<CompanyFacts>(
-                `${DATA}/api/xbrl/companyfacts/CIK${String(company.cik).padStart(10, '0')}.json`
-            );
-            const fromFacts = facts ? fromCompanyFacts(company, facts) : null;
-            if (fromFacts) f = fromFacts;
+        if (!f || !f.revenue || f.freeCashFlow === undefined) {
+            try {
+                f = better(f, await fundamentalsFromFacts(company));
+            } catch (err) {
+                // An improvement on a reading already in hand is not worth the whole call.
+                if (!f) throw err;
+            }
         }
 
-        if (f) found.push(f);
-        else noData.push(raw);
+        if (!f) noData.push(raw);
+        else if (isStale(f)) stale.push({ ticker: f.ticker, latestEnd: latestEnd(f)! });
+        else found.push(f);
     }
 
-    return { found, unknown, noData };
+    return { found, unknown, noData, stale };
 }
 
 // ---------------------------------------------------------------------------
@@ -665,7 +831,8 @@ export async function qualityLeaders(style: 'value' | 'momentum', limit = 30): P
         const company = byCik.get(cik);
         if (!company) continue; // no ticker: nothing a reader could act on
         const f = fromFrames(fs, company);
-        if (!f?.revenue || f.revenue.value < MIN_REVENUE_USD) continue;
+        // The oldest frames read still hold companies that have since stopped filing.
+        if (!f?.revenue || f.revenue.value < MIN_REVENUE_USD || isStale(f)) continue;
 
         if (style === 'value') {
             // Profitable, cash-generative, and able to clear its debt from

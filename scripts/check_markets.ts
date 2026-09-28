@@ -68,7 +68,10 @@ const reset = () => {
 // A small SEC and Finnhub
 // ---------------------------------------------------------------------------
 
-const CIK = { AAPL: 320193, CNI: 16868, TM: 1094517, BB: 1070235, BUYB: 555555, TINY: 666666 };
+const CIK = {
+    AAPL: 320193, CNI: 16868, TM: 1094517, BB: 1070235, BUYB: 555555, TINY: 666666,
+    NOK: 924613, HMC: 715153, PROD: 777777, GAP: 777778, TTM: 777779, OLD: 888888, GONE: 999999,
+};
 
 const TICKERS: Record<string, { cik_str: number; ticker: string; title: string }> = {
     '0': { cik_str: CIK.AAPL, ticker: 'AAPL', title: 'Apple Inc.' },
@@ -78,29 +81,43 @@ const TICKERS: Record<string, { cik_str: number; ticker: string; title: string }
     '3': { cik_str: CIK.BB, ticker: 'BB', title: 'BLUE BIRD CORP' },
     '4': { cik_str: CIK.BUYB, ticker: 'BUYB', title: 'Buyback Heavy Inc.' },
     '5': { cik_str: CIK.TINY, ticker: 'TINY', title: 'Tiny Co' },
+    '6': { cik_str: CIK.NOK, ticker: 'NOK', title: 'Nokia Corp' },
+    '7': { cik_str: CIK.HMC, ticker: 'HMC', title: 'HONDA MOTOR CO LTD' },
+    '8': { cik_str: CIK.PROD, ticker: 'PROD', title: 'Productive Assets Co' },
+    '9': { cik_str: CIK.GAP, ticker: 'GAP1', title: 'Gap In The Frames Inc.' },
+    '10': { cik_str: CIK.OLD, ticker: 'OLD', title: 'Stopped Filing Corp' },
+    '11': { cik_str: CIK.GONE, ticker: 'GONE', title: 'Gone Quiet Corp' },
+    '12': { cik_str: CIK.TTM, ticker: 'TTMX', title: 'Trailing Twelve Inc.' },
 };
 
 type Row = [cik: number, val: number, end: string, accn: string];
 const FRAMES: Record<string, Record<string, Row[]>> = {
     NetCashProvidedByUsedInOperatingActivities: {
-        CY2025: [[CIK.AAPL, 118e9, '2025-09-27', 'A-25'], [CIK.CNI, 5.1e9, '2025-12-31', 'C-25'], [CIK.BUYB, 9e9, '2025-12-31', 'B-25'], [CIK.TINY, 50e6, '2025-12-31', 'T-25']],
-        CY2024: [[CIK.AAPL, 110e9, '2024-09-28', 'A-24'], [CIK.CNI, 5.0e9, '2024-12-31', 'C-24'], [CIK.BUYB, 8.5e9, '2024-12-31', 'B-24']],
+        CY2025: [[CIK.AAPL, 118e9, '2025-09-27', 'A-25'], [CIK.CNI, 5.1e9, '2025-12-31', 'C-25'], [CIK.BUYB, 9e9, '2025-12-31', 'B-25'], [CIK.TINY, 50e6, '2025-12-31', 'T-25'], [CIK.PROD, 150e6, '2025-12-31', 'P-25'], [CIK.GAP, 60e6, '2025-12-31', 'G-25']],
+        // A large company whose last filing covered the year to mid-2024.
+        CY2024: [[CIK.AAPL, 110e9, '2024-09-28', 'A-24'], [CIK.CNI, 5.0e9, '2024-12-31', 'C-24'], [CIK.BUYB, 8.5e9, '2024-12-31', 'B-24'], [CIK.GONE, 3e9, '2024-06-30', 'X-24']],
     },
     PaymentsToAcquirePropertyPlantAndEquipment: {
         CY2025: [[CIK.AAPL, 12e9, '2025-09-27', 'A-25'], [CIK.CNI, 3.4e9, '2025-12-31', 'C-25'], [CIK.BUYB, 1e9, '2025-12-31', 'B-25'], [CIK.TINY, 5e6, '2025-12-31', 'T-25']],
+        // PROD's capex under this concept stops a year before its cash flow.
+        CY2024: [[CIK.PROD, 30e6, '2024-12-31', 'P-24'], [CIK.GONE, 0.5e9, '2024-06-30', 'X-24']],
+    },
+    // How Nvidia, Amazon, Ford and PepsiCo file their capital spending.
+    PaymentsToAcquireProductiveAssets: {
+        CY2025: [[CIK.PROD, 40e6, '2025-12-31', 'P-25']],
     },
     NetIncomeLoss: {
-        CY2025: [[CIK.AAPL, 100e9, '2025-09-27', 'A-25'], [CIK.CNI, 3.5e9, '2025-12-31', 'C-25'], [CIK.BUYB, 7e9, '2025-12-31', 'B-25'], [CIK.TINY, 10e6, '2025-12-31', 'T-25']],
-        CY2024: [[CIK.AAPL, 94e9, '2024-09-28', 'A-24'], [CIK.CNI, 3.4e9, '2024-12-31', 'C-24'], [CIK.BUYB, 6.5e9, '2024-12-31', 'B-24']],
+        CY2025: [[CIK.AAPL, 100e9, '2025-09-27', 'A-25'], [CIK.CNI, 3.5e9, '2025-12-31', 'C-25'], [CIK.BUYB, 7e9, '2025-12-31', 'B-25'], [CIK.TINY, 10e6, '2025-12-31', 'T-25'], [CIK.PROD, 60e6, '2025-12-31', 'P-25'], [CIK.GAP, 20e6, '2025-12-31', 'G-25']],
+        CY2024: [[CIK.AAPL, 94e9, '2024-09-28', 'A-24'], [CIK.CNI, 3.4e9, '2024-12-31', 'C-24'], [CIK.BUYB, 6.5e9, '2024-12-31', 'B-24'], [CIK.GONE, 2e9, '2024-06-30', 'X-24']],
     },
     // CN Rail reports revenue under one concept, Apple under another.
     Revenues: {
-        CY2025: [[CIK.CNI, 12.4e9, '2025-12-31', 'C-25'], [CIK.BUYB, 25e9, '2025-12-31', 'B-25'], [CIK.TINY, 200e6, '2025-12-31', 'T-25']],
-        CY2024: [[CIK.CNI, 12.0e9, '2024-12-31', 'C-24'], [CIK.BUYB, 24e9, '2024-12-31', 'B-24']],
-        CY2026Q2: [[CIK.CNI, 3.2e9, '2026-06-30', 'C-26q2']],
-        CY2025Q2: [[CIK.CNI, 3.1e9, '2025-06-30', 'C-25q2']],
-        CY2026Q1: [[CIK.CNI, 3.0e9, '2026-03-31', 'C-26q1']],
-        CY2025Q1: [[CIK.CNI, 2.9e9, '2025-03-31', 'C-25q1']],
+        CY2025: [[CIK.CNI, 12.4e9, '2025-12-31', 'C-25'], [CIK.BUYB, 25e9, '2025-12-31', 'B-25'], [CIK.TINY, 200e6, '2025-12-31', 'T-25'], [CIK.PROD, 400e6, '2025-12-31', 'P-25'], [CIK.GAP, 300e6, '2025-12-31', 'G-25']],
+        CY2024: [[CIK.CNI, 12.0e9, '2024-12-31', 'C-24'], [CIK.BUYB, 24e9, '2024-12-31', 'B-24'], [CIK.PROD, 350e6, '2024-12-31', 'P-24'], [CIK.GAP, 250e6, '2024-12-31', 'G-24'], [CIK.GONE, 20e9, '2024-06-30', 'X-24']],
+        CY2026Q2: [[CIK.CNI, 3.2e9, '2026-06-30', 'C-26q2'], [CIK.GAP, 90e6, '2026-06-30', 'G-26q2']],
+        CY2025Q2: [[CIK.CNI, 3.1e9, '2025-06-30', 'C-25q2'], [CIK.GAP, 70e6, '2025-06-30', 'G-25q2']],
+        CY2026Q1: [[CIK.CNI, 3.0e9, '2026-03-31', 'C-26q1'], [CIK.GAP, 80e6, '2026-03-31', 'G-26q1']],
+        CY2025Q1: [[CIK.CNI, 2.9e9, '2025-03-31', 'C-25q1'], [CIK.GAP, 70e6, '2025-03-31', 'G-25q1']],
     },
     RevenueFromContractWithCustomerExcludingAssessedTax: {
         CY2025: [[CIK.AAPL, 400e9, '2025-09-27', 'A-25']],
@@ -166,6 +183,156 @@ const TM_FACTS = {
     },
 };
 
+/** Seen live: Nokia's old revenue concept stops in 2017; the one it files now runs to date. */
+const NOK_FACTS = {
+    facts: {
+        'ifrs-full': {
+            Revenue: {
+                units: {
+                    EUR: [
+                        { start: '2016-01-01', end: '2016-12-31', val: 23.6e9, accn: 'N-16' },
+                        { start: '2017-01-01', end: '2017-12-31', val: 23.1e9, accn: 'N-17' },
+                    ],
+                },
+            },
+            RevenueFromContractsWithCustomers: {
+                units: {
+                    EUR: [
+                        { start: '2024-01-01', end: '2024-12-31', val: 19.2e9, accn: 'N-24' },
+                        { start: '2025-01-01', end: '2025-12-31', val: 19.9e9, accn: 'N-25' },
+                    ],
+                },
+            },
+            ProfitLossAttributableToOwnersOfParent: {
+                units: { EUR: [{ start: '2025-01-01', end: '2025-12-31', val: 1.3e9, accn: 'N-25' }] },
+            },
+            CashFlowsFromUsedInOperatingActivities: {
+                units: { EUR: [{ start: '2025-01-01', end: '2025-12-31', val: 2.4e9, accn: 'N-25' }] },
+            },
+            PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets: {
+                units: { EUR: [{ start: '2025-01-01', end: '2025-12-31', val: 0.6e9, accn: 'N-25' }] },
+            },
+            Borrowings: { units: { EUR: [{ end: '2025-12-31', val: 3.4e9, accn: 'N-25' }] } },
+            LongtermBorrowings: { units: { EUR: [{ end: '2025-12-31', val: 2.3e9, accn: 'N-25' }] } },
+            CashAndCashEquivalents: { units: { EUR: [{ end: '2025-12-31', val: 6.0e9, accn: 'N-25' }] } },
+        },
+    },
+};
+
+/** Seen live: Honda filed under US GAAP until 2014, and under IFRS since. */
+const HMC_FACTS = {
+    facts: {
+        'us-gaap': {
+            Revenues: {
+                units: {
+                    JPY: [
+                        { start: '2012-04-01', end: '2013-03-31', val: 9.9e12, accn: 'H-13' },
+                        { start: '2013-04-01', end: '2014-03-31', val: 11.8e12, accn: 'H-14' },
+                    ],
+                },
+            },
+            NetCashProvidedByUsedInOperatingActivities: {
+                units: { JPY: [{ start: '2013-04-01', end: '2014-03-31', val: 1.0e12, accn: 'H-14' }] },
+            },
+            // The only debt figure on file is the 2014 one.
+            LongTermDebt: { units: { JPY: [{ end: '2014-03-31', val: 3.0e12, accn: 'H-14' }] } },
+        },
+        'ifrs-full': {
+            Revenue: {
+                units: {
+                    JPY: [
+                        { start: '2023-04-01', end: '2024-03-31', val: 20.4e12, accn: 'H-24' },
+                        { start: '2024-04-01', end: '2025-03-31', val: 21.7e12, accn: 'H-25' },
+                    ],
+                },
+            },
+            CashFlowsFromUsedInOperatingActivities: {
+                units: { JPY: [{ start: '2024-04-01', end: '2025-03-31', val: 2.0e12, accn: 'H-25' }] },
+            },
+            // Capex for the year before only.
+            PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities: {
+                units: { JPY: [{ start: '2023-04-01', end: '2024-03-31', val: 0.6e12, accn: 'H-24' }] },
+            },
+        },
+    },
+};
+
+/** A filer whose capex the frames lack; its own fact set has it, and its debt split in two. */
+const GAP_FACTS = {
+    facts: {
+        'us-gaap': {
+            Revenues: { units: { USD: [{ start: '2025-01-01', end: '2025-12-31', val: 300e6, accn: 'G-25' }] } },
+            NetCashProvidedByUsedInOperatingActivities: {
+                units: { USD: [{ start: '2025-01-01', end: '2025-12-31', val: 60e6, accn: 'G-25' }] },
+            },
+            PaymentsToAcquirePropertyPlantAndEquipment: {
+                units: { USD: [{ start: '2025-01-01', end: '2025-12-31', val: 20e6, accn: 'G-25' }] },
+            },
+            // A total it stopped reporting in 2019, and the two halves it reports now.
+            LongTermDebt: { units: { USD: [{ end: '2019-12-31', val: 500e6, accn: 'G-19' }] } },
+            LongTermDebtNoncurrent: { units: { USD: [{ end: '2026-06-30', val: 100e6, accn: 'G-26q2' }] } },
+            LongTermDebtCurrent: { units: { USD: [{ end: '2026-06-30', val: 10e6, accn: 'G-26q2' }] } },
+        },
+    },
+};
+
+/**
+ * Seen live at Amazon: each quarterly report also gives cash flow for the
+ * twelve months to that quarter, so the newest free cash flow runs past the
+ * newest annual revenue. And no debt figure at all, as at Ford and PepsiCo.
+ */
+const TTM_FACTS = {
+    facts: {
+        'us-gaap': {
+            Revenues: { units: { USD: [{ start: '2025-01-01', end: '2025-12-31', val: 700e9, accn: 'X-25' }] } },
+            NetCashProvidedByUsedInOperatingActivities: {
+                units: {
+                    USD: [
+                        { start: '2025-01-01', end: '2025-12-31', val: 130e9, accn: 'X-25' },
+                        { start: '2025-07-01', end: '2026-06-30', val: 140e9, accn: 'X-26q2' },
+                    ],
+                },
+            },
+            PaymentsToAcquireProductiveAssets: {
+                units: {
+                    USD: [
+                        { start: '2025-01-01', end: '2025-12-31', val: 120e9, accn: 'X-25' },
+                        { start: '2025-07-01', end: '2026-06-30', val: 150e9, accn: 'X-26q2' },
+                    ],
+                },
+            },
+        },
+    },
+};
+
+/** A company that stopped filing years ago. */
+const OLD_FACTS = {
+    facts: {
+        'us-gaap': {
+            Revenues: {
+                units: {
+                    USD: [
+                        { start: '2018-01-01', end: '2018-12-31', val: 900e6, accn: 'O-18' },
+                        { start: '2019-01-01', end: '2019-12-31', val: 950e6, accn: 'O-19' },
+                    ],
+                },
+            },
+            NetCashProvidedByUsedInOperatingActivities: {
+                units: { USD: [{ start: '2019-01-01', end: '2019-12-31', val: 120e6, accn: 'O-19' }] },
+            },
+        },
+    },
+};
+
+const FACTS: Record<number, object> = {
+    [CIK.TM]: TM_FACTS,
+    [CIK.NOK]: NOK_FACTS,
+    [CIK.HMC]: HMC_FACTS,
+    [CIK.GAP]: GAP_FACTS,
+    [CIK.TTM]: TTM_FACTS,
+    [CIK.OLD]: OLD_FACTS,
+};
+
 const CNI_SUBMISSIONS = {
     filings: {
         recent: {
@@ -209,6 +376,8 @@ const FH: Record<string, { quote: object; metric: Record<string, number | string
 };
 
 const requests: { url: URL; ua: string; at: number }[] = [];
+/** Companies whose fact set SEC fails to serve. */
+const FAILING = new Set<number>();
 
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
@@ -224,7 +393,9 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
                 ? json({ data: rows.map(([cik, val, end, accn]) => ({ cik, val, end, accn })) })
                 : json({ message: 'not found' }, 404);
         }
-        if (url.pathname === `/api/xbrl/companyfacts/CIK${String(CIK.TM).padStart(10, '0')}.json`) return json(TM_FACTS);
+        const facts = url.pathname.match(/^\/api\/xbrl\/companyfacts\/CIK(\d{10})\.json$/);
+        if (facts && FAILING.has(Number(facts[1]))) return json({ message: 'unavailable' }, 503);
+        if (facts) return FACTS[Number(facts[1])] ? json(FACTS[Number(facts[1])]) : json({ message: 'not found' }, 404);
         if (url.pathname === `/submissions/CIK${String(CIK.CNI).padStart(10, '0')}.json`) return json(CNI_SUBMISSIONS);
         return json({ message: 'not found' }, 404);
     }
@@ -262,10 +433,16 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     {
         // Some filers report capex as a negative outflow. It must still come off.
         const base = { cik: 1, ticker: 'X', name: 'X', currency: 'USD', taxonomy: 'us-gaap' as const };
-        const fig = (value: number) => ({ value, end: '2025-12-31', accn: 'x', concept: 'c' });
+        const fig = (value: number, end = '2025-12-31') => ({ value, end, accn: 'x', concept: 'c' });
         const a = derive({ ...base, operatingCashFlow: fig(5.1e9), capex: fig(3.4e9) });
         const b = derive({ ...base, operatingCashFlow: fig(5.1e9), capex: fig(-3.4e9) });
         ok(near(a.freeCashFlow, 1.7e9) && near(b.freeCashFlow, 1.7e9), 'capex is subtracted whichever sign it is filed with');
+
+        // Both halves of free cash flow, and its margin, from one year.
+        const c = derive({ ...base, operatingCashFlow: fig(5.1e9), capex: fig(3.4e9, '2024-12-31') });
+        ok(c.freeCashFlow === undefined, "one year's cash flow less another year's capex is never computed");
+        const d = derive({ ...base, revenue: fig(20e9, '2024-12-31'), operatingCashFlow: fig(5.1e9), capex: fig(3.4e9) });
+        ok(near(d.freeCashFlow, 1.7e9) && d.fcfMargin === undefined, "nor a margin over another year's revenue");
     }
     {
         const tm = fromCompanyFacts({ cik: CIK.TM, ticker: 'TM', name: 'TOYOTA MOTOR CORP/' }, TM_FACTS)!;
@@ -275,6 +452,68 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 
         const { found } = await fundamentalsFor(['TM']);
         ok(found[0]?.currency === 'JPY', 'fundamentalsFor falls back to it when frames miss a filer');
+    }
+    {
+        const nok = fromCompanyFacts({ cik: CIK.NOK, ticker: 'NOK', name: 'Nokia Corp' }, NOK_FACTS)!;
+        ok(
+            nok.revenue?.end === '2025-12-31' && nok.revenue.concept === 'ifrs-full:RevenueFromContractsWithCustomers',
+            'the newest revenue concept wins, not the first listed',
+            'Nokia: 2025, not 2017'
+        );
+        ok(near(nok.revenueGrowth, 19.9 / 19.2 - 1), 'and growth compares that concept with itself', '+3.6%');
+        ok(near(nok.freeCashFlow, 1.8e9) && nok.currency === 'EUR', "Nokia's capex, under IFRS's long name, comes off", '€2.4B − €0.6B');
+        ok(near(nok.debt?.value, 3.4e9), 'total borrowings win over the noncurrent line');
+
+        const hmc = fromCompanyFacts({ cik: CIK.HMC, ticker: 'HMC', name: 'HONDA MOTOR CO LTD' }, HMC_FACTS)!;
+        ok(hmc.taxonomy === 'ifrs-full' && hmc.revenue?.end === '2025-03-31', 'newer IFRS figures beat older US GAAP ones', 'Honda: FY to 2025-03, not 2014');
+        ok(hmc.capex === undefined && hmc.freeCashFlow === undefined, 'capex from another year is never used', 'only the year before\'s on file');
+        ok(hmc.debt === undefined && hmc.netDebt === undefined, 'a 2014 debt figure never meets 2025 cash flow');
+    }
+    reset();
+    {
+        const before = requests.length;
+        const prod = (await fundamentalsFor(['PROD'])).found[0];
+        ok(
+            near(prod?.freeCashFlow, 110e6) && prod?.capex?.concept === 'us-gaap:PaymentsToAcquireProductiveAssets',
+            'capex filed as "productive assets" is read from the frames',
+            'the cash flow\'s own year, not an older concept\'s'
+        );
+        ok(!requests.slice(before).some((r) => r.url.pathname.includes('companyfacts')), 'and costs no extra request');
+
+        const gap = (await fundamentalsFor(['GAP1'])).found[0];
+        ok(near(gap?.freeCashFlow, 40e6), "when the frames lack capex, the company's own filings supply it");
+        ok(near(gap?.quarterlyGrowth?.latest, 90 / 70 - 1), 'keeping the quarterly growth only the frames carry');
+        ok(near(gap?.debt?.value, 110e6) && gap?.debt?.figures.length === 2, 'the newest debt, with its current portion added', 'not a 2019 total');
+    }
+    reset();
+    {
+        FAILING.add(CIK.GAP);
+        const kept = (await fundamentalsFor(['GAP1', 'CNI'])).found;
+        FAILING.delete(CIK.GAP);
+        ok(
+            kept.some((f) => f.ticker === 'GAP1' && f.revenue !== undefined) && kept.some((f) => f.ticker === 'CNI'),
+            'an SEC error on a fact set keeps the reading in hand',
+            'and the rest of the call'
+        );
+    }
+    {
+        const r = await fundamentalsFor(['OLD', 'NOK']);
+        ok(
+            r.stale.length === 1 && r.stale[0].ticker === 'OLD' && r.stale[0].latestEnd === '2019-12-31',
+            'figures over two years old are reported as out of date',
+            'FY2019'
+        );
+        ok(!r.found.some((f) => f.ticker === 'OLD') && r.found.some((f) => f.ticker === 'NOK'), 'never as current fundamentals');
+
+        const [tool] = toolsForChannels(['sec']).filter((x) => x.declaration.name === 'sec_fundamentals');
+        const out = await tool.execute({ tickers: ['OLD'] });
+        ok(/OLD .*2019-12-31.*not current/.test(out.content), 'and the agent is told so, in as many words');
+
+        const ttm = (await fundamentalsFor(['TTMX'])).found[0];
+        ok(near(ttm?.freeCashFlow, -10e9) && ttm?.fcfMargin === undefined, 'the newest twelve months of cash flow, and no margin across periods', 'as Amazon files');
+        const said = (await tool.execute({ tickers: ['TTMX'] })).content;
+        ok(/free cash flow \S+ \(12 months to 2026-06-30\)/.test(said), 'and the agent is told which twelve months');
+        ok(/debt: no figure in SEC data/.test(said), 'a missing debt figure is said, not skipped', 'as at Ford and PepsiCo');
     }
     {
         ok(describeFiling('8-K', '2.02,9.01') === 'results of operations (earnings)', '8-K items read as words', '2.02');
@@ -289,6 +528,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         ok(syms.includes('BUYB'), 'negative equity from buybacks is not treated as distress', 'judged on years of cash flow instead');
         ok(!syms.includes('CNI'), 'debt of eleven years of free cash flow is not "manageable"');
         ok(!syms.includes('TINY'), 'a company too small to screen without prices is left out');
+        ok(!syms.includes('GONE'), 'a company that stopped filing is no leader', 'last figures mid-2024');
     }
 
     console.log('\nFinnhub: pacing, caching, and the free tier\'s limits\n' + '─'.repeat(78));
@@ -414,6 +654,19 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         const r = await screenValue(['AAPL', 'CNI']);
         ok(!r.priced && r.notChecked.some((n) => /no Finnhub key/.test(n)), 'without prices it says the 52-week test was skipped');
         ok(r.rows.some((x) => x.symbol === 'AAPL') && !r.rows.some((x) => x.symbol === 'CNI'), 'and still applies the fundamentals');
+    }
+    reset();
+    {
+        const r = await screenValue(['OLD']);
+        const old = r.unscreened.find((u) => u.symbol === 'OLD');
+        ok(/2019-12-31, too old to screen on/.test(old?.why ?? ''), 'a company with out-of-date filings is listed, not ranked', 'and says why');
+    }
+    reset();
+    {
+        delete process.env.FINNHUB_API_KEY;
+        const r = await screenValue(['PROD']);
+        const prod = r.rows.find((x) => x.symbol === 'PROD');
+        ok(prod?.flags.includes('no debt figure in SEC data — leverage not checked') === true, 'unknown debt passes only with a flag saying so');
     }
     {
         // Currencies: Toyota's cash flow is in yen; its market value in dollars.

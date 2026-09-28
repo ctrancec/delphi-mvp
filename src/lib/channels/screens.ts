@@ -32,7 +32,7 @@ import {
     type Figure,
     type Fundamentals,
 } from './sec';
-import { isFinnhubConfigured, resolveListing, snapshots, type Snapshot } from './finnhub';
+import { isFinnhubConfigured, resolveListing, snapshots, type Resolution, type Snapshot } from './finnhub';
 
 /** Most candidates a screen will price — two Finnhub calls each, 55 a minute. */
 export const MAX_CANDIDATES = 40;
@@ -299,20 +299,30 @@ async function gather(symbols: string[]) {
     const resolved = await Promise.all(symbols.map((s) => resolveListing(s)));
     const usSymbols = resolved.filter((r) => r.us).map((r) => r.us!) as string[];
 
-    const funds = isSecConfigured() ? await fundamentalsFor(usSymbols) : { found: [], unknown: [], noData: [] };
+    const funds = isSecConfigured()
+        ? await fundamentalsFor(usSymbols)
+        : { found: [], unknown: [], noData: [], stale: [] };
     const bySym = new Map(funds.found.map((f) => [f.ticker, f]));
+    // US tickers whose newest SEC figures are too old to screen on, and how old.
+    const staleBy = new Map(funds.stale.map((s) => [s.ticker, s.latestEnd]));
 
     const priced = isFinnhubConfigured();
     const snaps = priced ? await snapshots(symbols) : { found: [], unavailable: [] };
     const snapBy = new Map(snaps.found.map((s) => [s.asked.toUpperCase(), s]));
 
-    return { resolved, bySym, snapBy, priced };
+    return { resolved, bySym, staleBy, snapBy, priced };
+}
+
+/** Why a candidate could not be screened, as precisely as the data allows. */
+function whyUnscreened(r: Resolution, staleBy: Map<string, string>): string {
+    const old = r.us ? staleBy.get(r.us) : undefined;
+    return old ? `SEC's newest figures are for the fiscal year to ${old}, too old to screen on` : (r.note ?? 'no free data found');
 }
 
 export async function screenValue(candidates: string[] = []): Promise<ScreenResult> {
     const leaders = isSecConfigured() ? (await qualityLeaders('value', 25)).map((l) => l.fundamentals.ticker) : [];
     const { symbols, origins } = pool(candidates, leaders, 'value');
-    const { resolved, bySym, snapBy, priced } = await gather(symbols);
+    const { resolved, bySym, staleBy, snapBy, priced } = await gather(symbols);
 
     const rows: ScreenRow[] = [];
     const unscreened: ScreenResult['unscreened'] = [];
@@ -325,7 +335,7 @@ export async function screenValue(candidates: string[] = []): Promise<ScreenResu
         const f = r.us ? bySym.get(r.us) : undefined;
         const s = snapBy.get(key);
         if (!r.us || (!f && !s)) {
-            unscreened.push({ symbol: r.asked, why: r.note ?? 'no free data found', origins: origins.get(key) ?? [] });
+            unscreened.push({ symbol: r.asked, why: whyUnscreened(r, staleBy), origins: origins.get(key) ?? [] });
             continue;
         }
         withNumbers++;
@@ -346,9 +356,12 @@ export async function screenValue(candidates: string[] = []): Promise<ScreenResu
             if (!profitable && !recovering) continue;
             if (f.netDebtToFcf !== undefined && f.netDebtToFcf > MAX_DEBT_YEARS) continue;
             if (!profitable) flags.push('loss-making but improving — speculative');
+            // Unknown debt passes the leverage test only because it cannot be failed; say so.
+            if (!f.debt) flags.push('no debt figure in SEC data — leverage not checked');
             if (f.revenueGrowth !== undefined && f.revenueGrowth < -0.1) flags.push('revenue shrinking over 10% — possible value trap');
         } else {
-            flags.push('no SEC fundamentals — price test only');
+            const old = staleBy.get(r.us);
+            flags.push(old ? `SEC figures out of date (fiscal year to ${old}) — price test only` : 'no SEC fundamentals — price test only');
         }
         sound++;
 
@@ -393,7 +406,7 @@ export async function screenValue(candidates: string[] = []): Promise<ScreenResu
 export async function screenMomentum(candidates: string[] = []): Promise<ScreenResult> {
     const leaders = isSecConfigured() ? (await qualityLeaders('momentum', 25)).map((l) => l.fundamentals.ticker) : [];
     const { symbols, origins } = pool(candidates, leaders, 'momentum');
-    const { resolved, bySym, snapBy, priced } = await gather(symbols);
+    const { resolved, bySym, staleBy, snapBy, priced } = await gather(symbols);
 
     const rows: ScreenRow[] = [];
     const unscreened: ScreenResult['unscreened'] = [];
@@ -405,7 +418,7 @@ export async function screenMomentum(candidates: string[] = []): Promise<ScreenR
         const f = r.us ? bySym.get(r.us) : undefined;
         const s = snapBy.get(key);
         if (!r.us || (!f && !s)) {
-            unscreened.push({ symbol: r.asked, why: r.note ?? 'no free data found', origins: origins.get(key) ?? [] });
+            unscreened.push({ symbol: r.asked, why: whyUnscreened(r, staleBy), origins: origins.get(key) ?? [] });
             continue;
         }
         withNumbers++;

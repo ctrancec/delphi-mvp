@@ -385,6 +385,16 @@ const tickerList = (v: unknown): string[] =>
 
 const urlLocators = (urls: string[]): SourceLocator[] => [...new Set(urls)].map((url) => ({ kind: 'url', url }));
 
+/**
+ * The period free cash flow covers, when it is not the fiscal year the header
+ * names. Amazon files cash flow for the twelve months to each quarter, so its
+ * newest free cash flow can run half a year past its latest annual revenue.
+ */
+function fcfPeriod(f: Fundamentals): string {
+    const end = f.operatingCashFlow?.end;
+    return end && end !== f.revenue?.end ? ` (12 months to ${end})` : '';
+}
+
 /** One company's fundamentals as the agent reads them, figures first, filings after. */
 function describeFundamentals(f: Fundamentals): string {
     const cur = f.currency;
@@ -396,13 +406,15 @@ function describeFundamentals(f: Fundamentals): string {
     if (rev || ni) lines.push(`  ${[rev, ni].filter(Boolean).join(' · ')}`);
     if (f.freeCashFlow !== undefined) {
         lines.push(
-            `  operating cash flow ${money(f.operatingCashFlow?.value, cur)} − capex ${money(Math.abs(f.capex?.value ?? 0), cur)} = free cash flow ${money(f.freeCashFlow, cur)}${f.fcfMargin !== undefined ? ` (margin ${pct(f.fcfMargin)})` : ''}`
+            `  operating cash flow ${money(f.operatingCashFlow?.value, cur)} − capex ${money(Math.abs(f.capex?.value ?? 0), cur)} = free cash flow ${money(f.freeCashFlow, cur)}${fcfPeriod(f)}${f.fcfMargin !== undefined ? ` (margin ${pct(f.fcfMargin)})` : ''}`
         );
     }
     if (f.debt) {
         lines.push(
             `  debt ${money(f.debt.value, cur)} · cash ${money(f.cash?.value, cur)} · net debt ${money(f.netDebt, cur)}${f.netDebtToFcf !== undefined ? ` = ${f.netDebtToFcf.toFixed(1)} years of free cash flow` : ''}${f.debtToEquity !== undefined ? ` · debt/equity ${f.debtToEquity.toFixed(2)}` : ''}`
         );
+    } else {
+        lines.push('  debt: no figure in SEC data, so leverage is unknown — do not call it low');
     }
     if (f.quarterlyGrowth) {
         const q = f.quarterlyGrowth;
@@ -473,7 +485,7 @@ function describeScreen(r: ScreenResult): { content: string; locators: SourceLoc
             s?.aboveLow !== undefined ? `${pct(s.aboveLow)} above the 52-week low` : null,
             s?.ret13w !== undefined ? `13-week ${fmtPts(s.ret13w)}` : null,
             s?.ret26w !== undefined ? `26-week ${fmtPts(s.ret26w)}` : null,
-            f?.freeCashFlow !== undefined ? `FCF ${money(f.freeCashFlow, f.currency)}` : null,
+            f?.freeCashFlow !== undefined ? `FCF ${money(f.freeCashFlow, f.currency)}${fcfPeriod(f)}` : null,
             f?.fcfMargin !== undefined ? `FCF margin ${pct(f.fcfMargin)}` : null,
             f?.netDebtToFcf !== undefined ? `net debt ${f.netDebtToFcf.toFixed(1)} yrs of FCF` : null,
             f?.quarterlyGrowth ? `latest-quarter sales ${pct(f.quarterlyGrowth.latest)}` : null,
@@ -530,10 +542,17 @@ const secFundamentalsTool: ChannelTool = {
         },
     },
     async execute(args) {
-        const { found, unknown, noData } = await fundamentalsFor(tickerList(args.tickers).slice(0, 40));
+        const { found, unknown, noData, stale } = await fundamentalsFor(tickerList(args.tickers).slice(0, 40));
         const blocks = found.map(describeFundamentals);
         if (unknown.length) blocks.push(`SEC has no company with the ticker ${unknown.join(', ')}. Do not assert fundamentals for ${unknown.length === 1 ? 'it' : 'them'} from this tool.`);
         if (noData.length) blocks.push(`SEC knows ${noData.join(', ')} but has no usable financial data for ${noData.length === 1 ? 'it' : 'them'}.`);
+        if (stale.length) {
+            blocks.push(
+                stale
+                    .map((s) => `SEC's newest figures for ${s.ticker} are for the fiscal year to ${s.latestEnd}: over two years old, so not current. Do not present them as current fundamentals.`)
+                    .join('\n')
+            );
+        }
         return {
             content: [...blocks, 'Cite a figure as the filing URL shown with it.'].join('\n\n'),
             locators: urlLocators(found.flatMap(filingsOf)),

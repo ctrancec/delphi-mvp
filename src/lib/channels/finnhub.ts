@@ -205,7 +205,7 @@ export async function resolveListing(symbol: string): Promise<Resolution> {
     return {
         asked: symbol,
         us: entry.us,
-        note: `Toronto listing; figures are for its US listing ${entry.us} (${company.name}), in USD`,
+        note: `Toronto listing; figures are for its US listing ${entry.us} (${company.name}), prices in USD`,
     };
 }
 
