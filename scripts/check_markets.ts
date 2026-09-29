@@ -30,6 +30,8 @@ import {
     type Fundamentals,
 } from '../src/lib/channels/sec';
 import {
+    checkFinnhubHealth,
+    keyShapeProblem,
     MAX_TICKERS_PER_CALL,
     resolveListing,
     snapshots,
@@ -417,6 +419,8 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         return json({ message: 'not found' }, 404);
     }
     if (url.hostname === 'finnhub.io') {
+        // As the real service answers a key it does not know.
+        if (url.searchParams.get('token') !== 'test-key') return json({ error: 'Invalid API key.' }, 401);
         const sym = url.searchParams.get('symbol') ?? '';
         const f = FH[sym] ?? (/^Q\d+$/.test(sym) ? { quote: quote(20, 0.1), metric: { '52WeekHigh': 30, '52WeekLow': 19, '13WeekPriceReturnDaily': 1, '26WeekPriceReturnDaily': 2 } } : null);
         if (url.pathname === '/api/v1/quote') return json(f?.quote ?? { c: 0, d: null, dp: null, t: 0 });
@@ -611,6 +615,18 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         ok(toolsForChannels(['finnhub']).length === 0, 'without a key, no price tools are handed out');
         const r = await snapshots(['AAPL']);
         ok(r.found.length === 0 && /FINNHUB_API_KEY/.test(r.unavailable[0]?.why ?? ''), 'and a direct call says why');
+    }
+    reset();
+    {
+        // A refused key is diagnosed from its shape alone, never its content.
+        ok(keyShapeProblem('"c1a2b3c4d5e6f7g8h9i0"')?.includes('quotes') === true, 'a key saved inside quotes is caught', 'by its shape alone');
+        ok(keyShapeProblem('FINNHUB_API_KEY=c1a2b3c4d5e6f7g8h9i0')?.includes('variable name') === true, 'so is a whole .env line pasted as the value');
+        ok(keyShapeProblem('sandbox_c1a2b3c4d5e6f7g8h9i0')?.includes('sandbox') === true, 'and the sandbox key');
+        ok(keyShapeProblem(' c1a2b3c4d5e6f7g8h9i0\n') === null, 'a well-formed key raises nothing', 'spaces around it are trimmed');
+
+        process.env.FINNHUB_API_KEY = '"test-key"';
+        const h = await checkFinnhubHealth();
+        ok(!h.ok && /rejected \(401\): the saved value has quotes around it/.test(h.detail ?? ''), 'the health check says what to fix', 'quotes, here');
     }
 
     console.log('\nToronto listings: only through a US listing that is provably the same company\n' + '─'.repeat(78));

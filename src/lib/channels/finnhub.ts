@@ -77,6 +77,22 @@ async function slot(): Promise<void> {
     }
 }
 
+/**
+ * What looks wrong with a key Finnhub refused, judged from its shape alone —
+ * never its content — so the health check can say what to fix without the
+ * key being shown to anyone. Finnhub keys are about twenty letters and digits.
+ */
+export function keyShapeProblem(raw: string): string | null {
+    const key = raw.trim();
+    if (/^["'`]|["'`]$/.test(key)) return 'the saved value has quotes around it; paste the key alone';
+    if (/^[A-Z_]+=/.test(key)) return 'the saved value starts with a variable name and "="; paste only the key';
+    if (/^sandbox_/i.test(key)) return 'it is the sandbox key; use the one labelled "API Key"';
+    if (/\s/.test(key)) return 'the saved value has a space or line break inside it';
+    if (!/^[a-z0-9]+$/i.test(key)) return 'the saved value has characters a Finnhub key never has';
+    if (key.length < 16 || key.length > 40) return `the saved value is ${key.length} characters; Finnhub keys are about 20`;
+    return null;
+}
+
 async function finnhubGet<T>(path: string, params: Record<string, string>): Promise<T> {
     const key = process.env.FINNHUB_API_KEY?.trim();
     if (!key) throw new ChannelUnavailableError('finnhub', 'FINNHUB_API_KEY is not set');
@@ -97,7 +113,15 @@ async function finnhubGet<T>(path: string, params: Record<string, string>): Prom
         throw new ChannelUnavailableError('finnhub', (err as Error).message || 'the request failed');
     }
 
-    if (response.status === 401) throw new ChannelUnavailableError('finnhub', 'the key was rejected (401)');
+    if (response.status === 401) {
+        const hint = keyShapeProblem(key);
+        throw new ChannelUnavailableError(
+            'finnhub',
+            hint
+                ? `the key was rejected (401): ${hint}`
+                : 'the key was rejected (401). Its shape looks right, so check it is the current "API Key" on your Finnhub dashboard'
+        );
+    }
     if (response.status === 403) {
         throw new ChannelUnavailableError('finnhub', `${path} is not on the free plan (403)`);
     }

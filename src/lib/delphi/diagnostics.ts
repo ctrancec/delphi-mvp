@@ -193,7 +193,9 @@ export async function channelChecks(db: Db | null, workspaceId: string | null): 
             detail = probe?.detail ?? 'The live probe failed.';
             remedy = KEYLESS.has(kind)
                 ? 'This is a public service that needs no key, so the fault is on its side. Agents fall back to other sources until it recovers.'
-                : 'The key is present but the service did not answer. Check the key is still valid.';
+                : /\(401\)/.test(detail)
+                  ? 'The service answered and refused the key. Copy it again from the provider\'s dashboard, paste it into Vercel with nothing around it, and redeploy.'
+                  : 'The key is present, but the service did not answer as expected. Check the key is still valid.';
         } else if (!isBound) {
             level = 'degraded';
             detail = 'Reachable, but not bound to this workspace.';
