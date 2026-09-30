@@ -31,6 +31,7 @@ import {
 } from '../src/lib/channels/sec';
 import {
     checkFinnhubHealth,
+    cleanKey,
     keyShapeProblem,
     MAX_TICKERS_PER_CALL,
     resolveListing,
@@ -624,9 +625,27 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         ok(keyShapeProblem('sandbox_c1a2b3c4d5e6f7g8h9i0')?.includes('sandbox') === true, 'and the sandbox key');
         ok(keyShapeProblem(' c1a2b3c4d5e6f7g8h9i0\n') === null, 'a well-formed key raises nothing', 'spaces around it are trimmed');
 
-        process.env.FINNHUB_API_KEY = '"test-key"';
+        // What pasting brings along, none of which a key contains, is removed before use.
+        const k = 'c1a2b3c4d5e6f7g8h9i0';
+        ok(
+            [`${k}​`, `"${k}".`, `FINNHUB_API_KEY=${k}`, `https://finnhub.io/api/v1/quote?symbol=AAPL&token=${k}`, ` ${k} `].every((v) => cleanKey(v) === k),
+            'paste leftovers around a key are removed',
+            'invisible characters, quotes, a full stop, NAME=, a docs link'
+        );
+        ok(cleanKey(k) === k && cleanKey('abc-def') === 'abc-def', 'and nothing inside a key is touched');
+
+        process.env.FINNHUB_API_KEY = '"test-key"​';
+        const tidy = await checkFinnhubHealth();
+        ok(tidy.ok && /extra characters around it, removed before use/.test(tidy.detail ?? ''), 'a key saved with leftovers still works', 'and the check says to tidy it');
+
+        reset();
+        process.env.FINNHUB_API_KEY = 'abcdefghij-klmnopqrst';
         const h = await checkFinnhubHealth();
-        ok(!h.ok && /rejected \(401\): the saved value has quotes around it/.test(h.detail ?? ''), 'the health check says what to fix', 'quotes, here');
+        ok(
+            !h.ok && /rejected \(401\): the saved value has 20 letters and digits plus 1 other character \(a dash or underscore in the middle\)/.test(h.detail ?? ''),
+            'what cannot be removed is described, not shown',
+            'kind and place of each odd character'
+        );
     }
 
     console.log('\nToronto listings: only through a US listing that is provably the same company\n' + '─'.repeat(78));

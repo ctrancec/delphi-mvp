@@ -37,7 +37,28 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const MAX_TICKERS_PER_CALL = 30;
 
 export function isFinnhubConfigured(): boolean {
-    return Boolean(process.env.FINNHUB_API_KEY?.trim());
+    return Boolean(cleanKey(process.env.FINNHUB_API_KEY ?? ''));
+}
+
+/** Characters that paste along from web pages and are never seen: zero-width spaces and joiners, soft hyphens. */
+const INVISIBLE = /[​-‍⁠﻿­]/g;
+
+/**
+ * The key as Finnhub issued it — letters and digits — from whatever was
+ * saved. A pasted key often brings company that no key contains: an
+ * invisible character from the page, quotes, the full stop of the sentence it
+ * sat in, a `NAME=` from an .env line, or the whole example link from
+ * Finnhub's documentation with the key inside. Removing those cannot damage
+ * a real key.
+ */
+export function cleanKey(raw: string): string {
+    const key = raw.replace(INVISIBLE, '').trim();
+    const fromLink = key.match(/[?&]token=([A-Za-z0-9]+)/);
+    if (fromLink) return fromLink[1];
+    return key
+        .replace(/^[A-Za-z_]+\s*=\s*/, '')
+        .replace(/^["'`]+|["'`.,;:!?]+$/g, '')
+        .trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -88,13 +109,38 @@ export function keyShapeProblem(raw: string): string | null {
     if (/^[A-Z_]+=/.test(key)) return 'the saved value starts with a variable name and "="; paste only the key';
     if (/^sandbox_/i.test(key)) return 'it is the sandbox key; use the one labelled "API Key"';
     if (/\s/.test(key)) return 'the saved value has a space or line break inside it';
-    if (!/^[a-z0-9]+$/i.test(key)) return 'the saved value has characters a Finnhub key never has';
+    if (!/^[a-z0-9]+$/i.test(key)) return `the saved value has ${oddCharacters(key)}, which no Finnhub key has`;
     if (key.length < 16 || key.length > 40) return `the saved value is ${key.length} characters; Finnhub keys are about 20`;
     return null;
 }
 
+/**
+ * The characters in a key that are not letters or digits, by kind and place —
+ * "20 letters and digits plus 1 other character (a dash in the middle)" —
+ * enough to find them in Vercel, without saying what the key is.
+ */
+function oddCharacters(key: string): string {
+    const chars = [...key];
+    const odd: string[] = [];
+    chars.forEach((ch, i) => {
+        if (/[a-z0-9]/i.test(ch)) return;
+        const kind = new RegExp(INVISIBLE.source).test(ch)
+            ? 'an invisible character'
+            : /[.,;:!?]/.test(ch)
+              ? 'a punctuation mark'
+              : /[/&=%#@]/.test(ch)
+                ? 'part of a web address'
+                : /[-_]/.test(ch)
+                  ? 'a dash or underscore'
+                  : 'a symbol';
+        odd.push(`${kind} ${i === 0 ? 'at the start' : i === chars.length - 1 ? 'at the end' : 'in the middle'}`);
+    });
+    const plain = chars.length - odd.length;
+    return `${plain} letters and digits plus ${odd.length} other character${odd.length === 1 ? '' : 's'} (${[...new Set(odd)].slice(0, 3).join('; ')})`;
+}
+
 async function finnhubGet<T>(path: string, params: Record<string, string>): Promise<T> {
-    const key = process.env.FINNHUB_API_KEY?.trim();
+    const key = cleanKey(process.env.FINNHUB_API_KEY ?? '');
     if (!key) throw new ChannelUnavailableError('finnhub', 'FINNHUB_API_KEY is not set');
 
     // The cache key leaves the token out: it identifies the question, not who asked.
@@ -465,6 +511,11 @@ export async function upcomingEarnings(symbols: string[], days = 30): Promise<Ea
  */
 export async function checkFinnhubHealth(): Promise<{ ok: boolean; detail?: string }> {
     if (!isFinnhubConfigured()) return { ok: false, detail: 'FINNHUB_API_KEY is not set' };
+    const saved = (process.env.FINNHUB_API_KEY ?? '').trim();
+    const tidied =
+        cleanKey(saved) !== saved
+            ? ' The saved key has extra characters around it, removed before use; worth re-saving it clean in Vercel.'
+            : '';
     try {
         const quote = await finnhubGet<Quote>('/quote', { symbol: 'AAPL' });
         const metric = await finnhubGet<{ metric?: Metric }>('/stock/metric', { symbol: 'AAPL', metric: 'all' });
@@ -472,8 +523,8 @@ export async function checkFinnhubHealth(): Promise<{ ok: boolean; detail?: stri
         const snap = buildSnapshot({ asked: 'AAPL', us: 'AAPL' }, quote, metric?.metric ?? {});
         const missing = snap?.missing ?? Object.keys(METRIC_FIELDS);
         return missing.length
-            ? { ok: true, detail: `Answering, but these screen fields did not come back: ${missing.join(', ')}.` }
-            : { ok: true };
+            ? { ok: true, detail: `Answering, but these screen fields did not come back: ${missing.join(', ')}.${tidied}` }
+            : { ok: true, detail: tidied ? `Answering.${tidied}` : undefined };
     } catch (err) {
         return { ok: false, detail: (err as Error).message };
     }
