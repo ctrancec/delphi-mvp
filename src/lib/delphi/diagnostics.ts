@@ -198,7 +198,8 @@ export async function channelChecks(db: Db | null, workspaceId: string | null): 
                   : 'The key is present, but the service did not answer as expected. Check the key is still valid.';
         } else if (!isBound) {
             level = 'degraded';
-            detail = 'Reachable, but not bound to this workspace.';
+            // Keep what the probe said: a partial answer matters before binding too.
+            detail = `Reachable, but not bound to this workspace.${probe.detail ? ` ${probe.detail}` : ''}`;
             remedy =
                 'No agent has this channel in its tool set yet, so none will use it. It binds itself on the next engine run, or when Delphi next staffs a department — a newly added kind may first need its database migration.';
         } else {
