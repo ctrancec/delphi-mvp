@@ -49,8 +49,8 @@ import {
     outputDeletionImpactAction,
     purgeOutputAction,
     restoreOutputAction,
-    type DeletionImpact,
 } from '@/lib/delphi/trash';
+import type { DeletionImpact } from '@/lib/delphi/deletion';
 
 export interface OutputReviewState {
     artifactId: string;

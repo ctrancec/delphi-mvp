@@ -31,9 +31,8 @@ import {
     bulkDeletionImpactAction,
     bulkPurgeOutputsAction,
     bulkRestoreOutputsAction,
-    type BulkResult,
-    type CombinedImpact,
 } from '@/lib/delphi/trash';
+import type { BulkResult, CombinedImpact } from '@/lib/delphi/bulk';
 
 /** Mirrors MAX_BULK on the server; kept here so the bar can say so before a round trip. */
 const MAX_AT_ONCE = 100;

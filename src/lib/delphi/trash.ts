@@ -25,19 +25,17 @@ import {
     purgeArtifacts,
     restoreArtifact,
     trashArtifact,
-    type DeletionImpact,
-    type TrashResult,
 } from './deletion';
-import {
-    checkBatch,
-    combineImpact,
-    eachLimited,
-    type BulkResult,
-    type BulkSkip,
-    type CombinedImpact,
-} from './bulk';
+import type { DeletionImpact, TrashResult } from './deletion';
+import { checkBatch, combineImpact, eachLimited } from './bulk';
+import type { BulkResult, BulkSkip, CombinedImpact } from './bulk';
 
-export type { BulkResult, CombinedImpact, DeletionImpact, TrashResult };
+// Nothing but the actions is exported from here — callers take the types from
+// deletion.ts and bulk.ts. The server-action compiler registers every export
+// of a 'use server' file as an action, and a re-exported type becomes a
+// runtime reference to a name that does not exist: the module throws as it
+// loads and every action in it fails. That took Outputs down once; see
+// scripts/check_server_actions.ts.
 
 const ctx = cache(async function ctx(): Promise<
     { db: Db; workspaceId: string; userId: string } | { error: string }
