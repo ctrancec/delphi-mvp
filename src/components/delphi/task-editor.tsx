@@ -22,6 +22,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { deleteTaskAction, updateTaskAction } from '@/lib/delphi/manage';
 import { cn } from '@/lib/utils';
+import { AgentSprite } from '@/components/pixel/agent-sprite';
+import { poseForTask } from './hiring-panel';
 
 export interface EditableTask {
     id: string;
@@ -30,6 +32,7 @@ export interface EditableTask {
     objective: string;
     status: string;
     agentName: string | null;
+    agent: { slug: string; name: string; avatarSeed: string | null } | null;
 }
 
 const STATUS_TONE: Record<string, string> = {
@@ -86,6 +89,9 @@ export function TaskEditor({ task }: { task: EditableTask }) {
                 <Badge variant="outline" className={cn('text-[10px]', STATUS_TONE[task.status])}>
                     {task.status.replace('_', ' ')}
                 </Badge>
+                {task.agent && (
+                    <AgentSprite agent={task.agent} state={poseForTask(task.status)} scale={1} className="shrink-0" />
+                )}
                 {task.agentName && (
                     <span className="text-xs text-muted-foreground">{task.agentName}</span>
                 )}

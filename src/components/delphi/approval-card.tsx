@@ -22,6 +22,7 @@ import { ACTION_LABELS, RISK_STYLES, previewOf, type PendingApproval } from '@/l
 import { cn } from '@/lib/utils';
 
 import { CEO_NAME } from '@/lib/pixel/cast/names';
+import { AgentSprite } from '@/components/pixel/agent-sprite';
 const VERDICT_STYLES: Record<string, { label: string; tone: string }> = {
     clear: { label: 'Board cleared it', tone: 'text-emerald-400 border-emerald-400/30' },
     conditions: { label: 'Board: conditions apply', tone: 'text-amber-400 border-amber-400/30' },
@@ -134,6 +135,9 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                         <p className="text-xs text-muted-foreground">
                             {approval.agentName ? (
                                 <>
+                                    {approval.agent && (
+                                        <AgentSprite agent={approval.agent} state="waiting_on_you" scale={1} className="mr-1 inline-block align-bottom" />
+                                    )}
                                     Requested by <span className="text-zinc-300">{approval.agentName}</span>
                                     {approval.taskTitle && ` — ${approval.taskTitle}`}
                                 </>

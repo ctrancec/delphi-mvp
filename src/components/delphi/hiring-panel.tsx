@@ -8,10 +8,14 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, Sparkles, Check, UserPlus, Users } from 'lucide-react'
 import { proposeHiringAction, approvePlanAction } from '@/lib/delphi/actions'
+import { AgentSprite } from '@/components/pixel/agent-sprite'
+import type { AgentState } from '@/lib/pixel/animate'
 
 import { CEO_NAME } from '@/lib/pixel/cast/names'
 export interface HiredAgent {
     seq: number
+    slug: string
+    avatarSeed: string | null
     name: string
     title: string
     skills: string[]
@@ -25,6 +29,22 @@ export interface HiredAgent {
 }
 
 const TIER_LABEL: Record<number, string> = { 1: '$', 2: '$$', 3: '$$$' }
+
+/** The pose a step's status puts its agent in. A finished step is over, so its agent idles rather than cheering forever. */
+export function poseForTask(status: string): AgentState {
+    switch (status) {
+        case 'running':
+            return 'working'
+        case 'awaiting_approval':
+            return 'waiting_on_you'
+        case 'failed':
+            return 'stuck'
+        case 'pending':
+            return 'queued'
+        default:
+            return 'idle'
+    }
+}
 
 /**
  * Delphi's staffing proposal, and the gate in front of it.
@@ -129,11 +149,15 @@ export function HiringPanel({
                                 <CardHeader className="pb-3">
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex items-start gap-3 min-w-0">
-                                            <div className="h-9 w-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-xs font-semibold tabular-nums">
-                                                {m.seq}
-                                            </div>
+                                            <AgentSprite
+                                                agent={{ slug: m.slug, name: m.name, avatarSeed: m.avatarSeed }}
+                                                state={approved ? poseForTask(m.status) : 'idle'}
+                                                scale={2}
+                                                className="shrink-0"
+                                            />
                                             <div className="min-w-0">
                                                 <CardTitle className="text-base leading-tight truncate">
+                                                    <span className="font-mono text-xs text-muted-foreground mr-2 tabular-nums">{m.seq}</span>
                                                     {m.name}
                                                 </CardTitle>
                                                 <p className="text-xs text-muted-foreground mt-0.5">{m.title}</p>

@@ -21,6 +21,10 @@ import { hash, residentFor } from '../src/lib/pixel/residents';
 import { POSES, SPRITE_H, SPRITE_W, TORSOS, type Pose } from '../src/lib/pixel/sprites/body';
 import { closedEyes, HEADS, RESIDENT_HEADS } from '../src/lib/pixel/sprites/heads';
 import { BACKS, ITEMS, RANGA, SLIME } from '../src/lib/pixel/sprites/items';
+import { BUBBLES, TILES } from '../src/lib/pixel/sprites/tiles';
+import { drawScene } from '../src/lib/pixel/world-scene';
+import { layoutWorld, TILE } from '../src/lib/pixel/world-layout';
+import type { Floor } from '../src/lib/delphi/floor';
 import { ALL_SEED_AGENTS } from '../src/lib/delphi/roster';
 import { DELPHI_SLUG } from '../src/lib/delphi/db';
 import { encodePng } from './lib/png';
@@ -82,6 +86,40 @@ console.log('\nThe sprites');
     ok(!/[iwr]/.test(after) && (after.match(/e/g)?.length ?? 0) < (open.match(/e/g)?.length ?? 0) + 6, 'closed eyes keep one line per eye and no iris');
 
     ok(frameCount('type') === 4 && frameCount('idle') === 2 && poses.every((p) => frameCount(p) >= 2), 'frame counts match the table', poses.join(' '));
+}
+
+console.log('\nThe town');
+{
+    const tiles = Object.entries(TILES);
+    ok(tiles.every(([, g]) => g.w === TILE && g.h === TILE), 'every tile is 16 by 16', `${tiles.length} tiles`);
+    ok(Object.values(BUBBLES).every((g) => g.w > 0 && g.h > 0 && g.w <= 12), 'every bubble fits over a head', `${Object.keys(BUBBLES).length} bubbles`);
+
+    const floor: Floor = {
+        at: '2026-10-01T12:00:00Z',
+        system: { mode: 'running', reason: 'switch', detail: 'on' },
+        pendingApprovals: 2,
+        deliberating: 0,
+        agents: [
+            { id: 'ceo', slug: 'delphi-ceo', name: CEO.name, title: 'Chief Executive', avatarSeed: null, isBoard: false, isCeo: true, state: 'idle', task: null, since: null, departments: [], seat: null },
+            { id: 'a', slug: 'research-analyst', name: 'Shuna', title: 'Analyst', avatarSeed: null, isBoard: false, isCeo: false, state: 'working', task: null, since: null, departments: ['d0'], seat: 'd0' },
+            { id: 'b', slug: 'llr-risk', name: 'Ultima', title: 'Risk', avatarSeed: null, isBoard: true, isCeo: false, state: 'idle', task: null, since: null, departments: [], seat: null },
+            { id: 'c', slug: 'writer', name: 'Shion', title: 'Writer', avatarSeed: null, isBoard: false, isCeo: false, state: 'available', task: null, since: null, departments: [], seat: null },
+        ],
+        departments: [
+            { id: 'd0', name: 'News', status: 'active', createdAt: '1', team: ['a'], project: { id: 'p', title: 'Brief', status: 'running' }, completed: 2 },
+            { id: 'd1', name: 'Site', status: 'hiring', createdAt: '2', team: [], project: null, completed: 0 },
+            { id: 'd2', name: 'Old', status: 'archived', createdAt: '0', team: [], project: null, completed: 0 },
+        ],
+    };
+    for (const width of [13, 19, 43]) {
+        const layout = layoutWorld(floor, width);
+        const scene = drawScene(layout);
+        ok(scene.w === layout.w * TILE && scene.h === layout.h * TILE && !scene.isBlank() && scene.clipped === 0,
+            `the still town draws to size at ${width} tiles, nothing off the edge`, `${layout.cols} column${layout.cols > 1 ? 's' : ''}, ${scene.w}x${scene.h}`);
+    }
+    const a = drawScene(layoutWorld(floor, 43));
+    const b = drawScene(layoutWorld(floor, 43));
+    ok(sig(a) === sig(b), 'and the same layout always paints the same town');
 }
 
 console.log('\nEvery character, every pose');

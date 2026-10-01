@@ -39,7 +39,7 @@ export interface OutputRecord {
     department: ArtifactRef | null;
     project: ArtifactRef | null;
     task: (ArtifactRef & { seq: number }) | null;
-    agent: (ArtifactRef & { role: string }) | null;
+    agent: (ArtifactRef & { role: string; slug: string; avatarSeed: string | null }) | null;
 }
 
 export interface OutputsFilter {
@@ -90,7 +90,7 @@ const SELECT_WITH_PROVENANCE = `
     ),
     task:delphi_tasks (
         id, seq, title,
-        agent:delphi_agents ( id, name, title )
+        agent:delphi_agents ( id, name, title, slug, avatar_seed )
     )
 `;
 
@@ -128,7 +128,7 @@ function toOutput(r: Row): OutputRecord {
         department: department ? { id: department.id, title: department.name } : null,
         project: project ? { id: project.id, title: project.title } : null,
         task: task ? { id: task.id, title: task.title, seq: task.seq } : null,
-        agent: agent ? { id: agent.id, title: agent.name, role: agent.title } : null,
+        agent: agent ? { id: agent.id, title: agent.name, role: agent.title, slug: agent.slug, avatarSeed: agent.avatar_seed ?? null } : null,
     };
 }
 

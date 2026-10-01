@@ -23,6 +23,7 @@
     "delphi:actions": "tsx scripts/check_server_actions.ts",
     "delphi:pixel": "tsx scripts/check_pixel.ts",
     "delphi:cast": "tsx scripts/check_cast.ts",
+    "delphi:floor": "tsx scripts/check_floor.ts",
     "delphi:sources": "tsx scripts/check_sources.ts",
     "delphi:markets": "tsx scripts/check_markets.ts",
     "delphi:feeds": "tsx --env-file-if-exists=.env.local scripts/check_feeds.ts"

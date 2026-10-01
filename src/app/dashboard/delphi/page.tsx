@@ -15,6 +15,8 @@ import {
 import { formatUsd } from '@/lib/llm/cost'
 import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-line'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
+import { readFloor } from '@/lib/delphi/floor'
+import { TempestWorld } from '@/components/pixel/tempest-world'
 
 import { CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
@@ -73,15 +75,20 @@ export default async function DelphiHqPage() {
     // First view of a new account: create the workspace, connect the channels
     // and seed the roster. Idempotent, and short-circuits on one query once
     // done, so this is a no-op on every subsequent load.
-    await bootstrapDelphi(supabase)
+    const provisioned = await bootstrapDelphi(supabase)
+
+    // The town is read alongside the rest; it draws from the same rows the
+    // pipeline writes, under the same RLS.
+    const floorPromise = provisioned ? readFloor(supabase, provisioned.workspaceId).catch(() => null) : Promise.resolve(null)
 
     // RLS scopes all of this to the signed-in CHO's workspaces.
-    const [{ data: departments }, { data: agents }, { data: events }, { data: approvals }] =
+    const [{ data: departments }, { data: agents }, { data: events }, { data: approvals }, floor] =
         await Promise.all([
             supabase.from('delphi_departments').select('*').order('created_at', { ascending: false }),
             supabase.from('delphi_agents').select('id, is_board').is('archived_at', null),
             supabase.from('delphi_events').select('*').order('id', { ascending: false }).limit(12),
             supabase.from('delphi_approvals').select('id').eq('status', 'pending'),
+            floorPromise,
         ])
 
     const all = departments ?? []
@@ -107,6 +114,14 @@ export default async function DelphiHqPage() {
                     </Link>
                 </Button>
             </div>
+
+            {floor && (
+                <Card className="bg-black/40 border-white/10 overflow-hidden">
+                    <CardContent className="px-2 py-3 desk:px-4">
+                        <TempestWorld key={floor.at} initial={floor} />
+                    </CardContent>
+                </Card>
+            )}
 
             <div className="grid grid-cols-2 gap-3 desk:grid-cols-4 desk:gap-4">
                 <Stat icon={<Building2 className="h-4 w-4" />} label="Departments" value={String(depts.length)} />

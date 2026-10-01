@@ -1,0 +1,559 @@
+"use client";
+
+/**
+ * Tempest, live.
+ *
+ * The town is a canvas at native pixel size, scaled up by CSS so every
+ * pixel stays square. The still town is painted once per layout; each frame
+ * copies it and lays the living layer over: the agents at their desks in
+ * the pose their state calls for, a bubble over a head that has something
+ * to say, smoke from a house with work going on, Rimuru on the cushion with
+ * the approvals piling up beside them.
+ *
+ * Over the canvas sits a transparent layer of real buttons, one per agent,
+ * so a screen reader hears "Souei, Global News Monitor — working on …" and
+ * a tap opens the same card a click does. Department names and quest
+ * banners are text in that layer too, because text on a canvas is text you
+ * cannot read.
+ *
+ * Fresh state arrives on a Realtime nudge — any change to a task, a run, a
+ * project or an approval — with a slow poll behind it, both only while the
+ * town is on screen. The town only shows; running the pipeline stays where
+ * it is.
+ */
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDistanceToNow } from "date-fns";
+import type { Floor, FloorAgent } from "@/lib/delphi/floor";
+import { frameAt, STATES, type AgentState } from "@/lib/pixel/animate";
+import { PixelCanvas } from "@/lib/pixel/canvas";
+import { castFor, CHO, MASCOT } from "@/lib/pixel/cast";
+import {
+  renderCharacter,
+  renderRanga,
+  renderSlime,
+  type Look,
+} from "@/lib/pixel/character";
+import { SPRITE_H, SPRITE_W, type Pose } from "@/lib/pixel/sprites/body";
+import {
+  BUBBLE_COLOURS,
+  BUBBLES,
+  TILES,
+  TOWN,
+} from "@/lib/pixel/sprites/tiles";
+import { deskTile, drawScene } from "@/lib/pixel/world-scene";
+import { layoutWorld, TILE, type Place } from "@/lib/pixel/world-layout";
+import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
+import { useReducedMotion } from "./agent-sprite";
+import { useFrameClock } from "./use-frame-clock";
+
+const SCALE = 2;
+const FRAME_MS = 125;
+const POLL_MS = 60_000;
+const NUDGE_TABLES = [
+  "delphi_tasks",
+  "delphi_task_runs",
+  "delphi_projects",
+  "delphi_approvals",
+];
+
+// ---------------------------------------------------------------------------
+// Pixels → canvases, once each.
+// ---------------------------------------------------------------------------
+
+const canvases = new Map<string, HTMLCanvasElement>();
+
+function toCanvas(key: string, make: () => PixelCanvas): HTMLCanvasElement {
+  let el = canvases.get(key);
+  if (!el) {
+    const px = make();
+    el = document.createElement("canvas");
+    el.width = px.w;
+    el.height = px.h;
+    el.getContext("2d")!.putImageData(
+      new ImageData(new Uint8ClampedArray(px.data), px.w, px.h),
+      0,
+      0,
+    );
+    canvases.set(key, el);
+  }
+  return el;
+}
+
+const spriteCanvas = (key: string, look: Look, pose: Pose, frame: number) =>
+  toCanvas(`agent|${key}|${pose}|${frame}`, () =>
+    renderCharacter(look, pose, frame),
+  );
+
+const tileCanvas = (id: keyof typeof TILES) =>
+  toCanvas(`tile|${id}`, () => {
+    const c = new PixelCanvas(TILE, TILE);
+    c.draw(TILES[id], 0, 0, TOWN);
+    return c;
+  });
+
+const bubbleCanvas = (id: keyof typeof BUBBLES) =>
+  toCanvas(`bubble|${id}`, () => {
+    const g = BUBBLES[id];
+    const c = new PixelCanvas(g.w, g.h);
+    c.draw(g, 0, 0, BUBBLE_COLOURS);
+    return c;
+  });
+
+const slimeCanvas = (frame: number, asleep: boolean) =>
+  toCanvas(`slime|${frame}|${asleep}`, () =>
+    renderSlime(CHO.colours, frame, asleep),
+  );
+const rangaCanvas = (frame: number) =>
+  toCanvas(`ranga|${frame}`, () => renderRanga(MASCOT.colours, frame));
+
+// ---------------------------------------------------------------------------
+// Words.
+// ---------------------------------------------------------------------------
+
+function sinceWords(iso: string | null): string {
+  if (!iso) return "";
+  try {
+    return ` for ${formatDistanceToNow(new Date(iso))}`;
+  } catch {
+    return "";
+  }
+}
+
+/** "Working on Gather filings for 12 minutes." */
+export function stateSentence(a: FloorAgent): string {
+  const task = a.task?.title;
+  switch (a.state) {
+    case "working":
+      return `Working on ${task ?? "a task"}${sinceWords(a.since)}.`;
+    case "waiting_on_you":
+      return `Waiting on you: ${task ?? "a step"} needs your approval.`;
+    case "stuck":
+      return `Stuck: ${task ?? "a task"} failed${sinceWords(a.since) ? sinceWords(a.since).replace(" for ", " ") + " ago" : ""}.`;
+    case "reviewing":
+      return "Reviewing a deliverable with the board.";
+    case "planning":
+      return "Planning a project.";
+    case "queued":
+      return `Queued: ${task ?? "a task"} is next.`;
+    case "done":
+      return `Just finished ${task ?? "a task"}.`;
+    case "idle":
+      return a.isCeo
+        ? "Nothing to plan right now."
+        : a.isBoard
+          ? "Nothing to review right now."
+          : "Hired, with nothing to do right now.";
+    case "asleep":
+      return "Asleep: outside working hours.";
+    case "off":
+      return "The system is switched off.";
+    case "available":
+      return "Available to hire.";
+  }
+}
+
+function summary(floor: Floor): string {
+  const n = (s: AgentState) => floor.agents.filter((a) => a.state === s).length;
+  const parts: string[] = [];
+  if (n("working")) parts.push(`${n("working")} working`);
+  if (n("waiting_on_you")) parts.push(`${n("waiting_on_you")} waiting on you`);
+  if (n("stuck")) parts.push(`${n("stuck")} stuck`);
+  if (n("queued")) parts.push(`${n("queued")} queued`);
+  if (n("reviewing")) parts.push(`board reviewing`);
+  if (!parts.length)
+    parts.push(
+      floor.system.mode === "running" ? "nothing running" : "nothing running",
+    );
+  parts.push(
+    floor.system.mode === "running"
+      ? "system on"
+      : floor.system.mode === "paused"
+        ? `paused: ${floor.system.detail}`
+        : "system off",
+  );
+  return parts.join(" · ");
+}
+
+// ---------------------------------------------------------------------------
+// The component.
+// ---------------------------------------------------------------------------
+
+export function TempestWorld({
+  initial,
+  className,
+}: {
+  initial: Floor;
+  className?: string;
+}) {
+  const [floor, setFloor] = useState(initial);
+  const [tiles, setTiles] = useState(13);
+  const [visible, setVisible] = useState(true);
+  const [open, setOpen] = useState<string | null>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const still = useRef<HTMLCanvasElement | null>(null);
+  const painted = useRef(-1);
+  const reduced = useReducedMotion();
+
+  const layout = useMemo(() => layoutWorld(floor, tiles), [floor, tiles]);
+  const agents = useMemo(
+    () => new Map(floor.agents.map((a) => [a.id, a])),
+    [floor],
+  );
+
+  // Width → tiles, so the districts take as many columns as fit.
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const measure = () =>
+      setTiles(Math.max(11, Math.floor(el.clientWidth / (TILE * SCALE))));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Off screen means off: no frames and no fetching.
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), {
+      threshold: 0.05,
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  // The still town, once per layout.
+  useEffect(() => {
+    const px = drawScene(layout);
+    const el = document.createElement("canvas");
+    el.width = px.w;
+    el.height = px.h;
+    el.getContext("2d")!.putImageData(
+      new ImageData(new Uint8ClampedArray(px.data), px.w, px.h),
+      0,
+      0,
+    );
+    still.current = el;
+    painted.current = -1;
+  }, [layout]);
+
+  const paint = useCallback(
+    (now: number) => {
+      const frame = reduced ? 0 : Math.floor(now / FRAME_MS);
+      if (frame === painted.current) return;
+      const ctx = canvas.current?.getContext("2d");
+      if (!ctx || !still.current) return;
+      painted.current = frame;
+      ctx.drawImage(still.current, 0, 0);
+
+      // Screens in use, and smoke from a busy house.
+      for (const b of layout.buildings) {
+        for (const d of b.desks) {
+          const a = agents.get(d.agentId);
+          if (d.occupied && a?.state === "working") {
+            ctx.drawImage(
+              toCanvas(`desk|${frame % 2}`, () => {
+                const c = new PixelCanvas(TILE, TILE);
+                c.draw(deskTile(frame), 0, 0, TOWN);
+                return c;
+              }),
+              d.x * TILE,
+              d.y * TILE,
+            );
+          }
+        }
+        if (b.busy && b.kind === "house") {
+          ctx.drawImage(
+            tileCanvas(Math.floor(frame / 3) % 2 ? "smokeA" : "smokeB"),
+            (b.rect.x + b.rect.w - 2) * TILE,
+            (b.rect.y - 1) * TILE,
+          );
+        }
+      }
+
+      // The pile beside the seat grows with what is waiting.
+      const n = floor.pendingApprovals;
+      if (n > 0)
+        ctx.drawImage(
+          tileCanvas(n >= 6 ? "scrolls3" : n >= 3 ? "scrolls2" : "scrolls1"),
+          layout.centre.scrolls.x * TILE,
+          layout.centre.scrolls.y * TILE,
+        );
+
+      // Rimuru and Ranga.
+      const asleep = floor.system.mode !== "running";
+      ctx.drawImage(
+        rangaCanvas(Math.floor(frame / 6) % 2),
+        layout.centre.ranga.x * TILE,
+        layout.centre.ranga.y * TILE + 7,
+      );
+      ctx.drawImage(
+        slimeCanvas(asleep ? 0 : Math.floor(frame / 4) % 2, asleep),
+        layout.centre.seat.x * TILE,
+        layout.centre.seat.y * TILE - 3,
+      );
+
+      // Everyone, back to front.
+      const placed = floor.agents
+        .map((a) => ({ a, p: layout.places[a.id] }))
+        .filter((x): x is { a: FloorAgent; p: Place } => !!x.p)
+        .sort((u, v) => u.p.y - v.p.y);
+      for (const { a, p } of placed) {
+        const cast = castFor({
+          slug: a.slug,
+          name: a.name,
+          avatarSeed: a.avatarSeed,
+        });
+        const { pose, frame: f } = frameAt(
+          a.state,
+          cast.look,
+          now,
+          cast.key,
+          reduced,
+        );
+        const x = Math.round(p.x * TILE);
+        const top = Math.round((p.y + 1) * TILE) - SPRITE_H;
+        ctx.drawImage(spriteCanvas(cast.key, cast.look, pose, f), x, top);
+        const bubble = STATES[a.state].bubble;
+        if (bubble && (bubble !== "bang" || Math.floor(frame / 4) % 2 === 0)) {
+          const bc = bubbleCanvas(bubble);
+          ctx.drawImage(bc, x + SPRITE_W - 4, top - bc.height + 2);
+        }
+      }
+    },
+    [layout, agents, floor, reduced],
+  );
+
+  useEffect(() => {
+    painted.current = -1;
+    paint(performance.now());
+  }, [paint]);
+  useFrameClock(paint, visible && !reduced);
+
+  // Fresh state: a Realtime nudge, or the slow poll behind it.
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        if (!alive || document.visibilityState !== "visible") return;
+        try {
+          const res = await fetch("/api/delphi/floor", { cache: "no-store" });
+          if (res.ok && alive) setFloor((await res.json()) as Floor);
+        } catch {
+          // The poll will try again.
+        }
+      }, 400);
+    };
+    const supabase = createClient();
+    let channel = supabase?.channel("tempest-town");
+    for (const table of NUDGE_TABLES) {
+      channel = channel?.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table },
+        refetch,
+      );
+    }
+    channel?.subscribe();
+    const poll = setInterval(() => {
+      if (visible) refetch();
+    }, POLL_MS);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      clearInterval(poll);
+      channel?.unsubscribe();
+    };
+  }, [visible]);
+
+  // A card closes on Escape and on a click anywhere else.
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(null);
+    const click = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest("[data-town-card]")) setOpen(null);
+    };
+    window.addEventListener("keydown", key);
+    window.addEventListener("mousedown", click);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("mousedown", click);
+    };
+  }, [open]);
+
+  const px = (v: number) => Math.round(v * TILE * SCALE);
+  const card = open ? agents.get(open) : undefined;
+  const cardPlace = card ? layout.places[card.id] : undefined;
+  const deptName = (id: string | null | undefined) =>
+    floor.departments.find((d) => d.id === id)?.name ?? null;
+
+  return (
+    <div ref={wrap} className={cn("w-full", className)}>
+      {/* On a phone the town is taller than the screen; it scrolls inside its card so the rest of the page stays in reach. */}
+      <div className="max-h-[70vh] overflow-y-auto overscroll-contain desk:max-h-none">
+        <div
+          className="relative mx-auto"
+          style={{ width: px(layout.w), height: px(layout.h) }}
+        >
+          <canvas
+            ref={canvas}
+            width={layout.w * TILE}
+            height={layout.h * TILE}
+            aria-hidden="true"
+            style={{
+              width: px(layout.w),
+              height: px(layout.h),
+              imageRendering: "pixelated",
+              display: "block",
+            }}
+          />
+
+          {/* Department names and quest banners, as text. */}
+          {layout.buildings.map((b) => (
+            <Link
+              key={b.id}
+              href={`/dashboard/delphi/departments/${b.id}`}
+              className="absolute flex items-center truncate text-[11px] font-semibold leading-none text-zinc-100 drop-shadow-[0_1px_0_rgba(0,0,0,0.9)] hover:underline"
+              style={{
+                left: px(b.sign.x) + 2,
+                top: px(b.sign.y) + 4,
+                width: px(b.rect.w) - 4,
+                height: px(1) - 8,
+              }}
+              title={
+                b.kind === "site"
+                  ? `${b.name} — being set up`
+                  : b.kind === "boarded"
+                    ? `${b.name} — archived`
+                    : b.name
+              }
+            >
+              {b.name}
+            </Link>
+          ))}
+          {layout.buildings.map((b) =>
+            b.banner ? (
+              <span
+                key={`${b.id}-banner`}
+                className="absolute truncate rounded-sm bg-sky-700/90 px-1 text-[10px] leading-4 text-white"
+                style={{
+                  left: px(b.rect.x) + 2,
+                  top: px(b.rect.y) + 2,
+                  maxWidth: px(b.rect.w) - 4,
+                }}
+                title={`Running: ${b.banner.text}`}
+              >
+                {b.banner.text}
+              </span>
+            ) : null,
+          )}
+
+          {/* Rimuru's seat: the approvals pile links to the queue. */}
+          <Link
+            href="/dashboard/delphi/approvals"
+            className="absolute rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
+            style={{
+              left: px(layout.centre.seat.x) - 4,
+              top: px(layout.centre.seat.y) - 8,
+              width: px(2) + 8,
+              height: px(1) + 12,
+            }}
+            aria-label={`${CHO.name} (you). ${floor.pendingApprovals ? `${floor.pendingApprovals} waiting for your decision` : "Nothing waiting for you"}.`}
+            title={
+              floor.pendingApprovals
+                ? `${floor.pendingApprovals} waiting for your decision`
+                : "Nothing waiting for you"
+            }
+          />
+
+          {/* One real button per agent. */}
+          {floor.agents.map((a) => {
+            const p = layout.places[a.id];
+            if (!p) return null;
+            return (
+              <button
+                key={a.id}
+                type="button"
+                data-town-card
+                onClick={() => setOpen(open === a.id ? null : a.id)}
+                className={cn(
+                  "absolute rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300",
+                  open === a.id && "outline outline-2 outline-amber-300/70",
+                )}
+                style={{
+                  left: px(p.x),
+                  top: px(p.y + 1) - SPRITE_H * SCALE,
+                  width: SPRITE_W * SCALE,
+                  height: SPRITE_H * SCALE,
+                }}
+                aria-label={`${a.name}, ${a.title} — ${stateSentence(a)}`}
+                title={`${a.name} — ${STATES[a.state].label}`}
+              />
+            );
+          })}
+
+          {card && cardPlace && (
+            <div
+              data-town-card
+              role="dialog"
+              aria-label={card.name}
+              className="absolute z-10 w-56 rounded-md border border-white/15 bg-zinc-950/95 p-3 text-xs shadow-xl backdrop-blur"
+              style={{
+                left: Math.min(
+                  px(cardPlace.x) + SPRITE_W * SCALE + 6,
+                  px(layout.w) - 230,
+                ),
+                top: Math.max(
+                  0,
+                  Math.min(
+                    px(cardPlace.y + 1) - SPRITE_H * SCALE,
+                    px(layout.h) - 120,
+                  ),
+                ),
+              }}
+            >
+              <p className="text-sm font-semibold leading-tight">{card.name}</p>
+              <p className="text-muted-foreground">{card.title}</p>
+              <p className="mt-2 text-zinc-200">{stateSentence(card)}</p>
+              {card.task?.departmentId && deptName(card.task.departmentId) && (
+                <Link
+                  href={`/dashboard/delphi/departments/${card.task.departmentId}`}
+                  className="mt-2 inline-block text-sky-300 hover:underline"
+                >
+                  {deptName(card.task.departmentId)} →
+                </Link>
+              )}
+              {!card.task && card.departments.length > 0 && (
+                <p className="mt-2 text-muted-foreground">
+                  Hired in{" "}
+                  {card.departments.map(deptName).filter(Boolean).join(", ")}.
+                </p>
+              )}
+              {card.state === "waiting_on_you" && (
+                <Link
+                  href="/dashboard/delphi/approvals"
+                  className="mt-2 inline-block text-amber-300 hover:underline"
+                >
+                  Open approvals →
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <p
+        className="mt-2 text-center text-xs text-muted-foreground"
+        aria-live="polite"
+      >
+        {summary(floor)}
+      </p>
+    </div>
+  );
+}

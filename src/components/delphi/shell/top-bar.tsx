@@ -16,6 +16,7 @@ import { titleFor } from './nav';
 import type { SystemMode } from '@/lib/delphi/db';
 import { formatUsd } from '@/lib/llm/cost';
 
+import { SlimeSprite } from '@/components/pixel/agent-sprite';
 export interface TopBarProps {
     mode: SystemMode;
     /** Deliverables landed since the CHO last opened Outputs. */
@@ -64,9 +65,9 @@ export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps)
             <Link
                 href="/dashboard/account"
                 title={`${email} — account settings`}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/20 text-xs font-bold text-primary transition-colors hover:border-primary/60 hover:bg-primary/30"
+                className="flex h-8 w-9 shrink-0 items-center justify-center rounded-full border border-sky-300/30 bg-sky-400/10 transition-colors hover:border-sky-300/60 hover:bg-sky-400/20"
             >
-                {email.charAt(0).toUpperCase()}
+                <SlimeSprite scale={2} />
             </Link>
         </header>
     );

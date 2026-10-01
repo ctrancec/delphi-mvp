@@ -16,6 +16,7 @@ import { listReviews } from '@/lib/delphi/reviews';
 import { cn } from '@/lib/utils';
 
 import { CEO_NAME } from '@/lib/pixel/cast/names';
+import { AgentSprite } from '@/components/pixel/agent-sprite';
 export const dynamic = 'force-dynamic';
 
 export const VERDICT_STYLES: Record<string, string> = {
@@ -50,6 +51,16 @@ export default async function ReviewsPage() {
         loadError = (err as Error).message;
     }
 
+    // The board itself, so the room has its members in it.
+    const { data: boardRows } = await supabase
+        .from('delphi_agents')
+        .select('slug, name, title, avatar_seed')
+        .eq('is_board', true)
+        .is('archived_at', null)
+        .order('slug');
+    const board = (boardRows ?? []) as { slug: string; name: string; title: string; avatar_seed: string | null }[];
+    const deliberating = reviews.some((r) => r.status === 'deliberating');
+
     return (
         <div className="space-y-6">
             <div>
@@ -60,6 +71,19 @@ export default async function ReviewsPage() {
                     Liabilities, Risk and Legal review work before it reaches you, and deliberate with
                     {CEO_NAME} in the open. They advise; they never approve.
                 </p>
+                {board.length > 0 && (
+                    <div className="mt-3 flex flex-wrap items-end gap-4">
+                        {board.map((b) => (
+                            <div key={b.slug} className="flex items-center gap-2">
+                                <AgentSprite agent={{ slug: b.slug, name: b.name, avatarSeed: b.avatar_seed }} state={deliberating ? 'reviewing' : 'idle'} scale={2} />
+                                <div className="text-xs">
+                                    <p className="font-semibold leading-tight">{b.name}</p>
+                                    <p className="text-muted-foreground">{b.title}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {loadError && (

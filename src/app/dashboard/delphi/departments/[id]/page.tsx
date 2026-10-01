@@ -30,7 +30,7 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
     const [{ data: hires }, { data: project }] = await Promise.all([
         supabase
             .from('delphi_hires')
-            .select('*, agent:delphi_agents(id, name, title, slug, skills, cost_tier, origin, is_board)')
+            .select('*, agent:delphi_agents(id, name, title, slug, avatar_seed, skills, cost_tier, origin, is_board)')
             .eq('department_id', id)
             .order('seq'),
         supabase
@@ -69,6 +69,8 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
     const team: HiredAgent[] = (hires ?? []).map((h) => {
         const agent = h.agent as unknown as {
             id: string
+            slug: string
+            avatar_seed: string | null
             name: string
             title: string
             skills: string[]
@@ -78,6 +80,8 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
         const task = (tasks ?? []).find((t) => t.seq === h.seq)
         return {
             seq: h.seq,
+            slug: agent?.slug ?? 'unknown',
+            avatarSeed: agent?.avatar_seed ?? null,
             score: Number(h.score),
             rationale: h.rationale,
             name: agent?.name ?? 'Unknown',
@@ -152,6 +156,7 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                                         objective: t.objective as string,
                                         status: t.status as string,
                                         agentName: member?.name ?? null,
+                                        agent: member ? { slug: member.slug, name: member.name, avatarSeed: member.avatarSeed } : null,
                                     }}
                                 />
                             )

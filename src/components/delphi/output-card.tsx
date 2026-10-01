@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import type { ArtifactKind } from '@/lib/delphi/types';
 import { formatBytes, readingTime, type OutputRecord } from '@/lib/delphi/outputs';
 
+import { AgentSprite } from '@/components/pixel/agent-sprite';
 export const KIND_META: Record<ArtifactKind, { label: string; icon: typeof FileText; tone: string }> = {
     report: { label: 'Report', icon: FileText, tone: 'text-sky-400 border-sky-400/30' },
     brief: { label: 'Brief', icon: Newspaper, tone: 'text-emerald-400 border-emerald-400/30' },
@@ -105,7 +106,8 @@ export function OutputCard({ record, selectable = false }: { record: OutputRecor
 
                     <div className="flex items-center gap-2 text-[11px] text-muted-foreground pt-1 border-t border-white/5">
                         {agent ? (
-                            <span className="truncate" title={`${agent.title} — ${agent.role}`}>
+                            <span className="flex min-w-0 items-center gap-1.5 truncate" title={`${agent.title} — ${agent.role}`}>
+                                <AgentSprite agent={{ slug: agent.slug, name: agent.title, avatarSeed: agent.avatarSeed }} state="idle" scale={1} className="shrink-0" />
                                 {agent.title}
                                 {task && <span className="text-muted-foreground/60"> · step {task.seq}</span>}
                             </span>

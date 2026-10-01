@@ -39,6 +39,7 @@ export interface PendingApproval {
 
     // Provenance — who is asking, and on whose behalf.
     agentName: string | null;
+    agent: { slug: string; name: string; avatarSeed: string | null } | null;
     agentTitle: string | null;
     taskTitle: string | null;
     projectTitle: string | null;
@@ -56,7 +57,7 @@ export interface PendingApproval {
 
 const SELECT = `
     *,
-    task:delphi_tasks ( id, title, agent:delphi_agents ( name, title ) ),
+    task:delphi_tasks ( id, title, agent:delphi_agents ( name, title, slug, avatar_seed ) ),
     project:delphi_projects ( id, title, department:delphi_departments ( id, name ) ),
     reviews:delphi_reviews ( id, verdict, recommendation )
 `;
@@ -80,6 +81,7 @@ function toApproval(r: Row): PendingApproval {
         decidedAt: r.decided_at ?? null,
 
         agentName: task?.agent?.name ?? null,
+        agent: task?.agent?.slug ? { slug: task.agent.slug, name: task.agent.name, avatarSeed: task.agent.avatar_seed ?? null } : null,
         agentTitle: task?.agent?.title ?? null,
         taskTitle: task?.title ?? null,
         projectTitle: project?.title ?? null,
