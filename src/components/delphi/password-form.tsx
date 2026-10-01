@@ -64,7 +64,7 @@ export function PasswordForm({ email }: { email: string }) {
                 />
             </div>
 
-            <div className="grid gap-4 inner:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 inner:grid-cols-2">
                 <div className="space-y-2">
                     <Label htmlFor="new">New password</Label>
                     <Input

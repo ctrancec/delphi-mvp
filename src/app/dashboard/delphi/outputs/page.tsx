@@ -268,7 +268,7 @@ export default async function OutputsPage({
             ) : (
                 <>
                     <SelectionProvider ids={visible.map((r) => r.artifact.id)} mode="library">
-                        <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-3 inner:grid-cols-2 desk:grid-cols-3">
                             {visible.map((r) => (
                                 <SelectableItem key={r.artifact.id} id={r.artifact.id} label={r.artifact.title} intercept>
                                     <OutputCard record={r} selectable />

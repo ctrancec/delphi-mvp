@@ -103,7 +103,7 @@ export function WorkHours({
                         !form.enabled && 'pointer-events-none opacity-40'
                     )}
                 >
-                    <div className="grid gap-3 inner:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-3 inner:grid-cols-3">
                         <div className="space-y-1.5">
                             <Label htmlFor="work-start" className="text-xs">
                                 From

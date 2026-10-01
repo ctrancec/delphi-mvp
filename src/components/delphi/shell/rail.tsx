@@ -80,6 +80,7 @@ export function Rail({
                         <Link
                             key={item.href}
                             href={item.href}
+                            aria-current={isActive ? 'page' : undefined}
                             title={item.label}
                             className={cn(
                                 shape,

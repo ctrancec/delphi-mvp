@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/ui/theme-provider";
 import { CookieConsent } from "@/components/legal/cookie-consent";
 import { JuniorProvider } from "@/lib/contexts/junior-context";
 import { APP_NAME, CEO_NAME } from "@/lib/pixel/cast/names";
+import { SKY } from "@/lib/pixel/brand";
 
 const inter = Inter({ subsets: ["latin"] });
 // Self-hosted at build time like Inter; only the Pixel look reaches for it.
@@ -13,6 +14,7 @@ const pixel = Pixelify_Sans({ subsets: ["latin"], variable: "--font-pixel" });
 export const metadata: Metadata = {
   title: APP_NAME,
   description: `Your AI CEO. Stand up a department, and ${CEO_NAME} hires the agents to run it.`,
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -31,7 +33,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#0a0a0a",
+  themeColor: SKY,
 };
 
 export default function RootLayout({

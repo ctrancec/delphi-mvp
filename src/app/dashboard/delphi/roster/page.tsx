@@ -196,7 +196,7 @@ export default async function RosterPage() {
                         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                             Specialists ({workers.length})
                         </h2>
-                        <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-3 inner:grid-cols-2 desk:grid-cols-3">
                             {workers.map((a) => (
                                 <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} hiredIn={hiredIn.get(a.id) ?? []} />
                             ))}
@@ -211,7 +211,7 @@ export default async function RosterPage() {
                             <p className="text-xs text-muted-foreground -mt-1">
                                 Attached to every department. They review and advise; only you approve.
                             </p>
-                            <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
+                            <div className="grid grid-cols-1 gap-3 inner:grid-cols-2 desk:grid-cols-3">
                                 {board.map((a) => (
                                     <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} hiredIn={hiredIn.get(a.id) ?? []} />
                                 ))}

@@ -4,19 +4,21 @@
     "description": "Your AI CEO. Departments, agents and approvals in one mission control.",
     "start_url": "/dashboard/delphi",
     "display": "standalone",
-    "background_color": "#09090b",
-    "theme_color": "#09090b",
+    "background_color": "#0d1128",
+    "theme_color": "#0d1128",
     "orientation": "portrait-primary",
     "icons": [
         {
             "src": "/icons/icon-192x192.png",
             "sizes": "192x192",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-512x512.png",
             "sizes": "512x512",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-maskable-192x192.png",

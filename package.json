@@ -22,6 +22,7 @@
     "delphi:runner": "tsx scripts/check_runner.ts",
     "delphi:actions": "tsx scripts/check_server_actions.ts",
     "delphi:pixel": "tsx scripts/check_pixel.ts",
+    "delphi:icons": "tsx scripts/make_icons.ts",
     "delphi:cast": "tsx scripts/check_cast.ts",
     "delphi:floor": "tsx scripts/check_floor.ts",
     "delphi:sources": "tsx scripts/check_sources.ts",

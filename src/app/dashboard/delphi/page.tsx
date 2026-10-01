@@ -150,7 +150,7 @@ export default async function DelphiHqPage() {
                     <h2 id="houses" className="text-sm font-semibold text-zinc-300">
                         Houses
                     </h2>
-                    <div className="grid gap-3 inner:grid-cols-2 desk:gap-4">
+                    <div className="grid grid-cols-1 gap-3 inner:grid-cols-2 desk:gap-4">
                         {depts.map((d) => (
                             <HousePlaque
                                 key={d.id}
@@ -176,7 +176,7 @@ export default async function DelphiHqPage() {
                     <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-zinc-200">
                         Archived ({archived.length}) — kept, not running
                     </summary>
-                    <div className="mt-3 grid gap-2 inner:grid-cols-2">
+                    <div className="mt-3 grid grid-cols-1 gap-2 inner:grid-cols-2">
                         {archived.map((d) => (
                             <Link key={d.id} href={`/dashboard/delphi/departments/${d.id}`}>
                                 <Card className="border-white/5 bg-black/20 transition-colors hover:border-white/15">
@@ -238,7 +238,7 @@ function Stat({
     alert?: boolean
 }) {
     return (
-        <Card className="bg-black/40 border-white/10">
+        <Card data-sign className="bg-black/40 border-white/10">
             <CardContent className="pt-6">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wide">
                     {icon}

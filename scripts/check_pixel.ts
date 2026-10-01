@@ -24,6 +24,7 @@ import { BACKS, ITEMS, RANGA, SLIME } from '../src/lib/pixel/sprites/items';
 import { BUBBLES, TILES, TOWN } from '../src/lib/pixel/sprites/tiles';
 import { ICONS, iconPath, type IconId } from '../src/lib/pixel/icons';
 import { drawScene, materialFor, roofFor, ROOFS, wallFor } from '../src/lib/pixel/world-scene';
+import { brandIcon, scaledIcon } from '../src/lib/pixel/brand';
 import { layoutWorld, TILE } from '../src/lib/pixel/world-layout';
 import type { Floor } from '../src/lib/delphi/floor';
 import { ALL_SEED_AGENTS } from '../src/lib/delphi/roster';
@@ -227,6 +228,31 @@ if (sheetArg !== -1 && process.argv[sheetArg + 1]) {
     sheet.blit(renderRanga(MASCOT.colours, 0), S + 4 * CW, y + 4 * S, S);
     writeFileSync(process.argv[sheetArg + 1], encodePng(sheet.w, sheet.h, sheet.data));
     console.log(`\n  sheet: ${process.argv[sheetArg + 1]} (${rows.map((r) => r.name).join(', ')})`);
+}
+
+console.log('\nThe icon');
+{
+    const icon = brandIcon(16);
+    const slimeBlue = CHO.colours.a!;
+    const isSlime = (c: ReturnType<PixelCanvas['get']>) => !!c && c[0] === slimeBlue[0] && c[1] === slimeBlue[1] && c[2] === slimeBlue[2];
+    let blue = 0;
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (isSlime(icon.get(x, y))) blue++;
+    ok(icon.w === 16 && icon.h === 16 && blue > 60 && icon.clipped === 0, 'the favicon is the slime on a 16px square, nothing clipped', `${blue} blue pixels`);
+    ok([icon.get(0, 0), icon.get(15, 0), icon.get(0, 15), icon.get(15, 15)].every((c) => c?.[3] === 0), 'with open corners');
+    ok(sig(brandIcon(16)) === sig(icon), 'drawn the same every time');
+    const mask = brandIcon(24, { solid: true });
+    const sky = mask.get(0, 0)!;
+    let outside = 0;
+    for (let y = 0; y < 24; y++)
+        for (let x = 0; x < 24; x++) {
+            const c = mask.get(x, y)!;
+            const isSky = c[0] === sky[0] && c[1] === sky[1] && c[2] === sky[2];
+            const inSafe = x >= 2.4 && x + 1 <= 21.6 && y >= 2.4 && y + 1 <= 21.6;
+            if (!isSky && !inSafe) outside++;
+        }
+    ok(sky[3] === 255 && outside === 0, 'a maskable icon keeps the slime inside the middle 80% of a solid square');
+    const big = scaledIcon(16, 4);
+    ok(big.w === 64 && isSlime(big.get(32, 32)) && sig(big) !== sig(icon), 'scaling is by whole pixels', `${big.w}px`);
 }
 
 console.log('\nThe plaques');

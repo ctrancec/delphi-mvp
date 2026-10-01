@@ -1,5 +1,5 @@
 /*
- * The Pixel look.
+ * The Pixel look: Tempest's own.
  *
  * Every rule here is scoped to [data-look="pixel"], which the Delphi shell
  * sets from a cookie, so the Classic look is simply the absence of this file
@@ -8,29 +8,117 @@
  * over any layered one whatever its specificity, so a card can keep its
  * `rounded-xl` class and still come out square here.
  *
- * What it does, in order: the pixel font where words are chrome (headings,
- * navigation, buttons, badges, counters) and never where they are a report;
- * square panels with hard shadows; buttons that press; sunken inputs; a
- * dashed focus ring; and a faint dot grid under everything.
+ * The chrome is drawn the way the town is drawn, in the town's colours. The
+ * page is the night sky over Tempest; panels are framed with a notched pixel
+ * outline, a bevel and a hard shadow; buttons press; fields are sunken; the
+ * HUD counters are plank signboards. Every colour the dashboard reaches for
+ * (white text, emerald, amber, red, sky) is swapped for its town equivalent
+ * (parchment, grass, lantern, brick red, slime blue) at the end of the file,
+ * so nothing has to change its classes to join the theme. Reports keep their
+ * reading font.
  */
 
 [data-look="pixel"] {
-    /* Tempest's colours: the slime's blue for what is pressed, a night sky behind it all. */
-    --primary: #4aa7d8;
+    /* --- the town's colours, from the palette the tiles are drawn with --- */
+    --px-sky: #0d1128;
+    --px-sky-2: #121736;
+    --px-panel: #171c3b;
+    --px-raised: #1f2650;
+    --px-line: #2b3160;
+    --px-line-2: #3f4784;
+    --px-outline: #1a1423;
+    --px-light: #3a4272;
+    --px-dark: #090c1f;
+    --px-shadow: #06081a;
+    --px-parchment: #f2e8cf;
+    --px-parchment-2: #e6dcc3;
+    --px-parchment-3: #d9ccab;
+    --px-ash: #a9a596;
+    --px-ash-2: #7f7c70;
+    --px-slime: #7fd0f0;
+    --px-slime-2: #4aa7d8;
+    --px-lantern: #f6d36b;
+    --px-lantern-2: #fff4bf;
+    --px-grass: #86cf63;
+    --px-grass-2: #5f9c4b;
+    --px-grass-3: #4f8640;
+    --px-plank: #cfae7e;
+    --px-plank-2: #b59463;
+    --px-plank-3: #e9d2a6;
+    --px-timber: #a8743f;
+    --px-beam: #6a4226;
+    --px-red: #f07a8a;
+    --px-red-2: #c8344a;
+    --px-red-3: #9a2236;
+    --px-purple: #b79ae8;
+    --px-purple-2: #7a5aa8;
+    --px-water: #3b6ea8;
+
+    /* shadcn's tokens, so every primitive takes the palette without a class change. */
+    --background: var(--px-sky);
+    --foreground: var(--px-parchment);
+    --card: var(--px-panel);
+    --card-foreground: var(--px-parchment);
+    --popover: #161b3a;
+    --popover-foreground: var(--px-parchment);
+    --primary: var(--px-slime-2);
     --primary-foreground: #06111a;
-    --ring: #7fd0f0;
+    --secondary: var(--px-timber);
+    --secondary-foreground: var(--px-lantern-2);
+    --muted: #222955;
+    --muted-foreground: var(--px-ash);
+    --accent: #283066;
+    --accent-foreground: var(--px-lantern-2);
+    --destructive: var(--px-red-2);
+    --destructive-foreground: var(--px-lantern-2);
+    --border: var(--px-line);
+    --input: var(--px-line);
+    --ring: var(--px-lantern);
+    /*
+     * Tailwind resolves `--color-primary: var(--primary)` once, at the root,
+     * so a scoped `--primary` never reaches `bg-primary`. The theme tokens
+     * are re-pointed here too, and the utilities follow.
+     */
+    --color-background: var(--px-sky);
+    --color-foreground: var(--px-parchment);
+    --color-card: var(--px-panel);
+    --color-card-foreground: var(--px-parchment);
+    --color-popover: #161b3a;
+    --color-popover-foreground: var(--px-parchment);
+    --color-primary: var(--px-slime-2);
+    --color-primary-foreground: #06111a;
+    --color-secondary: var(--px-timber);
+    --color-secondary-foreground: var(--px-lantern-2);
+    --color-muted: #222955;
+    --color-muted-foreground: var(--px-ash);
+    --color-accent: #283066;
+    --color-accent-foreground: var(--px-lantern-2);
+    --color-destructive: var(--px-red-2);
+    --color-destructive-foreground: var(--px-lantern-2);
+    --color-border: var(--px-line);
+    --color-input: var(--px-line);
+    --color-ring: var(--px-lantern);
+
     --pixel-font: var(--font-pixel), 'Pixelify Sans', system-ui, sans-serif;
-    --pixel-ink: rgba(255, 255, 255, 0.22);
-    --pixel-shadow: rgba(0, 0, 0, 0.65);
-    --pixel-focus: #f6d36b;
-    background-color: #0b0e1c;
-    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-    background-size: 8px 8px;
+    /* The notched outline everything is framed with: one 2px edge a side, so the corners stay open. */
+    --px-edge: 0 -2px 0 0 var(--px-outline), 0 2px 0 0 var(--px-outline), -2px 0 0 0 var(--px-outline), 2px 0 0 0 var(--px-outline);
+
+    color: var(--px-parchment);
+    background-color: var(--px-sky);
+    /* A few stars, two colours, never in a grid. */
+    background-image:
+        radial-gradient(circle at 13px 7px, rgba(255, 244, 191, 0.3) 0 0.8px, transparent 1.4px),
+        radial-gradient(circle at 61px 43px, rgba(127, 208, 240, 0.26) 0 0.8px, transparent 1.4px),
+        radial-gradient(circle at 97px 19px, rgba(255, 244, 191, 0.18) 0 0.8px, transparent 1.4px),
+        radial-gradient(circle at 37px 83px, rgba(255, 244, 191, 0.22) 0 0.8px, transparent 1.4px),
+        radial-gradient(circle at 119px 101px, rgba(127, 208, 240, 0.16) 0 0.8px, transparent 1.4px);
+    background-size: 128px 112px;
+    scrollbar-color: var(--px-line-2) var(--px-sky);
 }
 
-/* The shell's own panels sit on the same sky. */
-[data-look="pixel"] :is(header, nav, main)[class*='bg-black'] {
-    background-color: rgba(6, 8, 20, 0.6);
+[data-look="pixel"] ::selection {
+    background-color: var(--px-lantern);
+    color: var(--px-outline);
 }
 
 /* --- words that are chrome ------------------------------------------------ */
@@ -39,6 +127,8 @@
 [data-look="pixel"] [data-ui="button"],
 [data-look="pixel"] [data-ui="badge"],
 [data-look="pixel"] [data-hud],
+[data-look="pixel"] [data-sign],
+[data-look="pixel"] th,
 [data-look="pixel"] nav :is(a, div) {
     font-family: var(--pixel-font);
     letter-spacing: 0.01em;
@@ -56,7 +146,7 @@
 
 /* A report is a report: everything inside the prose wrapper keeps the reading font. */
 [data-look="pixel"] [data-prose],
-[data-look="pixel"] [data-prose] :is(h1, h2, h3, h4, h5, h6) {
+[data-look="pixel"] [data-prose] :is(h1, h2, h3, h4, h5, h6, th) {
     font-family: inherit;
     text-transform: none;
     letter-spacing: normal;
@@ -64,50 +154,255 @@
 
 /* --- shapes ------------------------------------------------------------------ */
 
-[data-look="pixel"] :is(.rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-full) {
+[data-look="pixel"] :is(.rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl, .rounded-full) {
     border-radius: 0;
 }
 
+/* Panels: a notched outline, a bevel that catches the light top-left, a hard shadow. */
 [data-look="pixel"] [data-ui="card"] {
     border-radius: 0;
-    border-width: 2px;
-    border-color: var(--pixel-ink);
-    box-shadow: 4px 4px 0 0 var(--pixel-shadow);
+    border: 0;
+    background-clip: padding-box;
+    box-shadow:
+        var(--px-edge),
+        inset 0 2px 0 0 var(--px-light),
+        inset 2px 0 0 0 var(--px-light),
+        inset 0 -2px 0 0 var(--px-dark),
+        inset -2px 0 0 0 var(--px-dark),
+        4px 4px 0 0 var(--px-shadow);
 }
 
-[data-look="pixel"] [data-ui="badge"] {
-    border-radius: 0;
-    border-width: 2px;
-    padding-top: 0.125rem;
-    padding-bottom: 0.125rem;
+/* A card that asked for a hover border lights its outline instead. */
+[data-look="pixel"] [data-ui="card"][class*="hover:border"]:hover,
+[data-look="pixel"] a:hover > [data-ui="card"] {
+    --px-outline: var(--px-slime-2);
 }
 
+/* Buttons: the same frame, a lit top edge, and they press. */
 [data-look="pixel"] [data-ui="button"] {
     border-radius: 0;
-    border: 2px solid var(--pixel-ink);
-    box-shadow: 3px 3px 0 0 var(--pixel-shadow);
+    border: 0;
+    box-shadow:
+        var(--px-edge),
+        inset 0 2px 0 0 rgba(255, 255, 255, 0.22),
+        inset 0 -2px 0 0 rgba(0, 0, 0, 0.3),
+        2px 2px 0 0 var(--px-shadow);
     transition: transform 60ms linear, box-shadow 60ms linear;
 }
 
 [data-look="pixel"] [data-ui="button"]:active:not(:disabled) {
     transform: translate(2px, 2px);
-    box-shadow: 1px 1px 0 0 var(--pixel-shadow);
+    box-shadow: var(--px-edge), inset 0 2px 0 0 rgba(0, 0, 0, 0.25);
 }
 
-[data-look="pixel"] :is([data-ui="input"], [data-ui="textarea"]) {
-    border-radius: 0;
-    border: 2px solid var(--pixel-ink);
-    box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.55);
-}
-
-[data-look="pixel"] :focus-visible {
-    outline: 2px dashed var(--pixel-focus);
-    outline-offset: 2px;
+/* Ghost and link buttons are words, not blocks: no frame. */
+[data-look="pixel"] [data-ui="button"]:not([class*=" bg-"]) {
     box-shadow: none;
 }
 
-/* The shell's own panels: the rail, the top bar, the tab bar. */
-[data-look="pixel"] :is(header, nav)[class*='border-'] {
-    border-color: var(--pixel-ink);
+[data-look="pixel"] [data-ui="button"]:not([class*=" bg-"]):active {
+    transform: none;
+}
+
+/* Badges: nameplates, framed in their own colour. */
+[data-look="pixel"] [data-ui="badge"] {
+    border-radius: 0;
+    border: 0;
+    padding: 0.125rem 0.5rem;
+    box-shadow:
+        0 -2px 0 0 color-mix(in srgb, currentColor 55%, transparent),
+        0 2px 0 0 color-mix(in srgb, currentColor 55%, transparent),
+        -2px 0 0 0 color-mix(in srgb, currentColor 55%, transparent),
+        2px 0 0 0 color-mix(in srgb, currentColor 55%, transparent);
+}
+
+[data-look="pixel"] [data-ui="badge"]:not([class*=" bg-"]) {
+    background-color: rgba(9, 12, 31, 0.5);
+}
+
+/* Fields are sunken: dark along the top and left, light along the bottom and right. */
+[data-look="pixel"] :is([data-ui="input"], [data-ui="textarea"], [role="combobox"]) {
+    border-radius: 0;
+    border: 0;
+    background-color: var(--px-sky);
+    box-shadow:
+        var(--px-edge),
+        inset 2px 2px 0 0 var(--px-dark),
+        inset -2px -2px 0 0 var(--px-light);
+}
+
+[data-look="pixel"] :focus-visible {
+    outline: 2px dashed var(--px-lantern);
+    outline-offset: 2px;
+}
+
+/* Alerts are panels too. */
+[data-look="pixel"] [role="alert"] {
+    border-radius: 0;
+    border: 0;
+    box-shadow: var(--px-edge), inset 0 2px 0 0 var(--px-light), inset 2px 0 0 0 var(--px-light), 2px 2px 0 0 var(--px-shadow);
+}
+
+/* Dialogs, menus and the town's cards float on the same frame. */
+[data-look="pixel"] :is([role="dialog"], [role="menu"], [role="listbox"], [role="tooltip"]) {
+    border-radius: 0;
+    border: 0;
+    background-color: var(--popover);
     backdrop-filter: none;
+    box-shadow:
+        var(--px-edge),
+        inset 0 2px 0 0 var(--px-light),
+        inset 2px 0 0 0 var(--px-light),
+        4px 4px 0 0 var(--px-shadow);
+}
+
+/* --- the shell --------------------------------------------------------------- */
+
+[data-look="pixel"] :is(header, nav)[class*="backdrop-blur"] {
+    backdrop-filter: none;
+}
+
+[data-look="pixel"] :is(header, nav)[class*="border-"] {
+    border-color: var(--px-outline);
+    border-width: 0;
+}
+
+[data-look="pixel"] nav[class*="border-r"] {
+    border-right-width: 2px;
+}
+
+[data-look="pixel"] header[class*="border-b"] {
+    border-bottom-width: 2px;
+}
+
+[data-look="pixel"] nav[class*="border-t"] {
+    border-top-width: 2px;
+}
+
+/* The page you are on: lit in slime blue, with a notch on the edge the rail hangs from. */
+[data-look="pixel"] nav a[aria-current="page"] {
+    background-color: rgba(74, 167, 216, 0.16);
+    color: var(--px-lantern-2);
+}
+
+[data-look="pixel"] nav[class*="border-r"] a[aria-current="page"] {
+    box-shadow: inset 3px 0 0 0 var(--px-slime-2);
+}
+
+[data-look="pixel"] nav[class*="border-t"] a[aria-current="page"] {
+    box-shadow: inset 0 3px 0 0 var(--px-slime-2);
+}
+
+/* HUD counters are the town's signboards: a plank, dark lettering, a beam around it. */
+[data-look="pixel"] [data-ui="card"][data-sign] {
+    color: #2a1a10;
+    background-color: var(--px-plank);
+    background-image: repeating-linear-gradient(0deg, transparent 0 15px, rgba(106, 66, 38, 0.22) 15px 16px);
+    box-shadow:
+        0 -2px 0 0 var(--px-beam),
+        0 2px 0 0 var(--px-beam),
+        -2px 0 0 0 var(--px-beam),
+        2px 0 0 0 var(--px-beam),
+        inset 0 2px 0 0 var(--px-plank-3),
+        inset 2px 0 0 0 var(--px-plank-3),
+        inset 0 -2px 0 0 var(--px-plank-2),
+        inset -2px 0 0 0 var(--px-plank-2),
+        4px 4px 0 0 var(--px-shadow);
+}
+
+[data-look="pixel"] [data-sign] .text-muted-foreground,
+[data-look="pixel"] [data-sign] svg {
+    color: var(--px-beam);
+}
+
+[data-look="pixel"] [data-sign] [data-hud] {
+    color: var(--px-outline);
+}
+
+[data-look="pixel"] [data-sign] [data-hud].text-amber-400 {
+    color: var(--px-red-3);
+}
+
+/* Scrollbars, square. */
+[data-look="pixel"] ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+[data-look="pixel"] ::-webkit-scrollbar-track {
+    background: var(--px-sky);
+}
+
+[data-look="pixel"] ::-webkit-scrollbar-thumb {
+    background: var(--px-line);
+    box-shadow: inset 2px 2px 0 0 var(--px-light), inset -2px -2px 0 0 var(--px-sky-2);
+}
+
+/* --- the palette swap ---------------------------------------------------------
+ * The dashboard was written in Tailwind's greys and greens. Here each takes
+ * its town colour: nothing changes its classes, and the Classic look keeps
+ * the originals. Hover variants are swapped the same way, below.
+ */
+
+[data-look="pixel"] :is(.text-white, .text-zinc-100) { color: var(--px-parchment); }
+[data-look="pixel"] .text-zinc-200 { color: var(--px-parchment-2); }
+[data-look="pixel"] .text-zinc-300 { color: var(--px-parchment-3); }
+[data-look="pixel"] :is(.text-zinc-400, .text-gray-400, .text-gray-300, .text-slate-400) { color: var(--px-ash); }
+[data-look="pixel"] :is(.text-gray-500, .text-gray-600, .text-zinc-600) { color: var(--px-ash-2); }
+[data-look="pixel"] :is(.text-emerald-300, .text-emerald-400, .text-emerald-500) { color: var(--px-grass); }
+[data-look="pixel"] :is(.text-amber-300, .text-amber-400, .text-amber-400\/80, .text-yellow-400, .text-yellow-500) { color: var(--px-lantern); }
+[data-look="pixel"] :is(.text-red-300, .text-red-400, .text-red-500, .text-rose-400) { color: var(--px-red); }
+[data-look="pixel"] :is(.text-sky-300, .text-sky-400, .text-sky-400\/80, .text-blue-400, .text-blue-500, .text-cyan-400) { color: var(--px-slime); }
+[data-look="pixel"] :is(.text-indigo-300, .text-indigo-400, .text-violet-400, .text-purple-400) { color: var(--px-purple); }
+[data-look="pixel"] .text-black { color: var(--px-outline); }
+
+[data-look="pixel"] .bg-black\/40 { background-color: var(--px-panel); }
+[data-look="pixel"] .bg-black\/20 { background-color: var(--px-sky-2); }
+[data-look="pixel"] :is(.bg-black, .bg-black\/60, .bg-black\/80, .bg-black\/90) { background-color: var(--px-sky); }
+[data-look="pixel"] :is(.bg-zinc-950, .bg-zinc-950\/95, .bg-zinc-900, .bg-slate-900, .bg-slate-800) { background-color: var(--popover); }
+[data-look="pixel"] .bg-white\/5 { background-color: rgba(127, 208, 240, 0.07); }
+[data-look="pixel"] .bg-white\/10 { background-color: rgba(127, 208, 240, 0.12); }
+[data-look="pixel"] .bg-white\/15 { background-color: rgba(127, 208, 240, 0.18); }
+[data-look="pixel"] .bg-white { background-color: var(--px-parchment); }
+[data-look="pixel"] :is(.bg-emerald-500, .bg-emerald-600) { background-color: var(--px-grass-2); }
+[data-look="pixel"] .bg-emerald-700 { background-color: var(--px-grass-3); }
+[data-look="pixel"] :is(.bg-red-500, .bg-red-600) { background-color: var(--px-red-2); }
+[data-look="pixel"] .bg-red-700 { background-color: var(--px-red-3); }
+[data-look="pixel"] .bg-blue-500 { background-color: var(--px-water); }
+[data-look="pixel"] :is(.bg-amber-400, .bg-yellow-500) { background-color: var(--px-lantern); }
+[data-look="pixel"] .bg-purple-500 { background-color: var(--px-purple-2); }
+[data-look="pixel"] :is(.bg-emerald-400\/10, .bg-emerald-500\/10) { background-color: rgba(95, 156, 75, 0.16); }
+[data-look="pixel"] .bg-emerald-500\/20 { background-color: rgba(95, 156, 75, 0.24); }
+[data-look="pixel"] :is(.bg-red-400\/10, .bg-red-500\/10) { background-color: rgba(200, 52, 74, 0.14); }
+[data-look="pixel"] .bg-red-400\/5 { background-color: rgba(200, 52, 74, 0.08); }
+[data-look="pixel"] :is(.bg-amber-400\/10, .bg-yellow-500\/10) { background-color: rgba(246, 211, 107, 0.12); }
+[data-look="pixel"] .bg-blue-500\/10 { background-color: rgba(59, 110, 168, 0.16); }
+[data-look="pixel"] .bg-blue-500\/20 { background-color: rgba(59, 110, 168, 0.24); }
+[data-look="pixel"] .bg-sky-400\/10 { background-color: rgba(127, 208, 240, 0.12); }
+
+[data-look="pixel"] .border-white\/5 { border-color: rgba(127, 208, 240, 0.08); }
+[data-look="pixel"] .border-white\/10 { border-color: var(--px-line); }
+[data-look="pixel"] :is(.border-white\/15, .border-white\/20) { border-color: #343b70; }
+[data-look="pixel"] .border-white\/25 { border-color: var(--px-line-2); }
+[data-look="pixel"] :is(.border-amber-400\/30, .border-yellow-500\/20) { border-color: rgba(246, 211, 107, 0.4); }
+[data-look="pixel"] :is(.border-red-400\/20, .border-red-400\/30, .border-red-500\/20) { border-color: rgba(240, 122, 138, 0.4); }
+[data-look="pixel"] :is(.border-emerald-400\/30, .border-emerald-500\/20) { border-color: rgba(134, 207, 99, 0.4); }
+[data-look="pixel"] :is(.border-sky-300\/30, .border-sky-400\/30) { border-color: rgba(127, 208, 240, 0.4); }
+
+@media (hover: hover) {
+    [data-look="pixel"] :is(.hover\:text-white:hover, .hover\:text-zinc-200:hover, .group:hover .group-hover\:text-white) { color: var(--px-parchment); }
+    [data-look="pixel"] .hover\:bg-white\/5:hover { background-color: rgba(127, 208, 240, 0.07); }
+    [data-look="pixel"] .hover\:bg-white\/10:hover { background-color: rgba(127, 208, 240, 0.12); }
+    [data-look="pixel"] :is(.hover\:border-white\/15:hover, .hover\:border-white\/20:hover, .hover\:border-white\/25:hover) { border-color: var(--px-line-2); }
+    [data-look="pixel"] :is(.hover\:text-red-300:hover, .hover\:text-red-400:hover) { color: var(--px-red); }
+    [data-look="pixel"] :is(.hover\:bg-red-400\/10:hover, .hover\:bg-red-500\/10:hover) { background-color: rgba(200, 52, 74, 0.14); }
+    [data-look="pixel"] :is(.hover\:bg-red-600:hover, .hover\:bg-red-700:hover) { background-color: var(--px-red-3); }
+    [data-look="pixel"] :is(.hover\:bg-emerald-500:hover, .hover\:bg-emerald-600:hover, .hover\:bg-emerald-700:hover) { background-color: var(--px-grass-3); }
+    [data-look="pixel"] :is(.hover\:text-emerald-300:hover, .hover\:text-emerald-400:hover) { color: var(--px-grass); }
+    [data-look="pixel"] .hover\:bg-emerald-400\/10:hover { background-color: rgba(95, 156, 75, 0.16); }
+    [data-look="pixel"] :is(.hover\:text-amber-300:hover, .hover\:text-yellow-400:hover) { color: var(--px-lantern); }
+    [data-look="pixel"] :is(.hover\:bg-amber-400\/10:hover, .hover\:bg-yellow-500\/10:hover) { background-color: rgba(246, 211, 107, 0.12); }
+    [data-look="pixel"] .hover\:border-sky-300\/60:hover { border-color: rgba(127, 208, 240, 0.6); }
+    [data-look="pixel"] .hover\:bg-sky-400\/20:hover { background-color: rgba(127, 208, 240, 0.2); }
+    [data-look="pixel"] .hover\:text-indigo-300:hover { color: var(--px-purple); }
 }
