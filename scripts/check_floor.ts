@@ -16,6 +16,9 @@ import { CELL_H, CENTRE_H, columnsFor, DECOR_CAP, layoutWorld } from '../src/lib
 import { doorOf, findPath, hangouts, isBlocked, routeBetween, walkability } from '../src/lib/pixel/world-path';
 import { frameCount } from '../src/lib/pixel/character';
 import { appearance, createLife, freeToRoam, stepLife, type Life } from '../src/lib/pixel/life';
+import { clockWords, daylight, localHour, phaseOf } from '../src/lib/pixel/daylight';
+import { agentForActor, isCho } from '../src/lib/delphi/actors';
+import type { FloorAgent } from '../src/lib/delphi/floor';
 
 const G = '\x1b[32m', R = '\x1b[31m', D = '\x1b[2m', RS = '\x1b[0m';
 
@@ -363,6 +366,47 @@ console.log('\nA life of their own');
     }
     ok(arrived, 'and arrives');
     ok(appearance(g, 60_000).walking === false && appearance({ ...g, phase: 'going', leg: 0, path: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }, 0).pose === 'walk', 'appearance says walking only while on the move');
+}
+
+console.log('\nAfter dark');
+{
+    const floor = deriveFloor(base(), NOW);
+    const map = layoutWorld(floor, 43);
+    const life = createLife(map);
+    const kinds = new Set<string>();
+    for (let t = 0; t < 300_000; t += 100) {
+        stepLife(life, floor, map, t, 100, { night: true });
+        for (const w of life.walkers.values()) if (w.phase === 'doing' && w.activity) kinds.add(w.activity.kind);
+    }
+    ok(kinds.size > 0 && [...kinds].every((k) => ['nap', 'drink', 'read'].includes(k)), 'at night the idle keep to the inn, the fire and a book', [...kinds].join(', '));
+
+    ok(phaseOf(3) === 'night' && phaseOf(6) === 'dawn' && phaseOf(12) === 'day' && phaseOf(18.5) === 'dusk' && phaseOf(23) === 'night', 'the day has its phases');
+    const noon = daylight(12), midnight = daylight(0), dawn = daylight(6.5), dusk = daylight(19);
+    ok(noon.a === 0 && noon.glow === 0, 'no tint and no glow at noon');
+    ok(midnight.a > 0.5 && midnight.glow === 1 && midnight.b > midnight.r, 'a deep blue tint and full glow at midnight');
+    ok(dawn.r > dawn.b && dusk.r > dusk.b && dawn.a > 0 && dusk.a > 0, 'dawn and dusk are warm');
+    let smooth = true;
+    let prev = daylight(0).a;
+    for (let h = 0; h <= 24; h += 0.05) { const a = daylight(h).a; if (Math.abs(a - prev) > 0.02) smooth = false; prev = a; }
+    ok(smooth, 'the light changes by small steps, never a jump');
+    ok(daylight(24).a === daylight(0).a && daylight(-1).phase === 'night', 'and wraps around midnight');
+    const utcNoon = Date.UTC(2026, 9, 1, 12, 0, 0);
+    ok(Math.abs(localHour(utcNoon, 'UTC') - 12) < 0.001 && Math.abs(localHour(utcNoon, 'Asia/Tokyo') - 21) < 0.001 && Math.abs(localHour(utcNoon, 'America/Los_Angeles') - 5) < 0.001, 'the local hour follows the zone');
+    ok(clockWords(22.9) === '22:54, night' && clockWords(7.25) === '07:15, dawn', 'the clock reads in words', clockWords(22.9));
+}
+
+console.log('\nThe quest log');
+{
+    const agent = (id: string, slug: string, name: string, isCeo = false): FloorAgent => ({
+        id, slug, name, title: '', avatarSeed: null, isBoard: false, isCeo, state: 'idle', task: null, since: null, departments: [], seat: null,
+    });
+    const agents = [agent('ceo', DELPHI_SLUG, 'Diablo', true), agent('a1', 'research-analyst', 'Shuna'), agent('a2', 'invented-1', 'Geld')];
+    ok(agentForActor('Shuna', agents)?.id === 'a1', 'an actor matches by the name on the line');
+    ok(agentForActor('Vera Quinn', agents)?.id === 'a1', 'and by the name they had before the cast');
+    ok(agentForActor('Delphi', agents)?.id === 'ceo' && agentForActor('Diablo', agents)?.id === 'ceo', 'the CEO matches under either name');
+    ok(agentForActor('Geld', agents)?.id === 'a2', 'an invented hire matches by name');
+    ok(agentForActor('System', agents) === null && agentForActor('Souei', agents) === null, 'nobody matches a system line or an agent not on the floor');
+    ok(isCho('Rimuru') && isCho('CHO') && !isCho('Shuna'), 'the CHO is known by name and by the old role label');
 }
 
 console.log('\nReading from a database');

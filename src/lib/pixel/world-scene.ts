@@ -9,7 +9,7 @@
  * Pure, so a test can draw the whole thing and look at the pixels.
  */
 
-import { palette, PixelCanvas, type Grid, type Palette } from './canvas';
+import { palette, PixelCanvas, type Grid, type Palette, type Rgba } from './canvas';
 import { hash } from './residents';
 import { TILES, TOWN, type TileId } from './sprites/tiles';
 import { TILE, type Building, type FeatureKind, type Rect, type WorldLayout } from './world-layout';
@@ -26,6 +26,27 @@ export const ROOFS: readonly Palette[] = [
 ];
 function roofSlots(r: string, R: string): Record<string, string> {
     return { o: '#1a1423', r, R, S: '#6c7280' };
+}
+
+const css = (c: Rgba | undefined): string => (c ? `#${[c[0], c[1], c[2]].map((n) => n.toString(16).padStart(2, '0')).join('')}` : '#000000');
+
+/** A house's roof, as CSS colours, for a plaque off the canvas that wants to match it. */
+export function roofFor(id: string): { tile: string; shade: string } {
+    const p = ROOFS[hash(id) % ROOFS.length];
+    return { tile: css(p.r), shade: css(p.R) };
+}
+
+/** A house's walls, as CSS colours: the base and what is drawn over it. */
+export function wallFor(id: string): { material: Material; base: string; detail: string } {
+    const material = materialFor(id);
+    switch (material) {
+        case 'timber':
+            return { material, base: css(TOWN.d), detail: css(TOWN.t) };
+        case 'brick':
+            return { material, base: css(TOWN.e), detail: css(TOWN.E) };
+        default:
+            return { material, base: css(TOWN.s), detail: css(TOWN.S) };
+    }
 }
 
 /** A cut-away house: a roof strip, a floor you can see into, walls at the sides and front. */

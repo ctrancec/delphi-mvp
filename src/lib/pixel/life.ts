@@ -111,6 +111,13 @@ const TASTES: Record<string, ActivityKind[]> = {
     'llr-legal': ['read', 'read', 'stroll'],
 };
 const EVERYTHING: ActivityKind[] = ['stroll', 'fountain', 'read', 'drink', 'nap', 'garden', 'train', 'greet', 'chat', 'tinker'];
+/** After dark: the inn, the fire, a book. Nobody trains in the yard at midnight. */
+const AT_NIGHT: ActivityKind[] = ['nap', 'nap', 'drink', 'drink', 'read'];
+
+export interface LifeOptions {
+    /** True after dark where the CHO is; the idle head indoors. */
+    night?: boolean;
+}
 
 const between = (rng: () => number, min: number, max: number) => min + rng() * (max - min);
 const pick = <T>(rng: () => number, list: readonly T[]): T => list[Math.floor(rng() * list.length)];
@@ -187,9 +194,9 @@ function houseName(layout: WorldLayout, floor: Floor, f: Feature): string {
 }
 
 /** Choose an outing for an idle agent, or null when nothing suits right now. */
-function choose(life: Life, floor: Floor, agent: FloorAgent, w: Walker, taken: Set<string>, now: number): Activity | null {
+function choose(life: Life, floor: Floor, agent: FloorAgent, w: Walker, taken: Set<string>, now: number, opts: LifeOptions): Activity | null {
     const { layout, walk } = life;
-    const tastes = TASTES[agent.slug] ?? EVERYTHING;
+    const tastes = opts.night ? AT_NIGHT : (TASTES[agent.slug] ?? EVERYTHING);
     const recipe = (kind: ActivityKind) => RECIPES[kind];
     const seconds = (kind: ActivityKind) => between(w.rng, recipe(kind).min, recipe(kind).max);
     const make = (kind: ActivityKind, label: string, spot: Point, facing: 1 | -1 = 1): Activity => ({
@@ -297,7 +304,7 @@ function endActivity(life: Life, w: Walker) {
  * passed since the last tick; the layout is the current one, which may
  * have changed since the life was created.
  */
-export function stepLife(life: Life, floor: Floor, layout: WorldLayout, now: number, dtMs: number): void {
+export function stepLife(life: Life, floor: Floor, layout: WorldLayout, now: number, dtMs: number, opts: LifeOptions = {}): void {
     if (layout !== life.layout) {
         life.layout = layout;
         life.walk = walkability(layout);
@@ -353,7 +360,7 @@ export function stepLife(life: Life, floor: Floor, layout: WorldLayout, now: num
                     break;
                 }
                 if (now < w.at) break;
-                const activity = choose(life, floor, a, w, taken, now);
+                const activity = choose(life, floor, a, w, taken, now, opts);
                 if (!activity) {
                     w.at = now + between(w.rng, 4, 10) * 1000;
                     break;

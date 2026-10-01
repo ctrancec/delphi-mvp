@@ -21,9 +21,9 @@ import { hash, residentFor } from '../src/lib/pixel/residents';
 import { POSES, SPRITE_H, SPRITE_W, TORSOS, type Pose } from '../src/lib/pixel/sprites/body';
 import { closedEyes, HEADS, RESIDENT_HEADS } from '../src/lib/pixel/sprites/heads';
 import { BACKS, ITEMS, RANGA, SLIME } from '../src/lib/pixel/sprites/items';
-import { BUBBLES, TILES } from '../src/lib/pixel/sprites/tiles';
+import { BUBBLES, TILES, TOWN } from '../src/lib/pixel/sprites/tiles';
 import { ICONS, iconPath, type IconId } from '../src/lib/pixel/icons';
-import { drawScene } from '../src/lib/pixel/world-scene';
+import { drawScene, materialFor, roofFor, ROOFS, wallFor } from '../src/lib/pixel/world-scene';
 import { layoutWorld, TILE } from '../src/lib/pixel/world-layout';
 import type { Floor } from '../src/lib/delphi/floor';
 import { ALL_SEED_AGENTS } from '../src/lib/delphi/roster';
@@ -227,6 +227,22 @@ if (sheetArg !== -1 && process.argv[sheetArg + 1]) {
     sheet.blit(renderRanga(MASCOT.colours, 0), S + 4 * CW, y + 4 * S, S);
     writeFileSync(process.argv[sheetArg + 1], encodePng(sheet.w, sheet.h, sheet.data));
     console.log(`\n  sheet: ${process.argv[sheetArg + 1]} (${rows.map((r) => r.name).join(', ')})`);
+}
+
+console.log('\nThe plaques');
+{
+    // A department's card carries its house's colours, read from the same palettes the tiles use.
+    const ids = Array.from({ length: 24 }, (_, i) => `dept-${i}`);
+    const cssOf = (c: readonly number[] | undefined) => (c ? `#${[c[0], c[1], c[2]].map((n) => n.toString(16).padStart(2, '0')).join('')}` : '');
+    ok(
+        ids.every((id) => roofFor(id).tile === cssOf(ROOFS[hash(id) % ROOFS.length].r) && roofFor(id).shade === cssOf(ROOFS[hash(id) % ROOFS.length].R)),
+        'a plaque roof is the colour of its house roof'
+    );
+    ok(new Set(ids.map((id) => roofFor(id).tile)).size === ROOFS.length, 'and a street shows every roof colour', `${ROOFS.length} colours`);
+    ok(ids.every((id) => wallFor(id).material === materialFor(id)), 'a plaque wall is the material of its house');
+    const base: Record<string, string> = { stone: cssOf(TOWN.s), timber: cssOf(TOWN.d), brick: cssOf(TOWN.e) };
+    ok(ids.every((id) => wallFor(id).base === base[wallFor(id).material]), 'in the wall tile colour', Object.values(base).join(' '));
+    ok(new Set(ids.map((id) => wallFor(id).material)).size === 3, 'and all three materials come up');
 }
 
 console.log(`\n${failed ? R + failed + ' failed' : G + 'all passed'}${RS}\n`);

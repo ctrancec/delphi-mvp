@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
     Activity,
@@ -14,21 +13,14 @@ import {
 } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
 import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-line'
+import { HousePlaque } from '@/components/delphi/house-plaque'
+import { QuestLog } from '@/components/delphi/quest-log'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
-import { readFloor } from '@/lib/delphi/floor'
+import { readFloor, type FloorAgent } from '@/lib/delphi/floor'
 import { TempestWorld } from '@/components/pixel/tempest-world'
 
-import { CEO_NAME } from '@/lib/pixel/cast/names'
+import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
-
-const STATUS_STYLES: Record<string, string> = {
-    draft: 'text-muted-foreground border-white/15',
-    hiring: 'text-amber-400 border-amber-400/30',
-    awaiting_approval: 'text-amber-400 border-amber-400/30',
-    active: 'text-emerald-400 border-emerald-400/30',
-    paused: 'text-muted-foreground border-white/15',
-    archived: 'text-muted-foreground border-white/10',
-}
 
 function Empty({ hasRoster }: { hasRoster: boolean }) {
     return (
@@ -102,11 +94,16 @@ export default async function DelphiHqPage() {
     const totalSpend = depts.reduce((sum, d) => sum + Number(d.spent_usd ?? 0), 0)
     const totalBudget = depts.reduce((sum, d) => sum + Number(d.budget_usd ?? 0), 0)
 
+    // Each house's team, for its plaque: the floor's agents by id.
+    const agentById = new Map<string, FloorAgent>((floor?.agents ?? []).map((a) => [a.id, a]))
+    const houseOf = (id: string) => floor?.departments.find((h) => h.id === id) ?? null
+    const teamOf = (id: string) => (houseOf(id)?.team ?? []).map((a) => agentById.get(a)).filter((a): a is FloorAgent => !!a)
+
     return (
         <div className="space-y-6">
             <div className="flex items-start justify-between gap-4">
                 <p className="text-sm text-muted-foreground">
-                    Your AI CEO. Departments are standing teams; {CEO_NAME} hires into them and reports to you.
+                    {APP_NAME} headquarters. Every house is a department; {CEO_NAME} hires into them and reports to you.
                 </p>
                 <Button asChild className="shrink-0">
                     <Link href="/dashboard/delphi/departments/new">
@@ -149,29 +146,29 @@ export default async function DelphiHqPage() {
             {depts.length === 0 ? (
                 <Empty hasRoster={workerCount > 0} />
             ) : (
-                <div className="grid gap-3 inner:grid-cols-2 desk:gap-4">
-                    {depts.map((d) => (
-                        <Link key={d.id} href={`/dashboard/delphi/departments/${d.id}`}>
-                            <Card className="bg-black/40 border-white/10 hover:border-white/25 transition-colors h-full">
-                                <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3">
-                                    <CardTitle className="text-base leading-tight">{d.name}</CardTitle>
-                                    <Badge variant="outline" className={STATUS_STYLES[d.status] ?? ''}>
-                                        {String(d.status).replace('_', ' ')}
-                                    </Badge>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    <p className="text-sm text-muted-foreground line-clamp-2">{d.charter}</p>
-                                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                        <span>
-                                            {formatUsd(Number(d.spent_usd ?? 0))} / {formatUsd(Number(d.budget_usd ?? 0))}
-                                        </span>
-                                        {d.cadence_cron && <span className="font-mono">{d.cadence_cron}</span>}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </Link>
-                    ))}
-                </div>
+                <section className="space-y-3" aria-labelledby="houses">
+                    <h2 id="houses" className="text-sm font-semibold text-zinc-300">
+                        Houses
+                    </h2>
+                    <div className="grid gap-3 inner:grid-cols-2 desk:gap-4">
+                        {depts.map((d) => (
+                            <HousePlaque
+                                key={d.id}
+                                department={{
+                                    id: d.id,
+                                    name: d.name,
+                                    status: String(d.status),
+                                    charter: d.charter ?? null,
+                                    budgetUsd: Number(d.budget_usd ?? 0),
+                                    spentUsd: Number(d.spent_usd ?? 0),
+                                    cadenceCron: d.cadence_cron ?? null,
+                                }}
+                                house={houseOf(d.id)}
+                                team={teamOf(d.id)}
+                            />
+                        ))}
+                    </div>
+                </section>
             )}
 
             {archived.length > 0 && (
@@ -201,19 +198,23 @@ export default async function DelphiHqPage() {
             <Card className="bg-black/40 border-white/10">
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
-                        <Activity className="h-4 w-4" /> Activity
+                        <Activity className="h-4 w-4" /> Quest log
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
                     {events?.length ? (
-                        <div className="space-y-1 font-mono text-xs">
-                            {events.map((e) => (
-                                <ActivityLine key={e.id} event={e as unknown as ActivityEvent} />
-                            ))}
-                        </div>
+                        floor ? (
+                            <QuestLog events={events as unknown as ActivityEvent[]} agents={floor.agents} />
+                        ) : (
+                            <div className="space-y-1 font-mono text-xs">
+                                {events.map((e) => (
+                                    <ActivityLine key={e.id} event={e as unknown as ActivityEvent} />
+                                ))}
+                            </div>
+                        )
                     ) : (
                         <p className="text-sm text-muted-foreground">
-                            Nothing yet. Activity appears here as agents work, with a clickable source for
+                            Nothing yet. Every step the agents take appears here, with a clickable source for
                             every claim.
                         </p>
                     )}

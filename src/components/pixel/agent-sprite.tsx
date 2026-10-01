@@ -47,6 +47,9 @@ export function useReducedMotion(): boolean {
     return reduced;
 }
 
+/** The rows of a sprite that are the head: what a portrait crop keeps. */
+export const HEAD_H = 14;
+
 export interface AgentSpriteProps {
     agent: AgentLike;
     state?: AgentState;
@@ -55,26 +58,29 @@ export interface AgentSpriteProps {
     className?: string;
     /** Overrides the accessible name, which is otherwise "<name>, <state>". */
     label?: string;
+    /** 'head' keeps the top rows only: a face beside a line of text. */
+    crop?: 'full' | 'head';
 }
 
-export function AgentSprite({ agent, state = 'idle', scale = 3, className, label }: AgentSpriteProps) {
+export function AgentSprite({ agent, state = 'idle', scale = 3, className, label, crop = 'full' }: AgentSpriteProps) {
     const { slug, name, avatarSeed } = agent;
     const cast = useMemo(() => castFor({ slug, name, avatarSeed }), [slug, name, avatarSeed]);
     const ref = useRef<HTMLCanvasElement>(null);
     const painted = useRef('');
     const reduced = useReducedMotion();
+    const h = crop === 'head' ? HEAD_H : SPRITE_H;
 
     const paint = useCallback(
         (now: number) => {
             const { pose, frame } = frameAt(state, cast.look, now, cast.key, reduced);
-            const key = `${cast.key}|${pose}|${frame}`;
+            const key = `${cast.key}|${pose}|${frame}|${h}`;
             if (key === painted.current) return;
             const ctx = ref.current?.getContext('2d');
             if (!ctx) return;
-            ctx.putImageData(frameImage(cast.key, cast.look, pose, frame), 0, 0);
+            ctx.putImageData(frameImage(cast.key, cast.look, pose, frame), 0, 0, 0, 0, SPRITE_W, h);
             painted.current = key;
         },
-        [cast, state, reduced]
+        [cast, state, reduced, h]
     );
 
     // The first frame straight away; the clock takes it from there.
@@ -89,12 +95,12 @@ export function AgentSprite({ agent, state = 'idle', scale = 3, className, label
         <canvas
             ref={ref}
             width={SPRITE_W}
-            height={SPRITE_H}
+            height={h}
             role="img"
             aria-label={text}
             title={text}
             className={className}
-            style={{ width: SPRITE_W * scale, height: SPRITE_H * scale, imageRendering: 'pixelated' }}
+            style={{ width: SPRITE_W * scale, height: h * scale, imageRendering: 'pixelated' }}
         />
     );
 }

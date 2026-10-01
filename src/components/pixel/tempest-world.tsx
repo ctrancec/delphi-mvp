@@ -8,7 +8,9 @@
  * copies it and lays the living layer over: the agents in the pose their
  * state calls for, a bubble over a head that has something to say, smoke
  * from a house with work going on, fire and water moving, Rimuru on the
- * cushion with the approvals piling up beside them.
+ * cushion with the approvals piling up beside them. The light follows the
+ * CHO's own clock: dusk and night tint the frame, and lanterns, windows,
+ * the inn fire and the desk screens glow after dark.
  *
  * Between frames the idle have a life of their own (see life.ts): they get
  * up, walk through doors and down lanes to the shelf, the inn, the fountain,
@@ -36,11 +38,12 @@ import { frameAt, phaseFor, STATES, type AgentState, type Bubble } from '@/lib/p
 import { PixelCanvas, type Grid } from '@/lib/pixel/canvas';
 import { castFor, CHO, MASCOT } from '@/lib/pixel/cast';
 import { frameCount, renderCharacter, renderRanga, renderSlime, type Look } from '@/lib/pixel/character';
+import { clockWords, daylight, isNight, localHour } from '@/lib/pixel/daylight';
 import { appearance, createLife, freeToRoam, outingSentence, stepLife, type Life } from '@/lib/pixel/life';
 import { SPRITE_H, SPRITE_W, type Pose } from '@/lib/pixel/sprites/body';
 import { BUBBLE_COLOURS, BUBBLES, TILES, TOWN } from '@/lib/pixel/sprites/tiles';
 import { animatedTile, deskTile, drawScene } from '@/lib/pixel/world-scene';
-import { layoutWorld, TILE, type Point } from '@/lib/pixel/world-layout';
+import { layoutWorld, TILE, type Point, type WorldLayout } from '@/lib/pixel/world-layout';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { useReducedMotion } from './agent-sprite';
@@ -92,6 +95,35 @@ const bubbleCanvas = (id: Bubble) =>
 
 const slimeCanvas = (frame: number, asleep: boolean) => toCanvas(`slime|${frame}|${asleep}`, () => renderSlime(CHO.colours, frame, asleep));
 const rangaCanvas = (frame: number) => toCanvas(`ranga|${frame}`, () => renderRanga(MASCOT.colours, frame));
+
+/** Every light in town: where, how far it reaches, and its colour. */
+function lights(layout: WorldLayout, floor: Floor): { x: number; y: number; r: number; colour: string }[] {
+    const out: { x: number; y: number; r: number; colour: string }[] = [];
+    const warm = 'rgba(255, 200, 110, A)';
+    const cool = 'rgba(150, 220, 255, A)';
+    const fire = 'rgba(255, 150, 60, A)';
+    const { centre } = layout;
+    const lantern = (x: number, y: number) => out.push({ x: x + 0.5, y: y + 0.35, r: 2.6, colour: warm });
+    lantern(centre.study.x + centre.study.w, centre.rect.h - 2);
+    lantern(centre.hall.x - 1, centre.rect.h - 2);
+    const teams = new Map(floor.departments.map((d) => [d.id, d.team.length]));
+    const windows = (rect: { x: number; y: number; w: number; h: number }, front: number, strong: boolean) => {
+        for (let i = 1; i < rect.w - 1; i++) if (i % 3 === 1) out.push({ x: rect.x + i + 0.5, y: front + 0.5, r: strong ? 2 : 1.4, colour: warm });
+    };
+    windows(centre.study, centre.study.y + centre.study.h - 1, true);
+    windows(centre.hall, centre.hall.y + centre.hall.h - 1, true);
+    for (const b of layout.buildings) {
+        if (b.kind !== 'house') continue;
+        if (b.busy || (teams.get(b.id) ?? 0) > 0) windows(b.rect, b.rect.y + b.rect.h - 1, b.busy);
+    }
+    windows(layout.inn.rect, layout.inn.rect.y, true);
+    for (const f of layout.features) {
+        if (f.kind === 'fireplace') out.push({ x: f.x + 0.5, y: f.y + 0.5, r: 3.2, colour: fire });
+        if (f.kind === 'fountain') out.push({ x: f.x + 0.5, y: f.y + 0.5, r: 1.6, colour: cool });
+    }
+    out.push({ x: centre.studyDesk.x + 0.5, y: centre.studyDesk.y + 0.3, r: 1.6, colour: cool });
+    return out;
+}
 
 /** A frame of a pose from the clock alone: a walk is quick, everything else unhurried. */
 function poseFrame(pose: Pose, now: number, seed: string): number {
@@ -172,10 +204,12 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
     const life = useRef<Life | null>(null);
     const lastTick = useRef(0);
     const buttons = useRef(new Map<string, HTMLButtonElement>());
+    const clock = useRef<HTMLSpanElement>(null);
     const reduced = useReducedMotion();
 
     const layout = useMemo(() => layoutWorld(floor, tiles), [floor, tiles]);
     const agents = useMemo(() => new Map(floor.agents.map((a) => [a.id, a])), [floor]);
+    const lit = useMemo(() => lights(layout, floor), [layout, floor]);
 
     // Width → tiles, so the districts take as many columns as fit.
     useEffect(() => {
@@ -227,12 +261,17 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
             painted.current = frame;
             ctx.drawImage(still.current, 0, 0);
 
+            // The hour where the CHO is: the browser's own clock and zone.
+            const hour = localHour(Date.now());
+            const light = daylight(hour);
+            if (clock.current) clock.current.textContent = clockWords(hour);
+
             // The idle live between frames. Under reduced motion nobody moves.
             if (!reduced) {
                 life.current ??= createLife(layout);
                 const dt = lastTick.current ? Math.min(now - lastTick.current, 250) : 0;
                 lastTick.current = now;
-                stepLife(life.current, floor, layout, now, dt);
+                stepLife(life.current, floor, layout, now, dt, { night: isNight(hour) });
             }
 
             // Screens in use, and smoke from a busy house.
@@ -262,6 +301,8 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
             const asleep = floor.system.mode !== 'running';
             ctx.drawImage(rangaCanvas(Math.floor(frame / 6) % 2), layout.centre.ranga.x * TILE, layout.centre.ranga.y * TILE + 7);
             ctx.drawImage(slimeCanvas(asleep ? 0 : Math.floor(frame / 4) % 2, asleep), layout.centre.seat.x * TILE, layout.centre.seat.y * TILE - 3);
+
+            const bubbles: { bubble: Bubble; x: number; top: number }[] = [];
 
             // Everyone, back to front, wherever they have got to.
             const placed = floor.agents
@@ -296,10 +337,7 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
                 }
 
                 const bubble = look?.walking ? null : look?.pose ? look.bubble : STATES[a.state].bubble;
-                if (bubble && (bubble !== 'bang' || Math.floor(frame / 4) % 2 === 0)) {
-                    const bc = bubbleCanvas(bubble);
-                    ctx.drawImage(bc, x + SPRITE_W - 4, top - bc.height + 2);
-                }
+                if (bubble && (bubble !== 'bang' || Math.floor(frame / 4) % 2 === 0)) bubbles.push({ bubble, x: x + SPRITE_W - 4, top });
 
                 // The button follows, so the label and the tap are where the person is.
                 const btn = buttons.current.get(a.id);
@@ -308,8 +346,36 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
                     btn.style.top = `${top * SCALE}px`;
                 }
             }
+
+            // The light of the hour over everything, then whatever burns against it.
+            if (light.a > 0) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'multiply';
+                ctx.fillStyle = `rgba(${light.r}, ${light.g}, ${light.b}, ${light.a})`;
+                ctx.fillRect(0, 0, layout.w * TILE, layout.h * TILE);
+                ctx.restore();
+            }
+            if (light.glow > 0) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                const flicker = 0.9 + 0.1 * Math.sin(frame / 2);
+                for (const l of lit) {
+                    const r = l.r * TILE;
+                    const g = ctx.createRadialGradient(l.x * TILE, l.y * TILE, 0, l.x * TILE, l.y * TILE, r);
+                    g.addColorStop(0, l.colour.replace('A', String(0.55 * light.glow * flicker)));
+                    g.addColorStop(1, l.colour.replace('A', '0'));
+                    ctx.fillStyle = g;
+                    ctx.fillRect(l.x * TILE - r, l.y * TILE - r, r * 2, r * 2);
+                }
+                ctx.restore();
+            }
+            // Speech stays readable whatever the hour.
+            for (const b of bubbles) {
+                const bc = bubbleCanvas(b.bubble);
+                ctx.drawImage(bc, b.x, b.top - bc.height + 2);
+            }
         },
-        [layout, agents, floor, reduced, whereIs]
+        [layout, agents, floor, reduced, whereIs, lit]
     );
 
     useEffect(() => {
@@ -480,6 +546,7 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
 
             <p className="mt-2 text-center text-xs text-muted-foreground" aria-live="polite">
                 {summary(floor)}
+                <span ref={clock} className="before:content-['_·_']" />
             </p>
         </div>
     );

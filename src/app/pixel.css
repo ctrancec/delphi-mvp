@@ -15,12 +15,22 @@
  */
 
 [data-look="pixel"] {
+    /* Tempest's colours: the slime's blue for what is pressed, a night sky behind it all. */
+    --primary: #4aa7d8;
+    --primary-foreground: #06111a;
+    --ring: #7fd0f0;
     --pixel-font: var(--font-pixel), 'Pixelify Sans', system-ui, sans-serif;
     --pixel-ink: rgba(255, 255, 255, 0.22);
     --pixel-shadow: rgba(0, 0, 0, 0.65);
     --pixel-focus: #f6d36b;
+    background-color: #0b0e1c;
     background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
     background-size: 8px 8px;
+}
+
+/* The shell's own panels sit on the same sky. */
+[data-look="pixel"] :is(header, nav, main)[class*='bg-black'] {
+    background-color: rgba(6, 8, 20, 0.6);
 }
 
 /* --- words that are chrome ------------------------------------------------ */

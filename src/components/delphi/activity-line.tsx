@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { ExternalLink, Film, FileText, LineChart } from 'lucide-react'
 
 /**
@@ -130,22 +131,37 @@ const TONE: Record<string, string> = {
     task_done: 'text-emerald-400',
 }
 
-export function ActivityLine({ event }: { event: ActivityEvent }) {
+/**
+ * `avatar` is the actor's face, when the log has one to show: it sits in a
+ * fixed column before the name, and is hidden from assistive technology
+ * because the name beside it already says who.
+ */
+export function ActivityLine({ event, avatar }: { event: ActivityEvent; avatar?: ReactNode }) {
     const p = event.payload ?? {}
     const actor = p.actor ?? 'System'
     const verb = p.verb ?? VERB_FALLBACK[event.type] ?? event.type.replace(/_/g, ' ')
     const dur = duration(p.durationMs)
 
+    // On a narrow panel the line wraps in two: who, with the source and time
+    // at the right; then what they did, indented under the name.
+    const hasAvatar = avatar !== undefined
     return (
-        <div className="flex items-baseline gap-3 py-1 border-b border-white/5 last:border-0">
-            <span className={`w-36 shrink-0 truncate ${TONE[event.type] ?? 'text-white'}`}>{actor}</span>
-            <span className="flex-1 text-muted-foreground truncate">
-                {verb}
-                {p.object ? <span className="text-white/80"> {p.object}</span> : null}
-            </span>
-            <span className="shrink-0 flex items-center gap-2 text-[11px]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1 border-b border-white/5 last:border-0">
+            {hasAvatar ? (
+                <span className="flex w-8 shrink-0 items-end justify-center" aria-hidden="true">
+                    {avatar}
+                </span>
+            ) : null}
+            <span className={`w-28 inner:w-36 shrink-0 truncate ${TONE[event.type] ?? 'text-white'}`}>{actor}</span>
+            <span className="order-2 inner:order-4 ml-auto inner:ml-0 shrink-0 flex items-center gap-2 text-[11px]">
                 {p.locator ? <Locator locator={p.locator} /> : null}
                 {dur ? <span className="text-muted-foreground/60 tabular-nums">{dur}</span> : null}
+            </span>
+            <span
+                className={`order-3 basis-full inner:basis-0 inner:flex-1 min-w-0 text-muted-foreground truncate ${hasAvatar ? 'pl-11 inner:pl-0' : ''}`}
+            >
+                {verb}
+                {p.object ? <span className="text-white/80"> {p.object}</span> : null}
             </span>
         </div>
     )
