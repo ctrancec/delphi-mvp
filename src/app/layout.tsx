@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Pixelify_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { CookieConsent } from "@/components/legal/cookie-consent";
@@ -7,6 +7,8 @@ import { JuniorProvider } from "@/lib/contexts/junior-context";
 import { APP_NAME, CEO_NAME } from "@/lib/pixel/cast/names";
 
 const inter = Inter({ subsets: ["latin"] });
+// Self-hosted at build time like Inter; only the Pixel look reaches for it.
+const pixel = Pixelify_Sans({ subsets: ["latin"], variable: "--font-pixel" });
 
 export const metadata: Metadata = {
   title: APP_NAME,
@@ -39,7 +41,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className={`${inter.className} ${pixel.variable}`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"

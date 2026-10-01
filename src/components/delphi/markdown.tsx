@@ -26,7 +26,7 @@ export function ArtifactMarkdown({
     className?: string;
 }) {
     return (
-        <div className={cn('text-sm leading-relaxed text-zinc-200', className)}>
+        <div data-prose className={cn('text-sm leading-relaxed text-zinc-200', className)}>
             <Markdown
                 remarkPlugins={[remarkGfm]}
                 components={{

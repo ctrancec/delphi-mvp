@@ -1,0 +1,103 @@
+/*
+ * The Pixel look.
+ *
+ * Every rule here is scoped to [data-look="pixel"], which the Delphi shell
+ * sets from a cookie, so the Classic look is simply the absence of this file
+ * and the old pages never see it. The rules are unlayered on purpose:
+ * Tailwind's utilities live in a cascade layer, and an unlayered rule wins
+ * over any layered one whatever its specificity, so a card can keep its
+ * `rounded-xl` class and still come out square here.
+ *
+ * What it does, in order: the pixel font where words are chrome (headings,
+ * navigation, buttons, badges, counters) and never where they are a report;
+ * square panels with hard shadows; buttons that press; sunken inputs; a
+ * dashed focus ring; and a faint dot grid under everything.
+ */
+
+[data-look="pixel"] {
+    --pixel-font: var(--font-pixel), 'Pixelify Sans', system-ui, sans-serif;
+    --pixel-ink: rgba(255, 255, 255, 0.22);
+    --pixel-shadow: rgba(0, 0, 0, 0.65);
+    --pixel-focus: #f6d36b;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 8px 8px;
+}
+
+/* --- words that are chrome ------------------------------------------------ */
+
+[data-look="pixel"] :is(h1, h2, h3),
+[data-look="pixel"] [data-ui="button"],
+[data-look="pixel"] [data-ui="badge"],
+[data-look="pixel"] [data-hud],
+[data-look="pixel"] nav :is(a, div) {
+    font-family: var(--pixel-font);
+    letter-spacing: 0.01em;
+}
+
+[data-look="pixel"] :is(h1, h2) {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+[data-look="pixel"] [data-hud] {
+    font-size: 1.75rem;
+    line-height: 1;
+}
+
+/* A report is a report: everything inside the prose wrapper keeps the reading font. */
+[data-look="pixel"] [data-prose],
+[data-look="pixel"] [data-prose] :is(h1, h2, h3, h4, h5, h6) {
+    font-family: inherit;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* --- shapes ------------------------------------------------------------------ */
+
+[data-look="pixel"] :is(.rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-full) {
+    border-radius: 0;
+}
+
+[data-look="pixel"] [data-ui="card"] {
+    border-radius: 0;
+    border-width: 2px;
+    border-color: var(--pixel-ink);
+    box-shadow: 4px 4px 0 0 var(--pixel-shadow);
+}
+
+[data-look="pixel"] [data-ui="badge"] {
+    border-radius: 0;
+    border-width: 2px;
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+}
+
+[data-look="pixel"] [data-ui="button"] {
+    border-radius: 0;
+    border: 2px solid var(--pixel-ink);
+    box-shadow: 3px 3px 0 0 var(--pixel-shadow);
+    transition: transform 60ms linear, box-shadow 60ms linear;
+}
+
+[data-look="pixel"] [data-ui="button"]:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 0 var(--pixel-shadow);
+}
+
+[data-look="pixel"] :is([data-ui="input"], [data-ui="textarea"]) {
+    border-radius: 0;
+    border: 2px solid var(--pixel-ink);
+    box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.55);
+}
+
+[data-look="pixel"] :focus-visible {
+    outline: 2px dashed var(--pixel-focus);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+/* The shell's own panels: the rail, the top bar, the tab bar. */
+[data-look="pixel"] :is(header, nav)[class*='border-'] {
+    border-color: var(--pixel-ink);
+    backdrop-filter: none;
+}

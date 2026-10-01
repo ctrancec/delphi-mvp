@@ -13,8 +13,24 @@ import { usePathname } from 'next/navigation';
 import { Rail } from './rail';
 import { TabBar } from './tab-bar';
 import { TopBar, type TopBarProps } from './top-bar';
+import { LookProvider, useLook, type Look } from './look';
 
 export function DashboardChrome({
+    look,
+    ...props
+}: TopBarProps & {
+    children: React.ReactNode;
+    legacy: React.ReactNode;
+    look: Look;
+}) {
+    return (
+        <LookProvider initial={look}>
+            <Shell {...props} />
+        </LookProvider>
+    );
+}
+
+function Shell({
     children,
     legacy,
     ...status
@@ -24,6 +40,7 @@ export function DashboardChrome({
     legacy: React.ReactNode;
 }) {
     const pathname = usePathname();
+    const { look } = useLook();
 
     // Account settings is Delphi's, not the old app's — the top bar links to it
     // from mission control, and landing in the finance sidebar to change your
@@ -40,7 +57,7 @@ export function DashboardChrome({
     }
 
     return (
-        <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
+        <div data-look={look} className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
             <Rail pendingApprovals={status.pendingApprovals} newOutputs={status.newOutputs} />
 
             <div className="flex min-w-0 flex-1 flex-col">

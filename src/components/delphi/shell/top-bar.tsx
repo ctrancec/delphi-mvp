@@ -10,8 +10,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShieldCheck, Triangle, Wallet } from 'lucide-react';
+import { ShieldCheck, Wallet } from 'lucide-react';
 import { SystemSwitch } from './system-switch';
+import { LookSwitch } from './look';
+import { PixelIcon } from '@/components/pixel/pixel-icon';
 import { titleFor } from './nav';
 import type { SystemMode } from '@/lib/delphi/db';
 import { formatUsd } from '@/lib/llm/cost';
@@ -34,7 +36,7 @@ export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps)
             {/* The mark stands in for the rail, which the cover panel does not show. */}
             <Link href="/dashboard/delphi" className="shrink-0 inner:hidden">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 text-primary">
-                    <Triangle className="h-4 w-4 fill-current" />
+                    <PixelIcon id="mark" className="h-5 w-5 text-sky-300" />
                 </span>
             </Link>
 
@@ -59,6 +61,8 @@ export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps)
                 <Wallet className="h-3 w-3" />
                 {formatUsd(spentUsd)}
             </span>
+
+            <LookSwitch />
 
             <SystemSwitch mode={mode} />
 

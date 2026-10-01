@@ -22,6 +22,7 @@ import { POSES, SPRITE_H, SPRITE_W, TORSOS, type Pose } from '../src/lib/pixel/s
 import { closedEyes, HEADS, RESIDENT_HEADS } from '../src/lib/pixel/sprites/heads';
 import { BACKS, ITEMS, RANGA, SLIME } from '../src/lib/pixel/sprites/items';
 import { BUBBLES, TILES } from '../src/lib/pixel/sprites/tiles';
+import { ICONS, iconPath, type IconId } from '../src/lib/pixel/icons';
 import { drawScene } from '../src/lib/pixel/world-scene';
 import { layoutWorld, TILE } from '../src/lib/pixel/world-layout';
 import type { Floor } from '../src/lib/delphi/floor';
@@ -86,6 +87,16 @@ console.log('\nThe sprites');
     ok(!/[iwr]/.test(after) && (after.match(/e/g)?.length ?? 0) < (open.match(/e/g)?.length ?? 0) + 6, 'closed eyes keep one line per eye and no iris');
 
     ok(frameCount('type') === 4 && frameCount('idle') === 2 && poses.every((p) => frameCount(p) >= 2), 'frame counts match the table', poses.join(' '));
+}
+
+console.log('\nThe icons');
+{
+    const icons = Object.keys(ICONS) as IconId[];
+    ok(icons.every((id) => ICONS[id].w === 16 && ICONS[id].h === 16), 'every icon is 16 by 16', `${icons.length} icons`);
+    ok(icons.every((id) => /^(M\d+ \d+h\d+v1h-\d+z)+$/.test(iconPath(id))), 'every icon becomes a path of unit-high runs');
+    const filled = (id: IconId) => ICONS[id].rows.join('').split('#').length - 1;
+    const runs = (id: IconId) => iconPath(id).split('M').length - 1;
+    ok(icons.every((id) => runs(id) <= filled(id) && runs(id) > 0), 'runs never outnumber pixels, and nothing is empty');
 }
 
 console.log('\nThe town');

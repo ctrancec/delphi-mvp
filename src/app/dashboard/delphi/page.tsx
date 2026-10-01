@@ -243,7 +243,7 @@ function Stat({
                     {icon}
                     {label}
                 </div>
-                <div className={`text-2xl font-bold mt-2 ${alert ? 'text-amber-400' : ''}`}>{value}</div>
+                <div data-hud className={`text-2xl font-bold mt-2 ${alert ? 'text-amber-400' : ''}`}>{value}</div>
                 {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
             </CardContent>
         </Card>

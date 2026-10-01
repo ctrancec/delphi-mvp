@@ -12,6 +12,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Plus, Triangle } from 'lucide-react';
 import { NAV, activeHref } from './nav';
+import { useLook } from './look';
+import { PixelIcon } from '@/components/pixel/pixel-icon';
 import { cn } from '@/lib/utils';
 
 import { APP_NAME } from '@/lib/pixel/cast/names';
@@ -24,6 +26,7 @@ export function Rail({
 }) {
     const pathname = usePathname();
     const active = activeHref(pathname);
+    const { look } = useLook();
 
     return (
         <nav className="hidden h-full w-[68px] shrink-0 flex-col border-r border-white/10 bg-black/40 inner:flex desk:w-[216px]">
@@ -32,7 +35,7 @@ export function Rail({
                 className="flex h-16 items-center gap-2.5 border-b border-white/10 px-[22px] desk:px-5"
             >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary">
-                    <Triangle className="h-4 w-4 fill-current" />
+                    {look === 'pixel' ? <PixelIcon id="mark" className="h-5 w-5 text-sky-300" /> : <Triangle className="h-4 w-4 fill-current" />}
                 </span>
                 <span className="hidden text-base font-bold tracking-tight text-white desk:inline">
                     {APP_NAME}
@@ -52,7 +55,7 @@ export function Rail({
                     const inner = (
                         <>
                             <span className="relative shrink-0">
-                                <Icon className="h-4 w-4" />
+                                {look === 'pixel' ? <PixelIcon id={item.pixel} className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                                 {badge > 0 && (
                                     <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-bold text-black">
                                         {badge > 9 ? '9+' : badge}

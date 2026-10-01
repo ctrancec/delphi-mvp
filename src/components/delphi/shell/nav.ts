@@ -11,6 +11,7 @@ import {
     Users,
     type LucideIcon,
 } from 'lucide-react';
+import type { IconId } from '@/lib/pixel/icons';
 
 import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names'
 export interface NavItem {
@@ -19,6 +20,8 @@ export interface NavItem {
     /** Shown on the cover panel's tab bar, where space is tight. */
     short: string;
     icon: LucideIcon;
+    /** The same item, drawn in pixels, for the Pixel look. */
+    pixel: IconId;
     /**
      * False for surfaces that are designed but not built. They are rendered
      * dimmed rather than hidden: the shape of the organisation is part of what
@@ -31,16 +34,16 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-    { href: '/dashboard/delphi', label: 'Mission control', short: 'HQ', icon: Building2, live: true, onCover: true },
-    { href: '/dashboard/delphi/chat', label: `Talk to ${CEO_NAME}`, short: 'Chat', icon: MessageSquare, live: true, onCover: true },
-    { href: '/dashboard/delphi/outputs', label: 'Outputs', short: 'Outputs', icon: FolderOpen, live: true, onCover: true },
-    { href: '/dashboard/delphi/approvals', label: 'Approvals', short: 'Approve', icon: ShieldCheck, live: true, onCover: true },
-    { href: '/dashboard/delphi/reviews', label: 'Boardroom', short: 'Board', icon: Gavel, live: true },
-    { href: '/dashboard/delphi/legal', label: 'Legal library', short: 'Legal', icon: Scale, live: true },
-    { href: '/dashboard/delphi/roster', label: 'Roster', short: 'Roster', icon: Users, live: true, onCover: true },
-    { href: '/dashboard/delphi/world', label: 'World', short: 'World', icon: Globe2, live: true },
-    { href: '/dashboard/delphi/memory', label: 'Memory', short: 'Memory', icon: Brain, live: true },
-    { href: '/dashboard/delphi/diagnostics', label: 'Diagnostics', short: 'Health', icon: Stethoscope, live: true },
+    { href: '/dashboard/delphi', label: 'Mission control', short: 'HQ', icon: Building2, pixel: 'hq', live: true, onCover: true },
+    { href: '/dashboard/delphi/chat', label: `Talk to ${CEO_NAME}`, short: 'Chat', icon: MessageSquare, pixel: 'chat', live: true, onCover: true },
+    { href: '/dashboard/delphi/outputs', label: 'Outputs', short: 'Outputs', icon: FolderOpen, pixel: 'outputs', live: true, onCover: true },
+    { href: '/dashboard/delphi/approvals', label: 'Approvals', short: 'Approve', icon: ShieldCheck, pixel: 'approvals', live: true, onCover: true },
+    { href: '/dashboard/delphi/reviews', label: 'Boardroom', short: 'Board', icon: Gavel, pixel: 'boardroom', live: true },
+    { href: '/dashboard/delphi/legal', label: 'Legal library', short: 'Legal', icon: Scale, pixel: 'legal', live: true },
+    { href: '/dashboard/delphi/roster', label: 'Roster', short: 'Roster', icon: Users, pixel: 'roster', live: true, onCover: true },
+    { href: '/dashboard/delphi/world', label: 'World', short: 'World', icon: Globe2, pixel: 'world', live: true },
+    { href: '/dashboard/delphi/memory', label: 'Memory', short: 'Memory', icon: Brain, pixel: 'memory', live: true },
+    { href: '/dashboard/delphi/diagnostics', label: 'Diagnostics', short: 'Health', icon: Stethoscope, pixel: 'diagnostics', live: true },
 ];
 
 /**

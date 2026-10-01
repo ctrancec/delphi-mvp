@@ -14,6 +14,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NAV, activeHref } from './nav';
+import { useLook } from './look';
+import { PixelIcon } from '@/components/pixel/pixel-icon';
 import { cn } from '@/lib/utils';
 
 export function TabBar({
@@ -25,6 +27,7 @@ export function TabBar({
 }) {
     const pathname = usePathname();
     const active = activeHref(pathname);
+    const { look } = useLook();
     const items = NAV.filter((n) => n.onCover);
 
     return (
@@ -44,7 +47,7 @@ export function TabBar({
                 const inner = (
                     <>
                         <span className="relative">
-                            <Icon className="h-[18px] w-[18px]" />
+                            {look === 'pixel' ? <PixelIcon id={item.pixel} className="h-[18px] w-[18px]" /> : <Icon className="h-[18px] w-[18px]" />}
                             {badge > 0 && (
                                 <span className="absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-bold text-black">
                                     {badge > 9 ? '9+' : badge}

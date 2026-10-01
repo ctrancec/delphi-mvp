@@ -1,4 +1,5 @@
 import { cache } from 'react'
+import { cookies } from 'next/headers'
 import { createClient, currentUser } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/layout/sidebar'
@@ -8,6 +9,7 @@ import { TimerWidget } from '@/components/features/freelance/timer-widget'
 import { PrinterProvider } from '@/lib/printing/printer-context'
 import { MockDatabaseProvider } from '@/lib/contexts/mock-db-context'
 import { DashboardChrome } from '@/components/delphi/shell/chrome'
+import { LOOK_COOKIE, lookFrom } from '@/components/delphi/shell/look-cookie'
 import { findWorkspace } from '@/lib/delphi/bootstrap'
 import { getSystemMode, type SystemMode } from '@/lib/delphi/db'
 import { countNewOutputs } from '@/lib/delphi/unread'
@@ -71,6 +73,8 @@ export default async function DashboardLayout({
     }
 
     const status = supabase ? await readStatus(supabase, user.id) : NO_STATUS
+    // Read here so the first paint is already in the right look, with no flash.
+    const look = lookFrom((await cookies()).get(LOOK_COOKIE)?.value)
 
     // The shell the pages inherited from what this codebase used to be. Built
     // here but passed through rather than rendered, so Delphi's own routes
@@ -116,6 +120,7 @@ export default async function DashboardLayout({
             pendingApprovals={status.pendingApprovals}
             newOutputs={status.newOutputs}
             email={user.email ?? ''}
+            look={look}
         >
             {children}
         </DashboardChrome>
