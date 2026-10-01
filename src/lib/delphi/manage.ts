@@ -24,6 +24,7 @@ import { createClient, currentUser } from '@/lib/supabase/server';
 import { emitEvent, type Db } from './db';
 import { findWorkspace } from './bootstrap';
 
+import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
 export interface ManageResult<T = void> {
     ok: boolean;
     error?: string;
@@ -70,7 +71,7 @@ export async function updateDepartmentAction(
         if (charter.length < 20) {
             return {
                 ok: false,
-                error: 'The charter needs to be specific enough for Delphi to staff from — a sentence or two.',
+                error: `The charter needs to be specific enough for ${CEO_NAME} to staff from — a sentence or two.`,
             };
         }
         patch.charter = charter;
@@ -117,7 +118,7 @@ export async function updateDepartmentAction(
         workspaceId,
         departmentId,
         type: 'department_created',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'edited the department',
         object: Object.keys(patch).join(', '),
     });
@@ -162,7 +163,7 @@ export async function setDepartmentArchivedAction(
         workspaceId,
         departmentId,
         type: 'department_created',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: archived ? 'archived the department' : 'restored the department',
     });
 
@@ -301,7 +302,7 @@ export async function deleteProjectAction(projectId: string): Promise<ManageResu
         workspaceId,
         departmentId: (project.department_id as string) ?? undefined,
         type: 'project_failed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'deleted the run',
         object: project.title as string,
     });
@@ -380,7 +381,7 @@ export async function updateTaskAction(
         projectId: (task.project_id as string) ?? undefined,
         taskId,
         type: 'task_started',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: input.rerun ? 'edited and re-queued step' : 'edited step',
         object: `${task.seq} — ${(patch.title as string) ?? task.title}`,
     });
@@ -426,7 +427,7 @@ export async function deleteTaskAction(taskId: string): Promise<ManageResult> {
         workspaceId,
         projectId: (task.project_id as string) ?? undefined,
         type: 'task_failed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'removed step',
         object: `${task.seq} — ${task.title}`,
     });

@@ -8,6 +8,7 @@ import { AgentSprite } from '@/components/pixel/agent-sprite'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
 import { DELPHI_SLUG } from '@/lib/delphi/db'
 
+import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
 
 const TIER_LABEL: Record<number, string> = { 1: '$', 2: '$$', 3: '$$$' }
@@ -105,7 +106,7 @@ function AgentCard({ agent, stats, hiredIn }: { agent: AgentRow; stats?: StatsRo
                         {quality !== null && quality !== undefined && (
                             <span
                                 className={toneFor(Number(quality)).split(' ')[0]}
-                                title="Delphi's average grade over this agent's last 20 tasks. Feeds the hiring rank directly."
+                                title={`${CEO_NAME}'s average grade over this agent's last 20 tasks. Feeds the hiring rank directly.`}
                             >
                                 {(Number(quality) * 100).toFixed(0)}% graded
                             </span>
@@ -159,14 +160,14 @@ export default async function RosterPage() {
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Roster</h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                    Who Delphi can hire. Track records feed the hiring score, so performance compounds.
+                    Who {CEO_NAME} can hire. Track records feed the hiring score, so performance compounds.
                 </p>
             </div>
 
             {all.length === 0 ? (
                 <Card className="bg-black/40 border-white/10 border-dashed">
                     <CardContent className="py-12 text-center text-sm text-muted-foreground">
-                        The roster could not be provisioned. Open Delphi and it will try again.
+                        The roster could not be provisioned. Open {APP_NAME} and it will try again.
                     </CardContent>
                 </Card>
             ) : (

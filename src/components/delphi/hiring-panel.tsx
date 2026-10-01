@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, Sparkles, Check, UserPlus, Users } from 'lucide-react'
 import { proposeHiringAction, approvePlanAction } from '@/lib/delphi/actions'
 
+import { CEO_NAME } from '@/lib/pixel/cast/names'
 export interface HiredAgent {
     seq: number
     name: string
@@ -63,7 +64,7 @@ export function HiringPanel({
                     <div className="space-y-1">
                         <h3 className="font-semibold">No team yet</h3>
                         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                            Delphi will read the charter, shortlist the roster, and propose who should do
+                            {CEO_NAME} will read the charter, shortlist the roster, and propose who should do
                             what — and draft a new agent if nothing fits.
                         </p>
                     </div>
@@ -71,11 +72,11 @@ export function HiringPanel({
                     <Button onClick={() => run(() => proposeHiringAction(departmentId))} disabled={pending}>
                         {pending ? (
                             <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Delphi is staffing…
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" /> {CEO_NAME} is staffing…
                             </>
                         ) : (
                             <>
-                                <Sparkles className="h-4 w-4 mr-2" /> Ask Delphi to staff this
+                                <Sparkles className="h-4 w-4 mr-2" /> Ask {CEO_NAME} to staff this
                             </>
                         )}
                     </Button>
@@ -88,7 +89,7 @@ export function HiringPanel({
         <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">
-                    {approved ? 'The team' : 'Delphi proposes'}
+                    {approved ? 'The team' : `${CEO_NAME} proposes`}
                     <span className="text-muted-foreground font-normal text-sm ml-2">
                         {team.length} agents
                     </span>

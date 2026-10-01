@@ -17,6 +17,7 @@ import { ThreadComposer } from '@/components/delphi/thread-composer';
 import { getReview, listThreadMessages } from '@/lib/delphi/reviews';
 import { cn } from '@/lib/utils';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export const dynamic = 'force-dynamic';
 
 const VERDICT_STYLES: Record<string, string> = {
@@ -83,7 +84,7 @@ export default async function ReviewDetailPage({ params }: { params: Promise<{ i
             {review.recommendation && (
                 <Card className="border-white/10 bg-black/40">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Delphi&rsquo;s recommendation</CardTitle>
+                        <CardTitle className="text-sm">{CEO_NAME}&rsquo;s recommendation</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm leading-relaxed text-zinc-200">{review.recommendation}</p>

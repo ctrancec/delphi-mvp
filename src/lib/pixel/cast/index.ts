@@ -20,6 +20,7 @@ import { residentFor } from '../residents';
 import { APP_NAME, CEO, CHO, MASCOT, MEMBERS, POOL, type CastMember, type PoolMember } from './tensura';
 
 export { APP_NAME, CEO, CHO, MASCOT, MEMBERS, POOL };
+export { castNameFor, nextPoolName, renameInPrompt, CAST_NAMES, CEO_NAME, CHO_NAME, POOL_NAMES } from './names';
 export type { CastMember, PoolMember };
 
 export interface AgentLike {
@@ -53,18 +54,3 @@ export function castFor(agent: AgentLike): Cast {
     return { name: r.name, look: r.look, kind: 'resident', key: `res:${seed}`, species: r.kind };
 }
 
-/** The character name a seeded agent should carry, with the name it replaces. */
-export function castNameFor(slug: string): { name: string; formerly: string } | null {
-    if (slug === CEO.slug) return { name: CEO.name, formerly: CEO.formerly };
-    const member = MEMBERS.find((m) => m.slug === slug);
-    return member ? { name: member.name, formerly: member.formerly } : null;
-}
-
-/**
- * The next name from the pool that nobody on the roster has, or null once the
- * pool is spent — after which a hire is a resident with a generated name.
- */
-export function nextPoolName(taken: Iterable<string>): string | null {
-    const used = new Set(taken);
-    return POOL.find((p) => !used.has(p.name))?.name ?? null;
-}

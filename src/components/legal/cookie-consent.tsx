@@ -3,6 +3,7 @@
 import { useCallback, useState, useSyncExternalStore } from "react"
 import { Button } from "@/components/ui/button"
 
+import { APP_NAME } from '@/lib/pixel/cast/names'
 const KEY = "delphi_cookie_consent"
 
 /**
@@ -53,7 +54,7 @@ export function CookieConsent() {
             <div className="max-w-4xl mx-auto bg-zinc-900/90 border border-white/10 backdrop-blur-md rounded-lg p-4 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="text-sm text-gray-300">
                     <p>
-                        We use cookies to improve your experience and analyze traffic. By using Delphi, you agree to our
+                        We use cookies to improve your experience and analyze traffic. By using {APP_NAME}, you agree to our
                         <a href="/legal/privacy" className="text-primary hover:underline ml-1">Privacy Policy</a>.
                     </p>
                 </div>

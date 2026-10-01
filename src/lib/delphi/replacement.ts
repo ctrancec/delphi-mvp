@@ -32,6 +32,7 @@ import { claimSources, MAX_REPLACEMENTS, type Grade } from './grading';
 import { ESCALATION_MODEL, generateStructured } from '@/lib/llm/gemini';
 import type { CostTier, InventedAgentSpec } from './types';
 
+import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
 export interface ReplacementOutcome {
     replaced: boolean;
     /** Set when the cap is hit — nobody is swapped in, the CHO is told instead. */
@@ -241,7 +242,7 @@ export async function replaceAgentOnTask(
                 projectId: (task.project_id as string) ?? undefined,
                 taskId,
                 type: 'replacement_escalated',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: `stopped replacing after ${count} attempts on`,
                 object: task.title as string,
                 payload: {
@@ -271,7 +272,7 @@ export async function replaceAgentOnTask(
                 projectId: (task.project_id as string) ?? undefined,
                 taskId,
                 type: 'replacement_escalated',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: 'found no one else able to take',
                 object: task.title as string,
                 payload: { reason },
@@ -315,7 +316,7 @@ export async function replaceAgentOnTask(
             projectId: (task.project_id as string) ?? undefined,
             taskId,
             type: 'agent_rehired',
-            actor: 'Delphi',
+            actor: CEO_NAME,
             verb: `replaced ${incumbent?.name ?? 'the agent'} with`,
             object: `${successor.name} — ${task.title}`,
             payload: { reason, attempt: count + 1, resumesFrom: dossier.artifactId },
@@ -359,7 +360,7 @@ async function draftSpecialist(
 
         const { data } = await generateStructured<InventedAgentSpec>(
             [
-                'You are Delphi, the CEO. One task has now been refused twice by the CHO,',
+                `You are ${CEO_NAME}, the CEO. One task has now been refused twice by the CHO,`,
                 'and nobody on the roster is a better fit than the agent already holding it.',
                 '',
                 `THE TASK: ${objective}`,
@@ -440,7 +441,7 @@ async function proposeHire(
         projectId: task.project_id ?? undefined,
         taskId: task.id,
         type: 'approval_requested',
-        actor: 'Delphi',
+        actor: CEO_NAME,
         verb: 'wants to hire someone new for',
         object: `${task.title} — ${spec.name}, ${spec.title}`,
         payload: { kind: 'staffing', reason: spec.reason },
@@ -559,7 +560,7 @@ export async function escalateTask(
                 projectId: (task.project_id as string) ?? undefined,
                 taskId,
                 type: 'replacement_escalated',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: alreadyEscalated
                     ? 'has no one else for'
                     : 'found no one better, so moved to a stronger model on',
@@ -599,7 +600,7 @@ export async function escalateTask(
             projectId: (task.project_id as string) ?? undefined,
             taskId,
             type: 'agent_rehired',
-            actor: 'Delphi',
+            actor: CEO_NAME,
             verb: `replaced ${incumbentName} with a better-fitting agent on`,
             object: `${task.title} — ${successor.name}, ${successor.title}`,
             payload: {
@@ -693,7 +694,7 @@ export async function hireProposedAgent(
             projectId: (task.project_id as string) ?? undefined,
             taskId: approval.task_id,
             type: 'agent_invented',
-            actor: 'Delphi',
+            actor: CEO_NAME,
             verb: 'hired, with the CHO’s approval, for',
             object: `${task.title} — ${hired.name}, ${hired.title}`,
             payload: { from: incumbent?.name ?? null, to: hired.name, why: spec.reason },
@@ -783,7 +784,7 @@ export async function undoHire(
         projectId: (task.project_id as string) ?? undefined,
         taskId,
         type: 'agent_rehired',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'took back the hire on',
         object: `${task.title} — ${hired?.name ?? 'the new agent'} archived, task returned`,
         payload: { undo: true, archived: hired?.origin === 'invented' },

@@ -15,6 +15,7 @@
  */
 
 import type { ChannelKind, CostTier } from './types';
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 
 export interface SeedAgent {
     slug: string;
@@ -66,7 +67,7 @@ APPROVAL - you do not act on the world
   Never treat approval as already granted.
 
 PERFORMANCE - you are graded, and replaceable
-- Delphi grades every task on accuracy and sourcing, completeness, adherence to your
+- ${CEO_NAME} grades every task on accuracy and sourcing, completeness, adherence to your
   stated objective, and efficiency. Grades are recorded against you permanently and
   determine whether you are hired again.
 - Sustained underperformance means you are replaced on the task. This is normal and

@@ -20,6 +20,7 @@ import { generateStructured } from '@/lib/llm/gemini';
 import { emitEvent, writeMemory, type Db } from './db';
 import type { MemoryKind } from './types';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 
 interface Lesson {
@@ -63,7 +64,7 @@ const SCHEMA: Schema = {
     required: ['lessons'],
 };
 
-const SYSTEM = `You are Delphi, an AI CEO, writing the retrospective on a project your agents just finished.
+const SYSTEM = `You are ${CEO_NAME}, an AI CEO, writing the retrospective on a project your agents just finished.
 
 Write 3 to 5 lessons worth carrying into future work. Be ruthless about what qualifies:
 
@@ -205,7 +206,7 @@ export async function runRetrospective(
                 workspaceId,
                 projectId,
                 type: 'memory_written',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: 'recorded what it learned',
                 object: `${written} lesson${written === 1 ? '' : 's'} from ${project.title}`,
                 payload: { costUsd: result.costUsd, model: result.model },

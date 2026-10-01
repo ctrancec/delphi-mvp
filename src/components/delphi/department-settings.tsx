@@ -26,6 +26,7 @@ import {
     type DeletionImpact,
 } from '@/lib/delphi/manage';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export function DepartmentSettings({
     departmentId,
     name,
@@ -108,7 +109,7 @@ export function DepartmentSettings({
                 <CardTitle className="text-sm">Settings</CardTitle>
                 <p className="text-xs text-muted-foreground">
                     Editing the charter does not re-staff the team — they were hired against the old
-                    one. Ask Delphi to staff it again when you want the change reflected.
+                    one. Ask {CEO_NAME} to staff it again when you want the change reflected.
                 </p>
             </CardHeader>
 
@@ -234,7 +235,7 @@ export function DepartmentSettings({
                                 </li>
                                 <li className={impact.memories > 0 ? 'text-amber-400' : undefined}>
                                     {impact.memories} remembered lesson{impact.memories === 1 ? '' : 's'}
-                                    {impact.memories > 0 && ' — Delphi forgets these'}
+                                    {impact.memories > 0 && ` — ${CEO_NAME} forgets these`}
                                 </li>
                                 <li>
                                     {impact.events} activity log entr{impact.events === 1 ? 'y' : 'ies'} — the

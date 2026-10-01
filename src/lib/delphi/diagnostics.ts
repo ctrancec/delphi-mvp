@@ -22,6 +22,7 @@ import { exhaustedModels, MODEL_FALLBACKS } from '@/lib/llm/gemini';
 import { readSupabaseKey, readSupabaseUrl } from '@/lib/supabase/env';
 import type { Db } from './db';
 
+import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names';
 /**
  * `off` is a decision, not a fault: a channel the CHO switched off. It ranks
  * with `ok`, so choosing to stop using something never makes the page read
@@ -106,8 +107,8 @@ function envChecks(): Check[] {
         name: 'GOOGLE_GENERATIVE_AI_API_KEY',
         level: gemini?.trim() ? 'ok' : 'error',
         detail: gemini?.trim()
-            ? 'Present. Delphi can hire and agents can think.'
-            : 'Missing. Delphi cannot hire, and no agent can run.',
+            ? `Present. ${CEO_NAME} can hire and agents can think.`
+            : `Missing. ${CEO_NAME} cannot hire, and no agent can run.`,
         remedy: gemini?.trim() ? undefined : 'This is the one key nothing works without.',
     });
 
@@ -117,7 +118,7 @@ function envChecks(): Check[] {
         level: cron?.trim() ? 'ok' : 'degraded',
         detail: cron?.trim()
             ? 'Present. The scheduled tick can authenticate.'
-            : 'Missing. Delphi runs only while a browser tab is open.',
+            : `Missing. ${APP_NAME} runs only while a browser tab is open.`,
         remedy: cron?.trim()
             ? undefined
             : 'Add any long random string in Vercel, then redeploy. Without it departments will not keep to a cadence.',
@@ -134,7 +135,7 @@ function envChecks(): Check[] {
 const NOT_CONFIGURED: Partial<Record<string, { detail: string; remedy: string }>> = {
     sec: {
         detail: 'SEC_CONTACT is not set. SEC refuses requests that do not name a contact address.',
-        remedy: 'Add SEC_CONTACT in Vercel — an email SEC may use to reach you about Delphi\'s requests — and redeploy. Until then there are no fundamentals and no stock screens.',
+        remedy: `Add SEC_CONTACT in Vercel — an email SEC may use to reach you about ${APP_NAME}'s requests — and redeploy. Until then there are no fundamentals and no stock screens.`,
     },
     finnhub: {
         detail: 'No Finnhub key. Screens run on SEC fundamentals alone, without prices.',

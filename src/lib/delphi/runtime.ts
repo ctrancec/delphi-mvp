@@ -22,6 +22,7 @@ import { emitEvent, getSystemState, listChannels, type Db } from './db';
 import { effectiveState } from './schedule';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 /** How long a `running` task may sit before it is presumed dead. */
 const STALE_RUN_MINUTES = 10;
 
@@ -778,7 +779,7 @@ export async function runNextTask(
             workspaceId,
             projectId,
             type: 'budget_halted',
-            actor: 'Delphi',
+            actor: CEO_NAME,
             verb: 'halted the project on budget',
             object: `$${Number(project.spent_usd).toFixed(4)} of $${Number(project.budget_usd).toFixed(2)}`,
         });
@@ -825,7 +826,7 @@ export async function runNextTask(
                 workspaceId,
                 projectId,
                 type: 'project_done',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: 'finished the project',
                 object: project.title,
             });
@@ -870,7 +871,7 @@ export async function runNextTask(
                 projectId,
                 taskId: task.id,
                 type: 'project_failed',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: 'stopped the pipeline before',
                 object: `${agent.name} — ${task.title}`,
                 payload: { reason: resolved.halt },

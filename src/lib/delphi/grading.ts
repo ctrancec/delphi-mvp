@@ -17,6 +17,7 @@ import { Type, type Schema } from '@google/genai';
 import { generateStructured } from '@/lib/llm/gemini';
 import { emitEvent, type Db, type Row } from './db';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 const MODEL = 'gemini-3.8-flash';
 
 /** Below this, a single task is enough to trigger replacement. */
@@ -73,7 +74,7 @@ const SCHEMA: Schema = {
     required: ['accuracy', 'completeness', 'adherence', 'efficiency', 'reasoning'],
 };
 
-const SYSTEM = `You are Delphi, an AI CEO, grading one task your agent just completed.
+const SYSTEM = `You are ${CEO_NAME}, an AI CEO, grading one task your agent just completed.
 
 Be exacting. These grades feed the hiring score, so a generous grade means a
 worse agent gets hired next time, on your recommendation.
@@ -294,7 +295,7 @@ export async function gradeTask(
             projectId: (task.project_id as string) ?? undefined,
             taskId,
             type: 'task_graded',
-            actor: 'Delphi',
+            actor: CEO_NAME,
             verb: `graded ${(grade.overall * 100).toFixed(0)}%`,
             object: task.title as string,
             payload: {

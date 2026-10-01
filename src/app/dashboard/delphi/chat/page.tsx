@@ -12,6 +12,7 @@ import { CeoChat, type ChatMessage } from '@/components/delphi/ceo-chat';
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap';
 import { getOrCreateChatThread, loadChatHistory } from '@/lib/delphi/chat-store';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export const dynamic = 'force-dynamic';
 
 export default async function ChatPage() {
@@ -44,7 +45,7 @@ export default async function ChatPage() {
         <div className="mx-auto max-w-3xl">
             <div className="mb-4">
                 <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-                    <MessageSquare className="h-6 w-6" /> Delphi
+                    <MessageSquare className="h-6 w-6" /> {CEO_NAME}
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
                     Your CEO. It can read everything and change most things from here — but it cannot

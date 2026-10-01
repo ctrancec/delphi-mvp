@@ -12,6 +12,7 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 
+import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names'
 export interface NavItem {
     href: string;
     label: string;
@@ -31,7 +32,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
     { href: '/dashboard/delphi', label: 'Mission control', short: 'HQ', icon: Building2, live: true, onCover: true },
-    { href: '/dashboard/delphi/chat', label: 'Talk to Delphi', short: 'Chat', icon: MessageSquare, live: true, onCover: true },
+    { href: '/dashboard/delphi/chat', label: `Talk to ${CEO_NAME}`, short: 'Chat', icon: MessageSquare, live: true, onCover: true },
     { href: '/dashboard/delphi/outputs', label: 'Outputs', short: 'Outputs', icon: FolderOpen, live: true, onCover: true },
     { href: '/dashboard/delphi/approvals', label: 'Approvals', short: 'Approve', icon: ShieldCheck, live: true, onCover: true },
     { href: '/dashboard/delphi/reviews', label: 'Boardroom', short: 'Board', icon: Gavel, live: true },
@@ -62,5 +63,5 @@ export function titleFor(pathname: string): string {
     if (pathname.startsWith('/dashboard/delphi/departments/new')) return 'New department';
     if (pathname.startsWith('/dashboard/delphi/departments/')) return 'Department';
     const href = activeHref(pathname);
-    return NAV.find((n) => n.href === href)?.label ?? 'Delphi';
+    return NAV.find((n) => n.href === href)?.label ?? APP_NAME;
 }

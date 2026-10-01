@@ -4,6 +4,7 @@ import { ArrowRight, Triangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 
+import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
 
 /**
@@ -44,11 +45,11 @@ export default async function HomePage({
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/20 text-primary">
                     <Triangle className="h-6 w-6 fill-current" />
                 </div>
-                <span className="text-3xl font-bold tracking-tight text-white">Delphi</span>
+                <span className="text-3xl font-bold tracking-tight text-white">{APP_NAME}</span>
             </div>
 
             <p className="mt-5 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                Your AI CEO. Stand up a department and Delphi hires the agents to run it,
+                Your AI CEO. Stand up a department and {CEO_NAME} hires the agents to run it,
                 reporting back to you before anything reaches the outside world.
             </p>
 

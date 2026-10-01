@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ArrowLeft, Loader2, Sparkles } from 'lucide-react'
 import { createDepartmentAction } from '@/lib/delphi/actions'
 
+import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names'
 /** Charters that actually staff well — specific about output and cadence. */
 const EXAMPLES = [
     {
@@ -62,13 +63,13 @@ export default function NewDepartmentPage() {
                 href="/dashboard/delphi"
                 className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-white"
             >
-                <ArrowLeft className="h-4 w-4" /> Delphi
+                <ArrowLeft className="h-4 w-4" /> {APP_NAME}
             </Link>
 
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">New department</h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                    Describe what you want done. Delphi reads this to decide who to hire, so be specific
+                    Describe what you want done. {CEO_NAME} reads this to decide who to hire, so be specific
                     about the output you expect.
                 </p>
             </div>
@@ -141,7 +142,7 @@ export default function NewDepartmentPage() {
                             </>
                         ) : (
                             <>
-                                <Sparkles className="h-4 w-4 mr-2" /> Create &amp; ask Delphi to staff it
+                                <Sparkles className="h-4 w-4 mr-2" /> Create &amp; ask {CEO_NAME} to staff it
                             </>
                         )}
                     </Button>

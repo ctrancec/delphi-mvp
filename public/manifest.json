@@ -1,6 +1,6 @@
 {
-    "name": "Delphi",
-    "short_name": "Delphi",
+    "name": "Tempest",
+    "short_name": "Tempest",
     "description": "Your AI CEO. Departments, agents and approvals in one mission control.",
     "start_url": "/dashboard/delphi",
     "display": "standalone",

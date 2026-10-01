@@ -26,6 +26,7 @@ import { emitEvent, isMissingColumn, type Db } from './db';
 import { dependantsOf } from './revision';
 import { ARTIFACT_BUCKET } from './outputs';
 
+import { CHO_NAME } from '@/lib/pixel/cast/names';
 export interface TrashResult {
     ok: boolean;
     error?: string;
@@ -128,7 +129,7 @@ export async function trashArtifact(
         projectId: (artifact.project_id as string) ?? undefined,
         taskId: (artifact.task_id as string) ?? undefined,
         type: 'output_reviewed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'moved to the trash',
         object: artifact.title as string,
         payload: { deleted: true },
@@ -164,7 +165,7 @@ export async function restoreArtifact(
         projectId: (artifact.project_id as string) ?? undefined,
         taskId: (artifact.task_id as string) ?? undefined,
         type: 'output_reviewed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'restored from the trash',
         object: artifact.title as string,
         payload: { restored: true },
@@ -226,7 +227,7 @@ export async function purgeArtifact(
         projectId: (artifact.project_id as string) ?? undefined,
         taskId: (artifact.task_id as string) ?? undefined,
         type: 'output_reviewed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'permanently deleted',
         object: artifact.title as string,
         payload: { purged: true },
@@ -301,7 +302,7 @@ export async function purgeArtifacts(
     await emitEvent(db, {
         workspaceId,
         type: 'output_reviewed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'permanently deleted',
         object: rows.length === 1 ? rows[0].title : `${rows.length} deliverables from the trash`,
         payload: { purged: rows.length },
@@ -361,7 +362,7 @@ export async function emptyTrash(
     await emitEvent(db, {
         workspaceId,
         type: 'output_reviewed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'emptied the trash —',
         object: `${rows.length} deliverable${rows.length === 1 ? '' : 's'} permanently deleted`,
         payload: { purged: rows.length },

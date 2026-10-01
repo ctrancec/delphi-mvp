@@ -19,6 +19,7 @@ import type { Outfit, Pose } from '../sprites/body';
 import { HEADS, RESIDENT_HEADS } from '../sprites/heads';
 import type { BackId, ItemId } from '../sprites/items';
 import type { Grid } from '../canvas';
+import { APP_NAME, CAST_NAMES, CEO_FORMERLY, CEO_NAME, CEO_SLUG, CHO_NAME } from './names';
 
 export interface CastMember {
     /** The seeded agent this character plays. */
@@ -81,11 +82,18 @@ function look(
     return { head, outfit, colours: colours(skin, own), ...extra };
 }
 
-export const APP_NAME = 'Tempest';
+export { APP_NAME };
+
+/** A seeded agent's slug with the name of who plays them, from names.ts. */
+function named(slug: string): Pick<CastMember, 'slug' | 'name' | 'formerly'> {
+    const n = CAST_NAMES[slug];
+    if (!n) throw new Error(`No cast name for ${slug}`);
+    return { slug, ...n };
+}
 
 /** The CHO, in slime form. Rimuru is not an agent and never has a row. */
 export const CHO = {
-    name: 'Rimuru',
+    name: CHO_NAME,
     colours: palette({ o: '#2a5f8f', a: '#7fd0f0', A: '#4aa7d8', l: '#d8f6ff', e: '#1a3a5a' }),
 };
 
@@ -96,9 +104,9 @@ export const MASCOT = {
 };
 
 export const CEO: CastMember = {
-    slug: 'delphi-ceo',
-    name: 'Diablo',
-    formerly: 'Delphi',
+    slug: CEO_SLUG,
+    name: CEO_NAME,
+    formerly: CEO_FORMERLY,
     look: look(
         HEADS.diablo,
         'tailcoat',
@@ -125,9 +133,7 @@ export const CEO: CastMember = {
 
 export const MEMBERS: readonly CastMember[] = [
     {
-        slug: 'research-analyst',
-        name: 'Shuna',
-        formerly: 'Vera Quinn',
+        ...named('research-analyst'),
         look: look(
             HEADS.shuna,
             'miko',
@@ -153,9 +159,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'global-news-monitor',
-        name: 'Souei',
-        formerly: 'Idris Kane',
+        ...named('global-news-monitor'),
         look: look(
             HEADS.souei,
             'ninja',
@@ -180,9 +184,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'market-analyst',
-        name: 'Benimaru',
-        formerly: 'Nadia Brandt',
+        ...named('market-analyst'),
         look: look(
             HEADS.benimaru,
             'kimono',
@@ -207,9 +209,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'writer',
-        name: 'Shion',
-        formerly: 'June Ellery',
+        ...named('writer'),
         look: look(
             HEADS.shion,
             'suit-skirt',
@@ -235,9 +235,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'critic',
-        name: 'Hakurou',
-        formerly: 'Halle Roth',
+        ...named('critic'),
         look: look(
             HEADS.hakurou,
             'kimono',
@@ -260,9 +258,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'data-engineer',
-        name: 'Kaijin',
-        formerly: 'Sol Nakamura',
+        ...named('data-engineer'),
         look: look(
             HEADS.kaijin,
             'apron',
@@ -284,9 +280,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'editor',
-        name: 'Rigurd',
-        formerly: 'Marcus Vane',
+        ...named('editor'),
         look: look(
             HEADS.rigurd,
             'tunic',
@@ -306,9 +300,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'video-editor',
-        name: 'Kurobe',
-        formerly: 'Kit Alvarez',
+        ...named('video-editor'),
         look: look(
             HEADS.kurobe,
             'apron',
@@ -336,9 +328,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'motion-designer',
-        name: 'Ramiris',
-        formerly: 'Rune Sato',
+        ...named('motion-designer'),
         look: look(
             HEADS.ramiris,
             'dress',
@@ -361,9 +351,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'caption-writer',
-        name: 'Treyni',
-        formerly: 'Priya Raman',
+        ...named('caption-writer'),
         look: look(
             HEADS.treyni,
             'dress',
@@ -386,9 +374,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'social-strategist',
-        name: 'Gabiru',
-        formerly: 'Dez Okafor',
+        ...named('social-strategist'),
         look: look(
             HEADS.gabiru,
             'armor',
@@ -411,9 +397,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'social-publisher',
-        name: 'Gobta',
-        formerly: 'Wren Hollis',
+        ...named('social-publisher'),
         look: look(
             HEADS.gobta,
             'armor',
@@ -435,9 +419,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'archivist',
-        name: 'Veldora',
-        formerly: 'Tomas Leger',
+        ...named('archivist'),
         look: look(
             HEADS.veldora,
             'coat',
@@ -460,9 +442,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'llr-liabilities',
-        name: 'Carrera',
-        formerly: 'Adaeze Nwosu',
+        ...named('llr-liabilities'),
         look: look(
             HEADS.carrera,
             'uniform',
@@ -486,9 +466,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'llr-risk',
-        name: 'Ultima',
-        formerly: 'Tobias Okonkwo',
+        ...named('llr-risk'),
         look: look(
             HEADS.ultima,
             'dress',
@@ -510,9 +488,7 @@ export const MEMBERS: readonly CastMember[] = [
         ),
     },
     {
-        slug: 'llr-legal',
-        name: 'Testarossa',
-        formerly: 'Margit Halvorsen',
+        ...named('llr-legal'),
         look: look(
             HEADS.testarossa,
             'dress',

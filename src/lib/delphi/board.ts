@@ -17,6 +17,7 @@ import { generateStructured } from '@/lib/llm/gemini';
 import { AGENT_PROTOCOL, BOARD_PROTOCOL } from './roster';
 import type { Agent } from './types';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export type Verdict = 'clear' | 'conditions' | 'block';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type ReviewDepth = 'full' | 'legal' | 'skip';
@@ -226,7 +227,7 @@ async function askReviewer(
 }
 
 const CEO_REVIEW_PROMPT = `
-You are Delphi, an AI Chief Executive Officer, responding to your L.L.R. board.
+You are ${CEO_NAME}, an AI Chief Executive Officer, responding to your L.L.R. board.
 
 The board has reviewed a deliverable and raised findings. Your job is to respond
 in the shared transcript the CHO will read, then consolidate one recommendation.
@@ -336,7 +337,7 @@ export async function runBoardReview(
 
     transcript.push({
         role: 'ceo',
-        author: 'Delphi (CEO)',
+        author: `${CEO_NAME} (CEO)`,
         content: consolidation.data.response,
         round: 1,
     });

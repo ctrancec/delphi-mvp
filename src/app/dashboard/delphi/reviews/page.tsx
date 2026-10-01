@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { listReviews } from '@/lib/delphi/reviews';
 import { cn } from '@/lib/utils';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export const dynamic = 'force-dynamic';
 
 export const VERDICT_STYLES: Record<string, string> = {
@@ -57,7 +58,7 @@ export default async function ReviewsPage() {
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
                     Liabilities, Risk and Legal review work before it reaches you, and deliberate with
-                    Delphi in the open. They advise; they never approve.
+                    {CEO_NAME} in the open. They advise; they never approve.
                 </p>
             </div>
 

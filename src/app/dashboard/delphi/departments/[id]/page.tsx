@@ -10,6 +10,7 @@ import { GradeCard, type GradeRow } from '@/components/delphi/grade-badge'
 import { TaskEditor } from '@/components/delphi/task-editor'
 import { DepartmentSettings } from '@/components/delphi/department-settings'
 
+import { CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
 
 export default async function DepartmentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -173,7 +174,7 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                     <CardHeader className="pb-3">
                         <CardTitle className="text-sm">How the work was graded</CardTitle>
                         <p className="text-xs text-muted-foreground">
-                            Delphi grades every task. The score feeds the hiring rank, so an agent that
+                            {CEO_NAME} grades every task. The score feeds the hiring rank, so an agent that
                             performs badly here gets picked less often — automatically. A grade is an
                             opinion; the unsourced-claim count is not.
                         </p>

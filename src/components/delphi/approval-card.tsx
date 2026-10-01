@@ -21,6 +21,7 @@ import { decideApprovalAction, type Decision } from '@/lib/delphi/actions';
 import { ACTION_LABELS, RISK_STYLES, previewOf, type PendingApproval } from '@/lib/delphi/approvals';
 import { cn } from '@/lib/utils';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 const VERDICT_STYLES: Record<string, { label: string; tone: string }> = {
     clear: { label: 'Board cleared it', tone: 'text-emerald-400 border-emerald-400/30' },
     conditions: { label: 'Board: conditions apply', tone: 'text-amber-400 border-amber-400/30' },
@@ -107,7 +108,7 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                     {decided === 'revise' && (
                         <p className="pl-6 text-xs">
                             {escalatedTo
-                                ? `Delphi handed it to ${escalatedTo}, who is working on it now.`
+                                ? `${CEO_NAME} handed it to ${escalatedTo}, who is working on it now.`
                                 : 'Back with the agent. It will appear again when they have redone it.'}
                         </p>
                     )}
@@ -256,7 +257,7 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
 
                         <details className="group">
                             <summary className="cursor-pointer list-none text-[11px] text-muted-foreground hover:text-zinc-200">
-                                Read the brief Delphi wrote for them
+                                Read the brief {CEO_NAME} wrote for them
                             </summary>
                             <p className="mt-2 whitespace-pre-wrap rounded border border-white/10 bg-black/40 p-3 text-xs leading-relaxed text-zinc-300">
                                 {staffing.spec.systemPrompt}
@@ -303,7 +304,7 @@ export function ApprovalCard({ approval }: { approval: PendingApproval }) {
                         className="border-amber-400/30 text-amber-400 hover:bg-amber-400/10 hover:text-amber-300"
                         title={
                             staffing
-                                ? 'Not this one — say what you want instead and Delphi drafts another'
+                                ? `Not this one — say what you want instead and ${CEO_NAME} drafts another`
                                 : 'Not yet — send it back with what needs to change'
                         }
                     >

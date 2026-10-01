@@ -9,6 +9,7 @@ import { Suspense, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AlertCircle, MailCheck } from 'lucide-react'
 
+import { APP_NAME } from '@/lib/pixel/cast/names'
 function LoginContent() {
     const searchParams = useSearchParams()
     const mode = searchParams.get('mode')
@@ -24,7 +25,7 @@ function LoginContent() {
                         {isLogin ? 'Welcome back' : 'Create an account'}
                     </h1>
                     <p className="text-muted-foreground">
-                        {isLogin ? 'Enter your credentials to access your workspace.' : 'Start your journey with Delphi today.'}
+                        {isLogin ? 'Enter your credentials to access your workspace.' : `Start your journey with ${APP_NAME} today.`}
                     </p>
                 </div>
 

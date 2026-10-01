@@ -16,6 +16,7 @@ import { formatLegalContext, retrieveLegalContext } from '@/lib/legal/retrieve';
 import { DEFAULT_JURISDICTIONS } from '@/lib/legal/sources';
 import { DelphiDbError } from './db';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export interface StoredReview {
     id: string;
     threadId: string | null;
@@ -336,7 +337,7 @@ export async function listThreadMessages(db: Db, threadId: string): Promise<Revi
     return (data ?? []).map((m) => ({
         id: m.id as string,
         role: m.role as ReviewMessage['role'],
-        authorName: (m.author as unknown as Row)?.name ?? (m.role === 'cho' ? 'You' : 'Delphi'),
+        authorName: (m.author as unknown as Row)?.name ?? (m.role === 'cho' ? 'You' : CEO_NAME),
         content: m.content as string,
         round: (m.round as number) ?? 0,
         createdAt: m.created_at as string,

@@ -15,6 +15,7 @@ import { ApprovalCard } from '@/components/delphi/approval-card';
 import { listApprovals, ACTION_LABELS } from '@/lib/delphi/approvals';
 import { formatDistanceToNow } from 'date-fns';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export const dynamic = 'force-dynamic';
 
 export default async function ApprovalsPage() {
@@ -48,7 +49,7 @@ export default async function ApprovalsPage() {
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
                     Anything that reaches the outside world or cannot be undone waits here. The L.L.R.
-                    board advises and Delphi recommends — only you decide.
+                    board advises and {CEO_NAME} recommends — only you decide.
                 </p>
             </div>
 

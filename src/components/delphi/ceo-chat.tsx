@@ -17,6 +17,7 @@ import { chatWithDelphiAction } from '@/lib/delphi/actions';
 import { formatUsd } from '@/lib/llm/cost';
 import { cn } from '@/lib/utils';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export interface ChatMessage {
     role: 'cho' | 'ceo';
     content: string;
@@ -54,7 +55,7 @@ export function CeoChat({ initial }: { initial: ChatMessage[] }) {
         startTransition(async () => {
             const res = await chatWithDelphiAction(body);
             if (!res.ok || !res.data) {
-                setError(res.error ?? 'Delphi did not answer.');
+                setError(res.error ?? `${CEO_NAME} did not answer.`);
                 return;
             }
             setMessages((m) => [
@@ -77,7 +78,7 @@ export function CeoChat({ initial }: { initial: ChatMessage[] }) {
                                 <Triangle className="h-5 w-5 fill-current" />
                             </span>
                             <p className="text-sm text-muted-foreground">
-                                Ask Delphi anything about the organisation, or tell it what you want set up.
+                                Ask {CEO_NAME} anything about the organisation, or tell him what you want set up.
                             </p>
                         </div>
                         <div className="mx-auto flex max-w-lg flex-wrap justify-center gap-1.5">
@@ -128,7 +129,7 @@ export function CeoChat({ initial }: { initial: ChatMessage[] }) {
                     <div className="flex justify-start">
                         <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-muted-foreground">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Delphi is looking…
+                            {CEO_NAME} is looking…
                         </div>
                     </div>
                 )}
@@ -154,7 +155,7 @@ export function CeoChat({ initial }: { initial: ChatMessage[] }) {
                                 send(draft);
                             }
                         }}
-                        placeholder="Ask Delphi, or tell it what to set up…"
+                        placeholder={`Ask ${CEO_NAME}, or tell him what to set up…`}
                         rows={2}
                         className="min-h-0 resize-none border-white/10 bg-white/5 text-sm"
                     />
@@ -168,7 +169,7 @@ export function CeoChat({ initial }: { initial: ChatMessage[] }) {
                     </button>
                 </div>
                 <p className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground/60">
-                    <span>Delphi can create departments, set budgets and stop the system.</span>
+                    <span>{CEO_NAME} can create departments, set budgets and stop the system.</span>
                     <span className="text-amber-400/70">
                         It cannot approve anything — staffing plans and outward-facing actions are yours.
                     </span>

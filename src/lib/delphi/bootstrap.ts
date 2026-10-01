@@ -29,6 +29,7 @@
 
 import { cache } from 'react';
 import { ALL_SEED_AGENTS } from './roster';
+import { applyCast, castDrift, type NamedRow } from './cast';
 import { DELPHI_SLUG, ensureDelphiAgent, seedChannels, seedRoster, type Db } from './db';
 
 export interface Provisioned {
@@ -109,18 +110,21 @@ export async function ensureWorkspace(db: Db): Promise<string | null> {
 async function rosterProbe(db: Db, workspaceId: string) {
     const { data, error } = await db
         .from('delphi_agents')
-        .select('slug, is_board')
+        .select('id, slug, name, is_board')
         .eq('workspace_id', workspaceId)
         .is('archived_at', null);
 
     if (error) console.error('[delphi] could not read the roster:', error.message);
 
-    const rows = data ?? [];
+    const rows = (data ?? []) as (NamedRow & { is_board: boolean })[];
     return {
         hasCeo: rows.some((r) => r.slug === DELPHI_SLUG),
         // The count callers mean by "roster": workers, not the board and not
         // the CEO, matching listAgents()'s defaults.
         workers: rows.filter((r) => !r.is_board && r.slug !== DELPHI_SLUG).length,
+        // The names ride along on the same select, so the cast check below
+        // costs no query of its own.
+        rows,
     };
 }
 
@@ -137,6 +141,11 @@ const SEED_WORKER_COUNT = ALL_SEED_AGENTS.filter((a) => !a.board).length;
  */
 export async function provisionWorkspace(db: Db, workspaceId: string): Promise<Provisioned> {
     const probe = await rosterProbe(db, workspaceId);
+
+    // A roster from before the cast still carries the seed names. One update
+    // per agent, once, and then this is never true again. Decided in memory,
+    // so the steady state below still costs the one select.
+    if (castDrift(probe.rows).length > 0) await applyCast(db, workspaceId, probe.rows);
 
     // The steady state, and the only path that matters for page load speed.
     if (probe.hasCeo && probe.workers > 0) {

@@ -33,6 +33,7 @@ import type { CostTier } from './types';
 import type { SystemMode } from './db';
 import type { WorkSchedule } from './schedule';
 
+import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
 export interface ActionResult<T = void> {
     ok: boolean;
     error?: string;
@@ -78,7 +79,7 @@ export async function createDepartmentAction(input: {
     if (input.charter.trim().length < 20) {
         return {
             ok: false,
-            error: 'The charter needs to be specific enough for Delphi to staff it — a sentence or two about what this department is for.',
+            error: `The charter needs to be specific enough for ${CEO_NAME} to staff it — a sentence or two about what this department is for.`,
         };
     }
 
@@ -101,7 +102,7 @@ export async function createDepartmentAction(input: {
         workspaceId,
         departmentId: data.id,
         type: 'department_created',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'created a department',
         object: input.name.trim(),
     });
@@ -140,7 +141,7 @@ export async function proposeHiringAction(
         workspaceId,
         departmentId,
         type: 'hiring_started',
-        actor: 'Delphi',
+        actor: CEO_NAME,
         verb: 'started staffing',
         object: dept.name,
     });
@@ -207,7 +208,7 @@ export async function proposeHiringAction(
                     workspaceId,
                     departmentId,
                     type: 'agent_invented',
-                    actor: 'Delphi',
+                    actor: CEO_NAME,
                     verb: 'drafted a new agent',
                     object: `${agent.name} — ${agent.title}`,
                     payload: { reason: task.newAgent.reason },
@@ -250,7 +251,7 @@ export async function proposeHiringAction(
                 departmentId,
                 projectId: project.id,
                 type: 'agent_hired',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: `hired for step ${task.seq}`,
                 object: `${agent.name} — ${task.title}`,
                 payload: { score, rationale: task.rationale },
@@ -267,7 +268,7 @@ export async function proposeHiringAction(
             departmentId,
             projectId: project.id,
             type: 'plan_proposed',
-            actor: 'Delphi',
+            actor: CEO_NAME,
             verb: 'proposed a team',
             object: `${plan.tasks.length} agents`,
             durationMs: 0,
@@ -316,7 +317,7 @@ export async function approvePlanAction(departmentId: string): Promise<ActionRes
         departmentId,
         projectId: project.id,
         type: 'plan_approved',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'approved the team',
     });
 
@@ -377,7 +378,7 @@ export async function setSystemModeAction(
         await emitEvent(db, {
             workspaceId,
             type: 'system_mode_changed',
-            actor: 'CHO',
+            actor: CHO_NAME,
             verb: intent.override
                 ? intent.override.mode === 'run'
                     ? 'overrode working hours to run'
@@ -522,7 +523,7 @@ export async function decideApprovalAction(
         projectId: approval.project_id ?? undefined,
         taskId: approval.task_id ?? undefined,
         type: 'approval_decided',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb:
             decision === 'approved'
                 ? note
@@ -644,7 +645,7 @@ export async function chatWithDelphiAction(message: string): Promise<ActionResul
             await emitEvent(db, {
                 workspaceId,
                 type: 'department_created',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: 'acted on your instruction',
                 object: action,
             });
@@ -727,7 +728,7 @@ export async function setWorkScheduleAction(
         await emitEvent(db, {
             workspaceId,
             type: 'system_mode_changed',
-            actor: 'CHO',
+            actor: CHO_NAME,
             verb: schedule.enabled ? 'set working hours' : 'turned working hours off',
             object: schedule.enabled
                 ? `${schedule.start}–${schedule.end} ${schedule.timezone}`
@@ -821,7 +822,7 @@ export async function reopenApprovalAction(
         projectId: approval.project_id ?? undefined,
         taskId: approval.task_id ?? undefined,
         type: 'approval_decided',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'took back their decision on',
         object: approval.summary,
         payload: { reopened: true, was: approval.status },

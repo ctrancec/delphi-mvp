@@ -4,12 +4,13 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { CookieConsent } from "@/components/legal/cookie-consent";
 import { JuniorProvider } from "@/lib/contexts/junior-context";
+import { APP_NAME, CEO_NAME } from "@/lib/pixel/cast/names";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Delphi",
-  description: "Your AI CEO. Stand up a department, and Delphi hires the agents to run it.",
+  title: APP_NAME,
+  description: `Your AI CEO. Stand up a department, and ${CEO_NAME} hires the agents to run it.`,
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

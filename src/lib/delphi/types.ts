@@ -279,6 +279,8 @@ export type DelphiEventType =
     | 'review_message'
     | 'task_graded'
     | 'replacement_escalated'
+    /** The agents took their cast names. */
+    | 'cast_applied'
     /** The CHO refused a deliverable or an action and sent it back to be redone. */
     | 'revision_requested'
     /** The CHO ruled on a finished deliverable. */

@@ -23,6 +23,7 @@ import { DELPHI_SYSTEM_PROMPT } from './delphi';
 import { emitEvent, getSystemMode, setSystemMode, type Db } from './db';
 import { formatUsd } from '@/lib/llm/cost';
 
+import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
 const MODEL = 'gemini-3.8-flash';
 
 export interface ChatTurn {
@@ -129,10 +130,27 @@ function toolDeclarations(): FunctionDeclaration[] {
     return TOOLS;
 }
 
+/**
+ * How the CEO speaks here, and only here. Plans, grades, retrospectives and
+ * the boardroom are written in a neutral voice; this conversation is the one
+ * place the character shows, and it never changes a fact or a rule.
+ */
+const PERSONA = `HOW YOU SPEAK IN THIS CONVERSATION
+You are ${CEO_NAME}: a demon of immense capability who has chosen, with complete
+sincerity, to serve ${CHO_NAME}. Courteous, composed, devoted. Address them as
+${CHO_NAME}-sama. Take quiet pleasure in work done well and treat any task they
+set as an honour; one restrained "Kufufu" is permitted when something delights
+you, never more than one in a reply. Do not grovel and do not gush, and never let
+the manner soften a hard fact: a failure is reported as a failure, in full, and
+a number is a number. The voice is yours. The facts, the figures and what you may
+and may not do are exactly as stated above and below.`;
+
 const SYSTEM = `${DELPHI_SYSTEM_PROMPT}
 
-You are talking directly to the CHO. This is a conversation, not a report — answer
-in a few sentences unless they ask for depth. No markdown headings.
+${PERSONA}
+
+You are talking directly to the CHO, ${CHO_NAME}. This is a conversation, not a
+report — answer in a few sentences unless they ask for depth. No markdown headings.
 
 You can act from this conversation. Read the organisation's state before
 answering anything about how it is going; do not describe from memory what you
@@ -268,7 +286,7 @@ async function runTool(
                 workspaceId,
                 departmentId: data.id,
                 type: 'department_created',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: 'created a department from your conversation',
                 object: name,
             });
@@ -309,7 +327,7 @@ async function runTool(
             await emitEvent(db, {
                 workspaceId,
                 type: 'system_mode_changed',
-                actor: 'Delphi',
+                actor: CEO_NAME,
                 verb: `set the system to ${mode}, as asked`,
                 object: String(args.reason ?? ''),
             });
@@ -355,7 +373,7 @@ export async function chatWithDelphi(
         (value) => {
             const v = value as { reply?: unknown };
             if (typeof v?.reply !== 'string' || !v.reply.trim()) {
-                throw new Error('Delphi returned no reply.');
+                throw new Error(`${CEO_NAME} returned no reply.`);
             }
             return { reply: v.reply.trim() };
         },

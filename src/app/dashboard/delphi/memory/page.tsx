@@ -22,6 +22,7 @@ import type { Memory } from '@/lib/delphi/types';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export const dynamic = 'force-dynamic';
 
 const KIND_STYLES: Record<string, string> = {
@@ -33,7 +34,7 @@ const KIND_STYLES: Record<string, string> = {
 
 const KIND_HINTS: Record<string, string> = {
     lesson: 'Something to do differently next time',
-    preference: 'Something you want, that Delphi should not have to be told twice',
+    preference: `Something you want, that ${CEO_NAME} should not have to be told twice`,
     fact: 'A durable truth about a source or a domain',
     outcome: 'What a project actually produced',
 };
@@ -97,7 +98,7 @@ export default async function MemoryPage({
                     <Brain className="h-6 w-6" /> Memory
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
-                    What Delphi carries between projects. Every entry is retrieved into staffing when a
+                    What {CEO_NAME} carries between projects. Every entry is retrieved into staffing when a
                     brief touches it, so this is also where to look when you want to know why a decision
                     went the way it did.
                 </p>
@@ -107,7 +108,7 @@ export default async function MemoryPage({
                 <Input
                     name="q"
                     defaultValue={query}
-                    placeholder="Search the way Delphi does — try a phrase from a brief"
+                    placeholder={`Search the way ${CEO_NAME} does — try a phrase from a brief`}
                     className="border-white/10 bg-white/5"
                 />
                 <Button type="submit" variant="outline" className="shrink-0 border-white/10">
@@ -124,8 +125,8 @@ export default async function MemoryPage({
                         </h3>
                         <p className="mx-auto max-w-md text-sm text-muted-foreground">
                             {query
-                                ? 'Delphi would recall nothing for this brief either — which is worth knowing.'
-                                : 'Delphi writes a retrospective when a project finishes, keeping the few lessons that would change a future decision. Run a department and this fills itself.'}
+                                ? `${CEO_NAME} would recall nothing for this brief either — which is worth knowing.`
+                                : `${CEO_NAME} writes a retrospective when a project finishes, keeping the few lessons that would change a future decision. Run a department and this fills itself.`}
                         </p>
                     </CardContent>
                 </Card>

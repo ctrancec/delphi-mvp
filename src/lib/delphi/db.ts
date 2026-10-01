@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ALL_SEED_AGENTS, composeSystemPrompt, seedAgentBySlug, type SeedAgent } from './roster';
+import { castNameFor, CEO_NAME, nextPoolName, renameInPrompt } from '@/lib/pixel/cast/names';
 import { DEFAULT_SCHEDULE, effectiveState, type SystemState } from './schedule';
 import type {
     Agent,
@@ -229,7 +230,7 @@ export async function ensureDelphiAgent(db: Db, workspaceId: string): Promise<st
         .insert({
             workspace_id: workspaceId,
             slug: DELPHI_SLUG,
-            name: 'Delphi',
+            name: CEO_NAME,
             title: 'Chief Executive',
             system_prompt: 'The CEO. Hires, plans, consolidates and reports to the CHO.',
             skills: [],
@@ -291,6 +292,13 @@ export async function getAgentStats(
     return new Map((data ?? []).map((r) => [r.agent_id as string, toAgentStats(r)]));
 }
 
+/** A seed agent's prompt, introducing the character who plays it. */
+function castPrompt(a: SeedAgent): string {
+    const cast = castNameFor(a.slug);
+    const prompt = composeSystemPrompt(a);
+    return cast ? renameInPrompt(prompt, a.name, cast.name) : prompt;
+}
+
 /**
  * Seed the roster into a workspace.
  *
@@ -317,10 +325,12 @@ export async function seedRoster(
     const toInsert = ALL_SEED_AGENTS.filter((a) => !have.has(a.slug)).map((a: SeedAgent) => ({
         workspace_id: workspaceId,
         slug: a.slug,
-        name: a.name,
+        // Seeded under the cast's name from the start, so a new workspace never
+        // needs the rename an older one gets from applyCast.
+        name: castNameFor(a.slug)?.name ?? a.name,
         title: a.title,
         avatar_seed: a.avatarSeed,
-        system_prompt: composeSystemPrompt(a),
+        system_prompt: castPrompt(a),
         skills: a.skills,
         channel_ids: a.requiredChannels
             .map((k) => channelsByKind.get(k))
@@ -368,6 +378,14 @@ export async function insertInventedAgent(
     },
     departmentId: string | null
 ): Promise<Agent> {
+    // A hire past the seeded roster takes the next name the cast keeps for
+    // one, until those run out; after that it keeps the name it was given.
+    // Archived agents count as taken: a name is a history, not a slot.
+    const { data: named } = await db.from('delphi_agents').select('name').eq('workspace_id', workspaceId);
+    const poolName = nextPoolName((named ?? []).map((r) => r.name as string));
+    const name = poolName ?? spec.name;
+    const systemPrompt = poolName ? renameInPrompt(spec.systemPrompt, spec.name, poolName) : spec.systemPrompt;
+
     const channels = await listChannels(db, workspaceId);
     const channelIds = spec.requiredChannels
         .map((k) => channels.find((c) => c.kind === k)?.id)
@@ -378,10 +396,10 @@ export async function insertInventedAgent(
         .insert({
             workspace_id: workspaceId,
             slug: spec.slug,
-            name: spec.name,
+            name,
             title: spec.title,
             avatar_seed: spec.slug,
-            system_prompt: spec.systemPrompt,
+            system_prompt: systemPrompt,
             skills: spec.skills,
             channel_ids: channelIds,
             cost_tier: spec.costTier,

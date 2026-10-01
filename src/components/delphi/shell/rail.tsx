@@ -14,6 +14,7 @@ import { Plus, Triangle } from 'lucide-react';
 import { NAV, activeHref } from './nav';
 import { cn } from '@/lib/utils';
 
+import { APP_NAME } from '@/lib/pixel/cast/names';
 export function Rail({
     pendingApprovals,
     newOutputs,
@@ -34,7 +35,7 @@ export function Rail({
                     <Triangle className="h-4 w-4 fill-current" />
                 </span>
                 <span className="hidden text-base font-bold tracking-tight text-white desk:inline">
-                    Delphi
+                    {APP_NAME}
                 </span>
             </Link>
 

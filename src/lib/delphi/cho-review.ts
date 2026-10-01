@@ -20,6 +20,7 @@ import { findWorkspace } from './bootstrap';
 import { sendTaskBack, undoSendBack } from './revision';
 import { checkBatch, chooseForReview, type BulkResult, type ReviewCandidate } from './bulk';
 
+import { CHO_NAME } from '@/lib/pixel/cast/names';
 export interface ReviewResult {
     ok: boolean;
     error?: string;
@@ -136,7 +137,7 @@ export async function reviewOutputAction(
         projectId: (artifact.project_id as string) ?? undefined,
         taskId: (artifact.task_id as string) ?? undefined,
         type: 'output_reviewed',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb:
             decision === 'approved'
                 ? artifact.review_status === 'declined'

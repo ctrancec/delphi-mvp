@@ -52,6 +52,7 @@ import {
 } from '@/lib/delphi/trash';
 import type { DeletionImpact } from '@/lib/delphi/deletion';
 
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 export interface OutputReviewState {
     artifactId: string;
     title: string;
@@ -441,7 +442,7 @@ function Verdict({ state }: { state: OutputReviewState }) {
                     <p className="flex items-center gap-2 text-amber-400">
                         <RotateCcw className="h-4 w-4 shrink-0" />
                         {escalatedTo
-                            ? `Sent back — Delphi handed it to ${escalatedTo}, who is redoing it now.`
+                            ? `Sent back — ${CEO_NAME} handed it to ${escalatedTo}, who is redoing it now.`
                             : `Sent back to ${state.agentName ?? 'the agent'} to be redone.`}
                     </p>
                     {state.note && (

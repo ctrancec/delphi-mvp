@@ -19,6 +19,7 @@
 import { emitEvent, type Db } from './db';
 import { escalateTask } from './replacement';
 
+import { CHO_NAME } from '@/lib/pixel/cast/names';
 /**
  * Send it back this many times before the agent, rather than the work, is
  * treated as the problem.
@@ -136,7 +137,7 @@ export async function sendTaskBack(
         projectId: (task.project_id as string) ?? undefined,
         taskId,
         type: 'revision_requested',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: `sent ${source === 'output' ? 'the deliverable' : 'the proposed action'} back to`,
         object: `${(agent?.name as string) ?? 'the agent'} — ${note.slice(0, 120)}`,
         payload: { source, revision, note, invalidated: downstream.length },
@@ -226,7 +227,7 @@ export async function undoSendBack(
         projectId: (task.project_id as string) ?? undefined,
         taskId,
         type: 'revision_requested',
-        actor: 'CHO',
+        actor: CHO_NAME,
         verb: 'took back sending it to be redone —',
         object: task.title as string,
         payload: { undo: true, restored: restorable.length },

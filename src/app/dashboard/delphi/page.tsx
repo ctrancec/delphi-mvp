@@ -16,6 +16,7 @@ import { formatUsd } from '@/lib/llm/cost'
 import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-line'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
 
+import { CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
 
 const STATUS_STYLES: Record<string, string> = {
@@ -35,7 +36,7 @@ function Empty({ hasRoster }: { hasRoster: boolean }) {
                 <div className="space-y-1">
                     <h3 className="text-lg font-semibold">No departments yet</h3>
                     <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                        Write a charter and Delphi will hire the agents to deliver it. Start with something
+                        Write a charter and {CEO_NAME} will hire the agents to deliver it. Start with something
                         standing, like a morning brief on global events and market moves.
                     </p>
                 </div>
@@ -47,7 +48,7 @@ function Empty({ hasRoster }: { hasRoster: boolean }) {
                 {!hasRoster && (
                     <p className="text-xs text-amber-400 flex items-center justify-center gap-2">
                         <AlertTriangle className="h-3.5 w-3.5" />
-                        The roster could not be provisioned — Delphi will retry when you create this.
+                        The roster could not be provisioned — {CEO_NAME} will retry when you create this.
                     </p>
                 )}
             </CardContent>
@@ -98,7 +99,7 @@ export default async function DelphiHqPage() {
         <div className="space-y-6">
             <div className="flex items-start justify-between gap-4">
                 <p className="text-sm text-muted-foreground">
-                    Your AI CEO. Departments are standing teams; Delphi hires into them and reports to you.
+                    Your AI CEO. Departments are standing teams; {CEO_NAME} hires into them and reports to you.
                 </p>
                 <Button asChild className="shrink-0">
                     <Link href="/dashboard/delphi/departments/new">
