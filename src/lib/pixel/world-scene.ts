@@ -9,16 +9,38 @@
  * Pure, so a test can draw the whole thing and look at the pixels.
  */
 
-import { PixelCanvas, type Grid } from './canvas';
+import { palette, PixelCanvas, type Grid, type Palette } from './canvas';
 import { hash } from './residents';
 import { TILES, TOWN, type TileId } from './sprites/tiles';
-import { TILE, type Building, type Rect, type WorldLayout } from './world-layout';
+import { TILE, type Building, type FeatureKind, type Rect, type WorldLayout } from './world-layout';
+import { counterTiles, doorOf, INN_FACING, type Facing } from './world-path';
 
-const at = (c: PixelCanvas, id: TileId, x: number, y: number) => c.draw(TILES[id], Math.round(x * TILE), Math.round(y * TILE), TOWN);
+const at = (c: PixelCanvas, id: TileId, x: number, y: number, colours: Palette = TOWN) => c.draw(TILES[id], Math.round(x * TILE), Math.round(y * TILE), colours);
+
+/** Roofs come in a few colours, so a street is not one blue line. */
+export const ROOFS: readonly Palette[] = [
+    TOWN,
+    palette({ ...roofSlots('#3f8f8a', '#2f6b67') }),
+    palette({ ...roofSlots('#7a5aa8', '#5a4080') }),
+    palette({ ...roofSlots('#a8553f', '#80402f') }),
+];
+function roofSlots(r: string, R: string): Record<string, string> {
+    return { o: '#1a1423', r, R, S: '#6c7280' };
+}
 
 /** A cut-away house: a roof strip, a floor you can see into, walls at the sides and front. */
-function house(c: PixelCanvas, r: Rect, opts: { kind: Building['kind']; lit: boolean; door?: boolean; floor?: TileId }) {
+/** What a house is built of: stone, timber or brick, by the hash of its id. */
+export type Material = 'stone' | 'timber' | 'brick';
+const MATERIALS: Material[] = ['stone', 'timber', 'brick'];
+export const materialFor = (id: string): Material => MATERIALS[hash(`wall:${id}`) % MATERIALS.length];
+const FRONT: Record<Material, TileId> = { stone: 'wall', timber: 'wallTimber', brick: 'wallBrick' };
+const SIDE: Record<Material, TileId> = { stone: 'wallSide', timber: 'wallSideTimber', brick: 'wallSideBrick' };
+
+function house(c: PixelCanvas, r: Rect, opts: { kind: Building['kind']; lit: boolean; door?: boolean; floor?: TileId; facing?: Facing; roof?: Palette; material?: Material }) {
     const floor: TileId = opts.floor ?? 'floor';
+    const facing: Facing = opts.facing ?? 'down';
+    const roofY = facing === 'down' ? r.y : r.y + r.h - 1;
+    const front = facing === 'down' ? r.y + r.h - 1 : r.y;
     if (opts.kind === 'site') {
         for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) at(c, 'path', x, y);
         for (let x = r.x; x < r.x + r.w; x++) {
@@ -33,18 +55,18 @@ function house(c: PixelCanvas, r: Rect, opts: { kind: Building['kind']; lit: boo
     }
     const boarded = opts.kind === 'boarded';
     for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) at(c, floor, x, y);
+    const material = opts.material ?? 'stone';
     for (let y = r.y + 1; y < r.y + r.h - 1; y++) {
-        at(c, 'wallSide', r.x, y);
-        at(c, 'wallSide', r.x + r.w - 1, y);
+        at(c, SIDE[material], r.x, y);
+        at(c, SIDE[material], r.x + r.w - 1, y);
     }
-    for (let x = r.x; x < r.x + r.w; x++) at(c, boarded ? 'roofDark' : 'roof', x, r.y);
-    const front = r.y + r.h - 1;
+    for (let x = r.x; x < r.x + r.w; x++) at(c, boarded ? 'roofDark' : 'roof', x, roofY, boarded ? TOWN : opts.roof);
     for (let x = r.x; x < r.x + r.w; x++) {
         const i = x - r.x;
         const window = i > 0 && i < r.w - 1 && i % 3 === 1;
-        at(c, window ? (boarded ? 'boarded' : opts.lit ? 'windowLit' : 'windowDark') : 'wall', x, front);
+        at(c, window ? (boarded ? 'boarded' : opts.lit ? 'windowLit' : 'windowDark') : FRONT[material], x, front);
     }
-    if (opts.door !== false) at(c, boarded ? 'boarded' : 'door', r.x + Math.floor(r.w / 2), front);
+    if (opts.door !== false) at(c, boarded ? 'boarded' : 'door', doorOf(r, facing).x, front);
 }
 
 export function drawScene(layout: WorldLayout): PixelCanvas {
@@ -69,7 +91,7 @@ export function drawScene(layout: WorldLayout): PixelCanvas {
     for (let x = 0; x < layout.w; x++) at(c, 'path', x, centre.rect.h - 1);
     house(c, centre.study, { kind: 'house', lit: true });
     at(c, 'deskOn', centre.studyDesk.x, centre.studyDesk.y);
-    house(c, centre.hall, { kind: 'house', lit: true, floor: 'stoneFloor' });
+    house(c, centre.hall, { kind: 'house', lit: true, floor: 'stoneFloor', roof: ROOFS[2] });
     at(c, 'banner', centre.hall.x, centre.hall.y - 1 < 0 ? centre.hall.y : centre.hall.y);
     at(c, 'banner', centre.hall.x + centre.hall.w - 1, centre.hall.y);
     at(c, 'cushion', centre.seat.x, centre.seat.y);
@@ -78,18 +100,35 @@ export function drawScene(layout: WorldLayout): PixelCanvas {
 
     // The districts.
     for (const b of layout.buildings) {
-        house(c, b.rect, { kind: b.kind, lit: b.busy });
+        house(c, b.rect, { kind: b.kind, lit: b.busy, roof: ROOFS[hash(b.id) % ROOFS.length], material: materialFor(b.id) });
         if (b.kind !== 'site') at(c, 'chimney', b.rect.x + b.rect.w - 2, b.rect.y);
         at(c, 'sign', b.sign.x, b.sign.y);
         for (const d of b.desks) at(c, d.occupied ? 'deskOff' : 'nameplate', d.x, d.y);
         for (const deco of b.decorations) at(c, deco.kind, deco.x, deco.y);
     }
 
-    // The inn: a long low house with a bar along the back.
-    house(c, layout.inn.rect, { kind: 'house', lit: true, door: true });
-    for (let x = layout.inn.rect.x + 1; x < layout.inn.rect.x + layout.inn.rect.w - 1; x += 2) at(c, 'counter', x, layout.inn.rect.y + 1);
+    // The inn: a long low house facing the town, with a bar along the back.
+    house(c, layout.inn.rect, { kind: 'house', lit: true, door: true, facing: INN_FACING, roof: ROOFS[3], material: 'timber' });
+    for (const x of counterTiles(layout.inn.rect)) at(c, 'counter', x, layout.inn.rect.y + layout.inn.rect.h - 2);
+
+    // What the town is dressed with: soft things first, so a rug sits under a chair.
+    for (const feat of layout.features.filter((x) => !x.solid)) at(c, tileFor(feat.kind), feat.x, feat.y);
+    for (const feat of layout.features.filter((x) => x.solid)) at(c, tileFor(feat.kind), feat.x, feat.y);
 
     return c;
+}
+
+/** A feature's still tile; the fire and the water get their first frame. */
+export function tileFor(kind: FeatureKind): TileId {
+    if (kind === 'fireplace') return 'fireplaceA';
+    if (kind === 'fountain') return 'fountainA';
+    return kind;
+}
+
+/** The animated tiles, by frame: fire and water move. */
+export function animatedTile(kind: 'fireplace' | 'fountain', frame: number): Grid {
+    if (kind === 'fireplace') return frame % 2 ? TILES.fireplaceA : TILES.fireplaceB;
+    return Math.floor(frame / 2) % 2 ? TILES.fountainA : TILES.fountainB;
 }
 
 /** The desk tiles to repaint each frame for a screen in use: the one of the agent at it. */

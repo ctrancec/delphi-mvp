@@ -21,6 +21,7 @@
  */
 
 import type { Floor } from '@/lib/delphi/floor';
+import { hash } from './residents';
 
 export const TILE = 16;
 /** A department's cell: a sign row, the house, a row for what it has earned. */
@@ -74,6 +75,35 @@ export interface Building {
 
 export type Where = 'study' | 'hall' | 'desk' | 'inn';
 
+/** Furniture and ornament: what the town is dressed with, and what idle agents go and use. */
+export type FeatureKind =
+    | 'bookshelf'
+    | 'rugRed'
+    | 'rugBlue'
+    | 'plant'
+    | 'crate'
+    | 'barrel'
+    | 'fireplace'
+    | 'fountain'
+    | 'flowerbed'
+    | 'well'
+    | 'bench'
+    | 'carpet'
+    | 'longTable'
+    | 'tree'
+    | 'tree2'
+    | 'dummy';
+
+export interface Feature extends Point {
+    kind: FeatureKind;
+    /** The house it is in, for a label like "the Global News bookshelf". */
+    buildingId?: string;
+    /** Where someone stands to use it, when it is something to use. */
+    use?: Point;
+    /** True when nobody can stand on it. */
+    solid: boolean;
+}
+
 export interface Place extends Point {
     where: Where;
     /** The building, for a desk. */
@@ -101,6 +131,7 @@ export interface WorldLayout {
     inn: { rect: Rect; spots: Point[] };
     /** Where each agent stands, by id. */
     places: Record<string, Place>;
+    features: Feature[];
 }
 
 export function columnsFor(widthTiles: number): number {
@@ -187,7 +218,8 @@ export function layoutWorld(floor: Floor, widthTiles: number): WorldLayout {
 
     // --- the inn --------------------------------------------------------------
     const rowsOfCells = Math.ceil(ordered.length / cols);
-    const innY = CENTRE_H + rowsOfCells * CELL_H;
+    // One free row before the inn, so the street under the last houses leads somewhere.
+    const innY = CENTRE_H + rowsOfCells * CELL_H + 1;
     const waiting = floor.agents.filter((a) => !places[a.id]);
     const perRow = Math.max(1, Math.floor((w - 2) / 1.5));
     const innRows = Math.max(1, Math.ceil(waiting.length / perRow));
@@ -198,5 +230,73 @@ export function layoutWorld(floor: Floor, widthTiles: number): WorldLayout {
         places[a.id] = { ...spot, where: 'inn' };
     });
 
-    return { cols, w, h: inn.rect.y + inn.rect.h, centre, buildings, inn, places };
+    const features = dress({ cols, w, h: inn.rect.y + inn.rect.h, centre, buildings, inn, places, features: [] }, ordered.length);
+    return { cols, w, h: inn.rect.y + inn.rect.h, centre, buildings, inn, places, features };
+}
+
+/**
+ * Furniture inside and ornament outside, placed by rule and by the hash of
+ * what it belongs to, so a house keeps its own rug and plant from one load
+ * to the next and no two houses are quite alike.
+ */
+function dress(l: Omit<WorldLayout, 'features'> & { features: Feature[] }, districts: number): Feature[] {
+    const f: Feature[] = [];
+    const solid = (kind: FeatureKind, x: number, y: number, use?: Point, buildingId?: string) => f.push({ kind, x, y, use, solid: true, buildingId });
+    const soft = (kind: FeatureKind, x: number, y: number, buildingId?: string) => f.push({ kind, x, y, solid: false, buildingId });
+    const { centre } = l;
+
+    // The study: a shelf behind the desk.
+    solid('bookshelf', centre.study.x + 2, centre.study.y + 1, { x: centre.study.x + 2, y: centre.study.y + 2 });
+
+    // The hall: the council table along the back, carpet where the board stands.
+    for (let x = centre.hall.x + 1; x < centre.hall.x + centre.hall.w - 1; x++) solid('longTable', x, centre.hall.y + 1);
+    for (let x = centre.hall.x + 1; x < centre.hall.x + centre.hall.w - 1; x++) soft('carpet', x, centre.hall.y + 2);
+
+    // The plaza: a fountain when there is room for one, benches beside it, a well when there is not.
+    const plazaLeft = centre.study.x + centre.study.w;
+    const plazaRight = centre.hall.x;
+    const mid = Math.floor((plazaLeft + plazaRight) / 2);
+    if (plazaRight - plazaLeft >= 9) {
+        solid('fountain', mid, 2, { x: mid, y: 3 });
+        solid('bench', plazaLeft + 1, 2, { x: plazaLeft + 1, y: 3 });
+        solid('bench', plazaRight - 2, 2, { x: plazaRight - 2, y: 3 });
+    } else if (plazaRight - plazaLeft >= 3) {
+        solid('well', mid, 2, { x: mid, y: 3 });
+    }
+    // The yard: a training dummy on the plaza's edge, by the hall.
+    solid('dummy', l.w - 1, CENTRE_H - 1, { x: l.w - 2, y: CENTRE_H - 1 });
+
+    // Each house: a shelf and a plant along the back, a rug between the desk rows,
+    // a crate or a barrel in a corner, flowerbeds either side of the door.
+    for (const b of l.buildings) {
+        if (b.kind !== 'house') continue;
+        const r = b.rect;
+        const h = hash(b.id);
+        // Read standing between the shelf and the first desk, not on the desk.
+        solid('bookshelf', r.x + 1, r.y + 1, { x: r.x + 2, y: r.y + 2 }, b.id);
+        solid('plant', r.x + r.w - 2, r.y + 1, undefined, b.id);
+        for (let x = r.x + 2; x < r.x + r.w - 2; x++) soft(h % 2 ? 'rugRed' : 'rugBlue', x, r.y + 4, b.id);
+        solid(h % 3 === 0 ? 'barrel' : 'crate', r.x + r.w - 2, r.y + r.h - 2, { x: r.x + r.w - 2, y: r.y + r.h - 3 }, b.id);
+        const door = r.x + Math.floor(r.w / 2);
+        solid('flowerbed', door - 1, r.y + r.h, { x: door - 1, y: r.y + r.h + 1 }, b.id);
+        solid('flowerbed', door + 1, r.y + r.h, { x: door + 1, y: r.y + r.h + 1 }, b.id);
+    }
+
+    // The inn: a barrel at one end of the bar, the fire at the other.
+    const inn = l.inn.rect;
+    const back = inn.y + inn.h - 2;
+    solid('barrel', inn.x + 1, back, { x: inn.x + 1, y: back - 1 });
+    solid('fireplace', inn.x + inn.w - 2, back, { x: inn.x + inn.w - 3, y: back - 1 });
+
+    // Trees fill the cells no department has taken yet.
+    const rows = Math.ceil(districts / l.cols);
+    for (let i = districts; i < rows * l.cols; i++) {
+        const cx = (i % l.cols) * CELL_W;
+        const cy = CENTRE_H + Math.floor(i / l.cols) * CELL_H;
+        solid('tree', cx + 2, cy + 2);
+        solid('tree2', cx + 6, cy + 4);
+        solid('tree', cx + 4, cy + 7);
+        solid('tree2', cx + 8, cy + 1);
+    }
+    return f;
 }

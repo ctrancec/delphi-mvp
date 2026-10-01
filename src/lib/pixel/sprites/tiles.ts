@@ -6,7 +6,7 @@
  * the hall. Slots:
  *   o outline   g/G grass   d/D path   w/W wood   s/S stone   r/R roof
  *   b/B banner  y/Y light   c/C crystal  k dark glass  p/P paper  m/M metal
- *   t trunk     l/L leaves  f flower   x/X smoke   h/H cushion
+ *   t trunk     l/L leaves  f flower   x/X smoke   h/H cushion   e/E brick and mortar
  */
 
 import { grid, palette, type Grid, type Palette } from '../canvas';
@@ -42,197 +42,318 @@ export const TOWN: Palette = palette({
     X: '#bcc0cc',
     h: '#c8344a',
     H: '#9a2236',
+    // Brick and its mortar.
+    e: '#b06a4a',
+    E: '#d9c2a8',
 });
 
-/** A uniform tile with a few specks, made rather than typed. */
-function speckled(base: string, speck: string, at: [number, number][]): Grid {
-    const rows = Array.from({ length: 16 }, () => base.repeat(16).split(''));
-    for (const [x, y] of at) rows[y][x] = speck;
-    return grid(rows.map((r) => r.join('')).join('\n'));
-}
-
 export const TILES = {
-    grass: speckled('g', 'G', [[5, 1], [12, 3], [2, 5], [9, 7], [3, 9], [14, 11], [6, 13], [11, 15]]),
-    grassTuft: speckled('g', 'L', [[6, 4], [7, 4], [8, 4], [7, 3], [12, 10], [13, 10], [12, 9]]),
-    path: speckled('d', 'D', [[3, 2], [11, 4], [7, 8], [14, 9], [1, 12], [9, 14]]),
+    grass: grid(`
+        gggggGgggggggggg
+        ggggGGggggggGggg
+        gggggggggggGGggg
+        gggggggggggggggg
+        gGgggggggggggggg
+        GGgggggggGgggggg
+        gggggggggGGggggg
+        gggggggggggggggg
+        ggggggGggggggggg
+        gggggGGgggggggGg
+        ggggggggggggggGG
+        gggggggggggggggg
+        ggGggggggggggggg
+        gGGggggggGgggggg
+        ggggggggGGgggggg
+        gggggggggggggggg
+    `),
+    grassTuft: grid(`
+        gggggggggggggggg
+        gggggggggggggggg
+        ggggLggggggggggg
+        gggLlLgggggggggg
+        ggglllgggggggggg
+        gggggggggggggggg
+        ggggggggggggLggg
+        gggggggggggLlLgg
+        gggggggggggLllgg
+        gggggggggggggggg
+        gggggggggggggggg
+        ggGggggggggggggg
+        gGGgggggggggggGg
+        gggggggggggggGGg
+        gggggggggggggggg
+        gggggggggggggggg
+    `),
+    path: grid(`
+        DdddddddddddddDd
+        dddDdddddddddddd
+        ddddddddDDdddddd
+        ddddddddddddddDd
+        ddDDdddddddddddd
+        dddddddddddddddd
+        ddddddddddddDddd
+        dDdddddDDddddddd
+        dddddddddddddddd
+        dddddDddddddDDdd
+        dddddddddddddddd
+        ddDddddddddddddd
+        dddddddDDddddddd
+        dddddddddddddddd
+        DddddddddddddDdd
+        dDdddddddddddddd
+    `),
     floor: grid(`
         wwwwwwwWwwwwwwww
         wwwwwwwWwwwwwwww
-        wwwwwwwWwwwwwwww
+        wWwwwwwWwwwwwWww
         WWWWWWWWWWWWWWWW
         wwwWwwwwwwwwWwww
         wwwWwwwwwwwwWwww
-        wwwWwwwwwwwwWwww
+        wwwWwwWwwwwwWwww
         WWWWWWWWWWWWWWWW
         wwwwwwwWwwwwwwww
         wwwwwwwWwwwwwwww
-        wwwwwwwWwwwwwwww
+        wWwwwwwWwwwwwWww
         WWWWWWWWWWWWWWWW
         wwwWwwwwwwwwWwww
         wwwWwwwwwwwwWwww
-        wwwWwwwwwwwwWwww
+        wwwWwwWwwwwwWwww
         WWWWWWWWWWWWWWWW
     `),
     stoneFloor: grid(`
-        ssssssssSsssssss
-        ssssssssSsssssss
-        ssssssssSsssssss
+        ssssSssssssSssss
+        sssSSssssssSSsss
+        ssssSssssssSssss
         SSSSSSSSSSSSSSSS
-        ssssSsssssssSsss
-        ssssSsssssssSsss
-        ssssSsssssssSsss
+        sSssssssSsssssss
+        SSsssssSSsssssss
+        sSssssssSsssssss
         SSSSSSSSSSSSSSSS
-        ssssssssSsssssss
-        ssssssssSsssssss
-        ssssssssSsssssss
+        ssssSssssssSssss
+        sssSSssssssSSsss
+        ssssSssssssSssss
         SSSSSSSSSSSSSSSS
-        ssssSsssssssSsss
-        ssssSsssssssSsss
-        ssssSsssssssSsss
+        sSssssssSsssssss
+        SSsssssSSsssssss
+        sSssssssSsssssss
         SSSSSSSSSSSSSSSS
     `),
     roof: grid(`
         oooooooooooooooo
-        rrrrrrrrrrrrrrrr
+        RRRRRRRRRRRRRRRR
+        rrrrRrrrrRrrrrRr
+        rrrrRrrrrRrrrrRr
+        RRRRRRRRRRRRRRRR
         rRrrrrRrrrrRrrrr
-        rrrrrrrrrrrrrrrr
-        RRRRRRRRRRRRRRRR
-        rrrrrrrrrrrrrrrr
-        rrrRrrrrRrrrrRrr
-        rrrrrrrrrrrrrrrr
-        RRRRRRRRRRRRRRRR
-        rrrrrrrrrrrrrrrr
         rRrrrrRrrrrRrrrr
-        rrrrrrrrrrrrrrrr
         RRRRRRRRRRRRRRRR
-        rrrrrrrrrrrrrrrr
+        rrrrRrrrrRrrrrRr
+        rrrrRrrrrRrrrrRr
+        RRRRRRRRRRRRRRRR
+        rRrrrrRrrrrRrrrr
+        rRrrrrRrrrrRrrrr
         RRRRRRRRRRRRRRRR
         oooooooooooooooo
+        SSSSSSSSSSSSSSSS
     `),
     roofDark: grid(`
         oooooooooooooooo
-        RRRRRRRRRRRRRRRR
+        SSSSSSSSSSSSSSSS
+        RRRRSRRRRSRRRRSR
+        RRRRSRRRRSRRRRSR
+        SSSSSSSSSSSSSSSS
         RSRRRRSRRRRSRRRR
-        RRRRRRRRRRRRRRRR
-        SSSSSSSSSSSSSSSS
-        RRRRRRRRRRRRRRRR
-        RRRSRRRRSRRRRSRR
-        RRRRRRRRRRRRRRRR
-        SSSSSSSSSSSSSSSS
-        RRRRRRRRRRRRRRRR
         RSRRRRSRRRRSRRRR
-        RRRRRRRRRRRRRRRR
         SSSSSSSSSSSSSSSS
-        RRRRRRRRRRRRRRRR
+        RRRRSRRRRSRRRRSR
+        RRRRSRRRRSRRRRSR
+        SSSSSSSSSSSSSSSS
+        RSRRRRSRRRRSRRRR
+        RSRRRRSRRRRSRRRR
         SSSSSSSSSSSSSSSS
         oooooooooooooooo
+        SSSSSSSSSSSSSSSS
     `),
     wall: grid(`
-        ssssssssssssssss
-        sSssssssSsssssss
-        ssssssssssssssss
         SSSSSSSSSSSSSSSS
-        ssssSsssssssSsss
-        ssssssssssssssss
+        ssssssssSsssssss
+        ssssssssSsssssss
         SSSSSSSSSSSSSSSS
-        sSssssssSsssssss
-        ssssssssssssssss
+        sssSsssssssssSss
+        sssSsssssssssSss
         SSSSSSSSSSSSSSSS
-        ssssSsssssssSsss
-        ssssssssssssssss
+        ssssssssSsssssss
+        ssssssssSsssssss
         SSSSSSSSSSSSSSSS
-        sSssssssSsssssss
-        ssssssssssssssss
+        sssSsssssssssSss
+        sssSsssssssssSss
+        SSSSSSSSSSSSSSSS
+        SSSSSSSSSSSSSSSS
+        oooooooooooooooo
         oooooooooooooooo
     `),
     wallSide: grid(`
-        ssssssssssssssss
-        sSssssssSsssssss
-        ssssssssssssssss
-        SSSSSSSSSSSSSSSS
-        ssssSsssssssSsss
-        ssssssssssssssss
-        SSSSSSSSSSSSSSSS
-        sSssssssSsssssss
-        ssssssssssssssss
-        SSSSSSSSSSSSSSSS
-        ssssSsssssssSsss
-        ssssssssssssssss
-        SSSSSSSSSSSSSSSS
-        sSssssssSsssssss
-        ssssssssssssssss
-        SSSSSSSSSSSSSSSS
+        oSSSSSSSSSSSSSSo
+        ossssssssSssssso
+        ossssssssSssssso
+        oSSSSSSSSSSSSSSo
+        osssSsssssssssSo
+        osssSsssssssssSo
+        oSSSSSSSSSSSSSSo
+        ossssssssSssssso
+        ossssssssSssssso
+        oSSSSSSSSSSSSSSo
+        osssSsssssssssSo
+        osssSsssssssssSo
+        oSSSSSSSSSSSSSSo
+        ossssssssSssssso
+        ossssssssSssssso
+        oSSSSSSSSSSSSSSo
+    `),
+    // Timber frame: dark beams over pale plaster.
+    wallTimber: grid(`
+        tttttttttttttttt
+        tppppppptppppppt
+        tppppppptppppppt
+        tppppppptppppppt
+        tttttttttttttttt
+        tpppptppppptpppt
+        tpppptppppptpppt
+        tpppptppppptpppt
+        tttttttttttttttt
+        tppppppptppppppt
+        tppppppptppppppt
+        tppppppptppppppt
+        tttttttttttttttt
+        tttttttttttttttt
+        oooooooooooooooo
+        oooooooooooooooo
+    `),
+    wallSideTimber: grid(`
+        otttttttttttttto
+        otppppppptpppppo
+        otppppppptpppppo
+        otttttttttttttto
+        otpppptppppptppo
+        otpppptppppptppo
+        otttttttttttttto
+        otppppppptpppppo
+        otppppppptpppppo
+        otttttttttttttto
+        otpppptppppptppo
+        otpppptppppptppo
+        otttttttttttttto
+        otppppppptpppppo
+        otppppppptpppppo
+        otttttttttttttto
+    `),
+    // Brick: warm courses with pale mortar.
+    wallBrick: grid(`
+        EEEEEEEEEEEEEEEE
+        eeeeeeeEeeeeeeeE
+        eeeeeeeEeeeeeeeE
+        EEEEEEEEEEEEEEEE
+        eeeEeeeeeeeEeeee
+        eeeEeeeeeeeEeeee
+        EEEEEEEEEEEEEEEE
+        eeeeeeeEeeeeeeeE
+        eeeeeeeEeeeeeeeE
+        EEEEEEEEEEEEEEEE
+        eeeEeeeeeeeEeeee
+        eeeEeeeeeeeEeeee
+        EEEEEEEEEEEEEEEE
+        EEEEEEEEEEEEEEEE
+        oooooooooooooooo
+        oooooooooooooooo
+    `),
+    wallSideBrick: grid(`
+        oEEEEEEEEEEEEEEo
+        oeeeeeeeEeeeeeeo
+        oeeeeeeeEeeeeeeo
+        oEEEEEEEEEEEEEEo
+        oeeeEeeeeeeeEeeo
+        oeeeEeeeeeeeEeeo
+        oEEEEEEEEEEEEEEo
+        oeeeeeeeEeeeeeeo
+        oeeeeeeeEeeeeeeo
+        oEEEEEEEEEEEEEEo
+        oeeeEeeeeeeeEeeo
+        oeeeEeeeeeeeEeeo
+        oEEEEEEEEEEEEEEo
+        oeeeeeeeEeeeeeeo
+        oeeeeeeeEeeeeeeo
+        oEEEEEEEEEEEEEEo
     `),
     windowDark: grid(`
-        ssssssssssssssss
-        sSssssssSsssssss
-        sssoooooooooosss
-        sssokkkkkkkkosss
-        sssokkkkkkkkosss
-        sssokkkkokkkosss
-        sssoooooooooosss
-        sssokkkkkkkkosss
-        sssokkkkkkkkosss
-        sssokkkkkkkkosss
-        sssoooooooooosss
-        ssssssssssssssss
         SSSSSSSSSSSSSSSS
-        sSssssssSsssssss
-        ssssssssssssssss
+        ssssssssSsssssss
+        ssooooooooooooss
+        ssokkkkkokkkkoss
+        ssokkkkkokkkkoss
+        ssokkkkkokkkkoss
+        ssooooooooooooss
+        ssokkkkkokkkkoss
+        ssokkkkkokkkkoss
+        ssokkkkkokkkkoss
+        ssooooooooooooss
+        sSSSSSSSSSSSSSSs
+        SSSSSSSSSSSSSSSS
+        SSSSSSSSSSSSSSSS
+        oooooooooooooooo
         oooooooooooooooo
     `),
     windowLit: grid(`
-        ssssssssssssssss
-        sSssssssSsssssss
-        sssoooooooooosss
-        sssoyyyyyyyyosss
-        sssoyYyyyyyyosss
-        sssoyyyyoyyyosss
-        sssoooooooooosss
-        sssoyyyyyyyyosss
-        sssoyyyyyyyyosss
-        sssoyyyyyyyyosss
-        sssoooooooooosss
-        ssssssssssssssss
         SSSSSSSSSSSSSSSS
-        sSssssssSsssssss
-        ssssssssssssssss
+        ssssssssSsssssss
+        ssooooooooooooss
+        ssoyyyyyoyyyyoss
+        ssoyYyyyoyyYyoss
+        ssoyyyyyoyyyyoss
+        ssooooooooooooss
+        ssoyyyyyoyyyyoss
+        ssoyyyyyoyyyyoss
+        ssoyyyyyoyyyyoss
+        ssooooooooooooss
+        sSSSSSSSSSSSSSSs
+        SSSSSSSSSSSSSSSS
+        SSSSSSSSSSSSSSSS
+        oooooooooooooooo
         oooooooooooooooo
     `),
     boarded: grid(`
-        ssssssssssssssss
-        sSssssssSsssssss
-        sssoooooooooosss
-        sssokkkkkkkkosss
-        sssWWWkkkkkkosss
-        sssokkWWWkkkosss
-        sssokkkkkWWWosss
-        sssokkkkkkkWWWss
-        sssWWWkkkkkkosss
-        sssokkWWWkkkosss
-        sssoooooWWWoosss
-        ssssssssssssssss
         SSSSSSSSSSSSSSSS
-        sSssssssSsssssss
-        ssssssssssssssss
+        ssssssssSsssssss
+        ssooooooooooooss
+        ssokkkkkkkkkkoss
+        ssWWWkkkkkkkkoss
+        ssokkWWWkkkkkoss
+        ssokkkkkWWWkkoss
+        ssokkkkkkkkWWWss
+        ssWWWkkkkkkkkoss
+        ssokkWWWkkkkkoss
+        ssoooooWWWooooss
+        sSSSSSSSSSSSSSSs
+        SSSSSSSSSSSSSSSS
+        SSSSSSSSSSSSSSSS
+        oooooooooooooooo
         oooooooooooooooo
     `),
     door: grid(`
-        ssssssssssssssss
-        sSssssssSsssssss
-        ssssoooooooossss
-        sssoWWWWWWWWosss
-        sssoWwWWWWwWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWmWWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWWWWosss
-        sssoWWWWWWWWosss
+        SSSSSSSSSSSSSSSS
+        sssssooooooossss
+        ssssoWWWWWWWosss
+        sssoWwWWWWWwWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWmWWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWWWWoss
+        sssoWWWWWWWWWoss
+        oooWWWWWWWWWWooo
         oooooooooooooooo
     `),
     scaffold: grid(`
@@ -594,6 +715,384 @@ export const TILES = {
         ......ottto.....
         ......ooooo.....
         ................
+    `),
+    bookshelf: grid(`
+        oooooooooooooooo
+        oWWWWWWWWWWWWWWo
+        oWbkbrbkbybkbrWo
+        oWbkbrbkbybkbrWo
+        oWbkbrbkbybkbrWo
+        oWWWWWWWWWWWWWWo
+        oWrbkbybrbkbybWo
+        oWrbkbybrbkbybWo
+        oWrbkbybrbkbybWo
+        oWWWWWWWWWWWWWWo
+        oWkbybrbkbybrbWo
+        oWkbybrbkbybrbWo
+        oWkbybrbkbybrbWo
+        oWWWWWWWWWWWWWWo
+        oooooooooooooooo
+        ................
+    `),
+    painting: grid(`
+        ................
+        ....oooooooo....
+        ...oggggggggo...
+        ...oggggggggo...
+        ...oggGGGGggo...
+        ...oggGllGggo...
+        ...ogggGGgggo...
+        ...oggggggggo...
+        ...oggGGGGggo...
+        ...oggggggggo...
+        ....oooooooo....
+        ................
+        ................
+        ................
+        ................
+        ................
+    `),
+    rugRed: grid(`
+        hhhhhhhhhhhhhhhh
+        hHHHHHHHHHHHHHHh
+        hHhhhhhhhhhhhhHh
+        hHhyyhhhhhhyyhHh
+        hHhyyhhhhhhyyhHh
+        hHhhhhhhhhhhhhHh
+        hHhhhhhyyhhhhhHh
+        hHhhhhhyyhhhhhHh
+        hHhhhhhyyhhhhhHh
+        hHhhhhhyyhhhhhHh
+        hHhhhhhhhhhhhhHh
+        hHhyyhhhhhhyyhHh
+        hHhyyhhhhhhyyhHh
+        hHhhhhhhhhhhhhHh
+        hHHHHHHHHHHHHHHh
+        hhhhhhhhhhhhhhhh
+    `),
+    rugBlue: grid(`
+        bbbbbbbbbbbbbbbb
+        bBBBBBBBBBBBBBBb
+        bBbbbbbbbbbbbbBb
+        bBbppbbbbbbppbBb
+        bBbppbbbbbbppbBb
+        bBbbbbbbbbbbbbBb
+        bBbbbbbppbbbbbBb
+        bBbbbbbppbbbbbBb
+        bBbbbbbppbbbbbBb
+        bBbbbbbppbbbbbBb
+        bBbbbbbbbbbbbbBb
+        bBbppbbbbbbppbBb
+        bBbppbbbbbbppbBb
+        bBbbbbbbbbbbbbBb
+        bBBBBBBBBBBBBBBb
+        bbbbbbbbbbbbbbbb
+    `),
+    plant: grid(`
+        ................
+        ......ooo.......
+        ....oollloo.....
+        ...olllLllllo...
+        ...oLllllllLo...
+        ..olllLlllLlllo.
+        ..olLlllllllLlo.
+        ...oLlllLlllLo..
+        ....oollllloo...
+        ......oooo......
+        .....oWWWWo.....
+        .....oWwwWo.....
+        .....oWWWWo.....
+        ......oWWo......
+        ......oooo......
+        ................
+    `),
+    crate: grid(`
+        ................
+        ................
+        ................
+        ..oooooooooooo..
+        ..oWwwwwwwwwWo..
+        ..oWWWWWWWWWWo..
+        ..oWwwwwwwwwWo..
+        ..oWwWwwwwWwWo..
+        ..oWwwWwwWwwWo..
+        ..oWwwwWWwwwWo..
+        ..oWwwWwwWwwWo..
+        ..oWwWwwwwWwWo..
+        ..oWwwwwwwwwWo..
+        ..oWWWWWWWWWWo..
+        ..oooooooooooo..
+        ................
+    `),
+    barrel: grid(`
+        ................
+        ................
+        .....oooooo.....
+        ....oWWWWWWo....
+        ...oWwwwwwwWo...
+        ...oMMMMMMMMo...
+        ...oWwwwwwwWo...
+        ...oWwwwwwwWo...
+        ...oWwwwwwwWo...
+        ...oMMMMMMMMo...
+        ...oWwwwwwwWo...
+        ...oWwwwwwwWo...
+        ....oWWWWWWo....
+        .....oooooo.....
+        ................
+        ................
+    `),
+    table: grid(`
+        ................
+        ................
+        ......oo........
+        .....oPpo.......
+        .....oppo...oo..
+        .....oooo..oPpo.
+        ...........oppo.
+        ...oooooooooooo.
+        ..owwwwwwwwwwwwo
+        ..oWWWWWWWWWWWWo
+        ..oooooooooooooo
+        ....oWo....oWo..
+        ....oWo....oWo..
+        ....oWo....oWo..
+        ....ooo....ooo..
+        ................
+    `),
+    fireplaceA: grid(`
+        oooooooooooooooo
+        oSssSssSssSssSso
+        osssssssssssssso
+        osooooooooooooso
+        osokkkkkkkkkkoso
+        osokkkyykkkkkoso
+        osokkyYyykkykoso
+        osokkyYYykyyyoso
+        osokyyYYyyyYyoso
+        osokyYYYYYyyyoso
+        osoyyYYYYYYyyoso
+        osoWWWWWWWWWWoso
+        osssssssssssssso
+        oSssSssSssSssSso
+        oooooooooooooooo
+        ................
+    `),
+    fireplaceB: grid(`
+        oooooooooooooooo
+        oSssSssSssSssSso
+        osssssssssssssso
+        osooooooooooooso
+        osokkkkkkkkkkoso
+        osokkkkkyykkkoso
+        osokkykyYyykkoso
+        osokyyykYYyykoso
+        osokyYyyYYYyyoso
+        osoyyYYYYYYyyoso
+        osoyYYYYYYYYyoso
+        osoWWWWWWWWWWoso
+        osssssssssssssso
+        oSssSssSssSssSso
+        oooooooooooooooo
+        ................
+    `),
+    fountainA: grid(`
+        ................
+        .......cc.......
+        ......cCCc......
+        .......cc.......
+        ....ooooooo.....
+        ...oSmmmmmmSo...
+        ..oSccccccccSo..
+        ..occCccccCcco..
+        ..occcccccccco..
+        ..oSccCccCccSo..
+        ..oSSccccccSSo..
+        ...oSSSSSSSSo...
+        ....oooooooo....
+        ................
+        ................
+        ................
+    `),
+    fountainB: grid(`
+        ................
+        ......c..c......
+        .......cc.......
+        ......cCCc......
+        ....ooooooo.....
+        ...oSmmmmmmSo...
+        ..oSccccccccSo..
+        ..occcCccCccco..
+        ..ocCccccccCco..
+        ..oSccccccccSo..
+        ..oSSccCccCSSo..
+        ...oSSSSSSSSo...
+        ....oooooooo....
+        ................
+        ................
+        ................
+    `),
+    flowerbed: grid(`
+        ................
+        ................
+        ................
+        ................
+        ..oooooooooooo..
+        .oWlflflflflfWo.
+        .oWflflflflflWo.
+        .oWlflflflflfWo.
+        .oWWWWWWWWWWWWo.
+        ..oooooooooooo..
+        ................
+        ................
+        ................
+        ................
+        ................
+        ................
+    `),
+    fence: grid(`
+        ................
+        ................
+        ................
+        ................
+        ................
+        ..t..........t..
+        .ttt........ttt.
+        ..t..........t..
+        tttttttttttttttt
+        ..t..........t..
+        ..t..........t..
+        tttttttttttttttt
+        ..t..........t..
+        ..t..........t..
+        ................
+        ................
+    `),
+    well: grid(`
+        ......oooo......
+        .....oWWWWo.....
+        ....oWwwwwWo....
+        ...oWWWWWWWWo...
+        ...o.oWooWo.o...
+        ...o.o....o.o...
+        ...o.o....o.o...
+        ..oooooooooooo..
+        ..oSsSsSsSsSso..
+        ..osSsSsSsSsSo..
+        ..oSsSsSsSsSso..
+        ..osSsSsSsSsSo..
+        ..oooooooooooo..
+        ................
+        ................
+        ................
+    `),
+    bench: grid(`
+        ................
+        ................
+        ................
+        ................
+        ................
+        .oooooooooooooo.
+        .oWwwwwwwwwwwWo.
+        .oWWWWWWWWWWWWo.
+        .oooooooooooooo.
+        ..oWo......oWo..
+        ..oWo......oWo..
+        ..ooo......ooo..
+        ................
+        ................
+        ................
+        ................
+    `),
+    brazier: grid(`
+        ................
+        ......yYy.......
+        .....yYYYy......
+        .....yYyYy......
+        ......yyy.......
+        .....oooooo.....
+        ....oMMMMMMo....
+        ....oMmmmmMo....
+        .....oMMMMo.....
+        ......oMMo......
+        ......oMMo......
+        ......oMMo......
+        .....oMMMMo.....
+        ....oMMMMMMo....
+        ....oooooooo....
+        ................
+    `),
+    carpet: grid(`
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhyhhhhhhhhhhyhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhyyhhhhhhh
+        hhhhhhhyyhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+        hhyhhhhhhhhhhyhh
+        hhhhhhhhhhhhhhhh
+        hhhhhhhhhhhhhhhh
+    `),
+    longTable: grid(`
+        ................
+        ................
+        ................
+        ................
+        ................
+        ................
+        oooooooooooooooo
+        owwwwwwwwwwwwwwo
+        oWWWWWWWWWWWWWWo
+        oooooooooooooooo
+        .oWo........oWo.
+        .oWo........oWo.
+        .oWo........oWo.
+        .ooo........ooo.
+        ................
+        ................
+    `),
+    tree2: grid(`
+        .......oo.......
+        ......oLLo......
+        .....olllLo.....
+        ....olllllLo....
+        ...ollLlllllo...
+        ..olllllLlllLo..
+        .ollLlllllllLLo.
+        ..ooollllLoooo..
+        ....olllllLo....
+        ...olLllllllo...
+        ..olllllLlllLo..
+        .oLLLLLLLLLLLLo.
+        ..ooooottoooo...
+        .......tt.......
+        ......oooo......
+        ................
+    `),
+    dummy: grid(`
+        ......oooo......
+        .....oPppPo.....
+        .....oPppPo.....
+        ......oooo......
+        ...oooWWWWooo...
+        ..oWWWWWWWWWWo..
+        ..oWWWWWWWWWWo..
+        ...oooWWWWooo...
+        .....oWWWWo.....
+        .....oWWWWo.....
+        ......oWWo......
+        ......oWWo......
+        ......oWWo......
+        .....oWWWWo.....
+        ....oWWWWWWo....
+        ....oooooooo....
     `),
 } satisfies Record<string, Grid>;
 

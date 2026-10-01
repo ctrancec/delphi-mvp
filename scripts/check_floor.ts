@@ -13,6 +13,9 @@
 import { deriveFloor, DONE_WINDOW_MS, readFloor, STUCK_WINDOW_MS, type FloorInput } from '../src/lib/delphi/floor';
 import { DELPHI_SLUG, type Db } from '../src/lib/delphi/db';
 import { CELL_H, CENTRE_H, columnsFor, DECOR_CAP, layoutWorld } from '../src/lib/pixel/world-layout';
+import { doorOf, findPath, hangouts, isBlocked, routeBetween, walkability } from '../src/lib/pixel/world-path';
+import { frameCount } from '../src/lib/pixel/character';
+import { appearance, createLife, freeToRoam, stepLife, type Life } from '../src/lib/pixel/life';
 
 const G = '\x1b[32m', R = '\x1b[31m', D = '\x1b[2m', RS = '\x1b[0m';
 
@@ -229,7 +232,137 @@ console.log('\nThe map');
     ok(map.places['shuna'].where === 'desk' && map.places['shuna'].buildingId === 'news', 'a shared agent sits at one desk');
     const marketsDesks = map.buildings.find((b) => b.id === 'markets')!.desks;
     ok(marketsDesks.find((d) => d.agentId === 'shuna')?.occupied === false && marketsDesks.find((d) => d.agentId === 'beni')?.occupied === true, 'and a nameplate holds their other desk');
-    ok(map.buildings[0].rect.y === CENTRE_H + 1 && map.inn.rect.y === CENTRE_H + CELL_H, 'districts start under the centre; the inn under the districts');
+    ok(map.buildings[0].rect.y === CENTRE_H + 1 && map.inn.rect.y === CENTRE_H + CELL_H + 1, 'districts start under the centre; the inn a street below the districts');
+}
+
+console.log('\nOn foot');
+{
+    const floor = deriveFloor(base(), NOW);
+    for (const width of [13, 43]) {
+        const map = layoutWorld(floor, width);
+        const g = walkability(map);
+        const news = map.buildings.find((b) => b.id === 'news')!;
+        const desk = news.desks[0];
+        ok(isBlocked(g, desk.x, desk.y) && !isBlocked(g, desk.x, desk.y + 1), `a desk blocks and the tile in front of it does not (${width} wide)`);
+        ok(isBlocked(g, news.rect.x, news.rect.y + 3) && isBlocked(g, news.rect.x + 2, news.rect.y), 'walls and roofs block');
+        const door = doorOf(news.rect);
+        ok(!isBlocked(g, door.x, door.y) && isBlocked(g, door.x - 1, door.y), 'the door is the one open tile in the front wall');
+
+        const places = floor.agents.map((a) => map.places[a.id]);
+        let every = true;
+        let throughWalls = 0;
+        for (const from of places) {
+            for (const to of places) {
+                if (from === to) continue;
+                const path = findPath(g, from, to);
+                if (path.length === 0) every = false;
+                for (let i = 1; i < path.length; i++) {
+                    const step = Math.abs(path[i].x - path[i - 1].x) + Math.abs(path[i].y - path[i - 1].y);
+                    if (step !== 1 || isBlocked(g, path[i].x, path[i].y)) throughWalls++;
+                }
+            }
+        }
+        ok(every, 'everyone can walk to everyone else');
+        ok(throughWalls === 0, 'one tile at a time, never through a wall');
+
+        const shuna = map.places['shuna'];
+        const inn = map.inn.spots[0];
+        const path = findPath(g, shuna, inn);
+        const outDoor = doorOf(news.rect);
+        ok(path.some((p) => p.x === outDoor.x && p.y === outDoor.y), 'leaving a house goes through its door');
+        const route = routeBetween(g, shuna, inn);
+        ok(route[0] === shuna && route[route.length - 1] === inn && route.length < path.length + 2, 'a route keeps the exact ends and only the corners', `${route.length} corners for ${path.length} tiles`);
+        ok(hangouts(map, g).length > 3 && hangouts(map, g).every((h) => !isBlocked(g, h.x, h.y)), 'there are places to stroll to, all standable');
+    }
+    ok(frameCount('walk') === 2, 'a walk has two frames');
+}
+
+console.log('\nA life of their own');
+{
+    const TICK = 100;
+    const left = (life: Life, id: string) => { const w = life.walkers.get(id); return !!w && Math.abs(w.x - w.home.x) + Math.abs(w.y - w.home.y) > 0.5; };
+
+    // Everyone idle: people get up.
+    let floor = deriveFloor(base(), NOW);
+    let map = layoutWorld(floor, 43);
+    let life = createLife(map);
+    const went: Record<string, boolean> = {};
+    const did: Record<string, Set<string>> = {};
+    for (let t = 0; t < 240_000; t += TICK) {
+        stepLife(life, floor, map, t, TICK);
+        for (const [id, w] of life.walkers) {
+            if (left(life, id)) went[id] = true;
+            if (w.phase === 'doing' && w.activity) (did[id] ??= new Set()).add(w.activity.kind);
+        }
+    }
+    const roamers = floor.agents.filter(freeToRoam).map((a) => a.id);
+    ok(roamers.every((id) => went[id]), 'in four minutes every idle agent has been out', roamers.filter((id) => !went[id]).join(', ') || roamers.join(', '));
+    ok(Object.values(did).some((s) => s.size > 1), 'and done more than one kind of thing', [...new Set(Object.values(did).flatMap((s) => [...s]))].join(', '));
+    ok(Object.values(did).some((s) => s.has('chat')), 'including a chat between two of them');
+
+    // Determinism: the same town on the same clock does the same things.
+    const again = createLife(layoutWorld(floor, 43));
+    for (let t = 0; t < 120_000; t += TICK) stepLife(again, floor, again.layout, t, TICK);
+    const once = createLife(layoutWorld(floor, 43));
+    for (let t = 0; t < 120_000; t += TICK) stepLife(once, floor, once.layout, t, TICK);
+    ok([...again.walkers.values()].every((w) => { const o = once.walkers.get(w.id)!; return o.x === w.x && o.y === w.y && o.phase === w.phase; }), 'twice over, every position and phase matches');
+
+    // Nobody stands where someone else is doing something.
+    let shared = 0;
+    for (let t = 0; t < 180_000; t += TICK) {
+        stepLife(life, floor, map, 240_000 + t, TICK);
+        const spots = [...life.walkers.values()].filter((w) => w.phase === 'doing').map((w) => `${Math.round(w.x)},${Math.round(w.y)}`);
+        if (new Set(spots).size !== spots.length) shared++;
+    }
+    ok(shared === 0, 'no two people use the same spot at once');
+
+    // Work keeps you at your desk, and work arriving brings you back.
+    const input = base();
+    input.tasks = [{ id: 't1', project_id: 'p1', agent_id: 'shuna', status: 'running', title: 'Gather filings' }];
+    input.runs = [{ task_id: 't1', status: 'running', started_at: ago(60_000), finished_at: null }];
+    floor = deriveFloor(input, NOW);
+    map = layoutWorld(floor, 43);
+    life = createLife(map);
+    let moved = false;
+    for (let t = 0; t < 180_000; t += TICK) { stepLife(life, floor, map, t, TICK); if (left(life, 'shuna')) moved = true; }
+    ok(!moved, 'someone working never leaves their desk');
+
+    const idleFloor = deriveFloor(base(), NOW);
+    const idleMap = layoutWorld(idleFloor, 43);
+    life = createLife(idleMap);
+    let t = 0;
+    while (t < 240_000 && !left(life, 'shuna')) { stepLife(life, idleFloor, idleMap, t, TICK); t += TICK; }
+    ok(left(life, 'shuna'), 'an idle agent goes out', `after ${Math.round(t / 1000)}s`);
+    const workFloor = deriveFloor(input, NOW);
+    const workMap = layoutWorld(workFloor, 43);
+    const start = t;
+    const w = life.walkers.get('shuna')!;
+    while (t < start + 60_000 && w.phase !== 'home') { stepLife(life, workFloor, workMap, t, TICK); t += TICK; }
+    ok(!left(life, 'shuna') && w.activity === null && w.phase === 'home', 'and comes straight back when work arrives', `${Math.round((t - start) / 1000)}s on foot`);
+    let stayed = true;
+    for (let s = t; s < t + 60_000; s += TICK) { stepLife(life, workFloor, workMap, s, TICK); if (left(life, 'shuna')) stayed = false; }
+    ok(stayed, 'and stays put while the work lasts');
+
+    // A new hire walks from the inn to their desk.
+    const before = deriveFloor(base(), NOW);
+    const beforeMap = layoutWorld(before, 43);
+    life = createLife(beforeMap);
+    stepLife(life, before, beforeMap, 0, TICK);
+    const innSpot = { ...life.walkers.get('gobta')! };
+    const hired = base();
+    hired.hires.push({ department_id: 'news', agent_id: 'gobta', seq: 2 });
+    const afterFloor = deriveFloor(hired, NOW);
+    const afterMap = layoutWorld(afterFloor, 43);
+    stepLife(life, afterFloor, afterMap, 100, TICK);
+    const g = life.walkers.get('gobta')!;
+    ok(g.phase === 'moving' && g.path.length > 2 && Math.abs(g.x - innSpot.x) < 1, 'a new hire sets off from the inn for their desk, on foot');
+    let arrived = false;
+    for (let s = 200; s < 60_000 && !arrived; s += TICK) {
+        stepLife(life, afterFloor, afterMap, s, TICK);
+        arrived = g.phase === 'home' && Math.abs(g.x - afterMap.places['gobta'].x) < 0.01 && Math.abs(g.y - afterMap.places['gobta'].y) < 0.01;
+    }
+    ok(arrived, 'and arrives');
+    ok(appearance(g, 60_000).walking === false && appearance({ ...g, phase: 'going', leg: 0, path: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }, 0).pose === 'walk', 'appearance says walking only while on the move');
 }
 
 console.log('\nReading from a database');

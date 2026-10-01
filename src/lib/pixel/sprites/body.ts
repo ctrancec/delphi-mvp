@@ -371,6 +371,32 @@ const THINK: ArmLayer = {
     `),
 };
 
+// Walking: one arm swings forward and up, the other back and down.
+const WALK_A: ArmLayer = {
+    y: 14,
+    grid: grid(`
+        ................
+        ..oo........oo..
+        ..oc........co..
+        ..on........co..
+        ...o........Co..
+        ............no..
+        .............o..
+    `),
+};
+const WALK_B: ArmLayer = {
+    y: 14,
+    grid: grid(`
+        ................
+        ..oo........oo..
+        ..oc........co..
+        ..oc........no..
+        ..oC.........o..
+        ..on............
+        ...o............
+    `),
+};
+
 // Diablo's bow: a gloved hand on the heart.
 const BOW: ArmLayer = {
     y: 14,
@@ -385,7 +411,7 @@ const BOW: ArmLayer = {
     `),
 };
 
-export type Pose = 'stand' | 'idle' | 'type' | 'raise' | 'slump' | 'cheer' | 'sleep' | 'think' | 'bow';
+export type Pose = 'stand' | 'idle' | 'type' | 'raise' | 'slump' | 'cheer' | 'sleep' | 'think' | 'bow' | 'walk';
 
 export interface PoseFrame {
     arms: ArmLayer;
@@ -418,6 +444,8 @@ export const POSES: Record<Pose, readonly PoseFrame[]> = {
     sleep: [f(DOWN, 2, 'closed'), f(DOWN, 3, 'closed')],
     think: [f(THINK, 0), f(THINK, 1)],
     bow: [f(BOW, 0), f(BOW, 2, 'closed')],
+    // The bob lifts the body a row while the head holds, like the cheer.
+    walk: [f(WALK_A, 0), f(WALK_B, 1, 'open', -1)],
 };
 
 /** Where the right hand is when standing, for the character's own item. */
