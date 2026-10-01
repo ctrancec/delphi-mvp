@@ -61,7 +61,8 @@ const REVIEW_BADGE: Record<string, { label: string; tone: string }> = {
     superseded: { label: 'Replaced', tone: 'text-muted-foreground border-white/10' },
 };
 
-export function OutputCard({ record }: { record: OutputRecord }) {
+/** `selectable` leaves room on the left for the checkbox the selection layer places there. */
+export function OutputCard({ record, selectable = false }: { record: OutputRecord; selectable?: boolean }) {
     const { artifact, review, department, project, agent, task } = record;
     const verdict = REVIEW_BADGE[review.status];
     const meta = KIND_META[artifact.kind] ?? KIND_META.other;
@@ -71,9 +72,9 @@ export function OutputCard({ record }: { record: OutputRecord }) {
     const reading = readingTime(artifact.contentMd);
 
     return (
-        <Link href={`/dashboard/delphi/outputs/${artifact.id}`} className="group">
+        <Link href={`/dashboard/delphi/outputs/${artifact.id}`} className="group block h-full">
             <Card className="bg-black/40 border-white/10 hover:border-white/25 transition-colors h-full">
-                <CardContent className="pt-6 space-y-3">
+                <CardContent className={selectable ? 'pt-6 pl-12 space-y-3' : 'pt-6 space-y-3'}>
                     <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 space-y-1">
                             <h3 className="font-semibold leading-tight text-sm group-hover:text-white transition-colors line-clamp-2">

@@ -18,6 +18,7 @@ import { createClient, currentUser } from '@/lib/supabase/server';
 import { emitEvent, isMissingColumn, type Db } from './db';
 import { findWorkspace } from './bootstrap';
 import { sendTaskBack, undoSendBack } from './revision';
+import { checkBatch, chooseForReview, type BulkResult, type ReviewCandidate } from './bulk';
 
 export interface ReviewResult {
     ok: boolean;
@@ -157,4 +158,57 @@ export async function reviewOutputAction(
     revalidatePath('/dashboard/delphi/outputs');
     revalidatePath('/dashboard/delphi', 'layout');
     return { ok: true, escalatedTo };
+}
+
+/**
+ * The same verdict on several deliverables.
+ *
+ * Each goes through reviewOutputAction, so each is refused for exactly the
+ * reasons a single one would be. Sending back takes one reason for them all,
+ * and goes once per step: see chooseForReview. One at a time rather than
+ * concurrently, because every send-back queues a run, and the order they
+ * arrive in is the order they are picked up.
+ */
+export async function bulkReviewOutputsAction(
+    artifactIds: string[],
+    decision: 'approved' | 'declined',
+    note?: string
+): Promise<BulkResult & { escalatedTo?: string[] }> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error, done: 0, skipped: [] };
+
+    const batch = checkBatch(artifactIds);
+    if ('error' in batch) return { ok: false, error: batch.error, done: 0, skipped: [] };
+
+    if (decision === 'declined' && (note?.trim().length ?? 0) < 10) {
+        return { ok: false, error: 'Say what needs to change — the agents work from this.', done: 0, skipped: [] };
+    }
+
+    // `*` for the same reason as above: `deleted_at` may not exist yet.
+    const { data, error } = await c.db.from('delphi_artifacts').select('*').in('id', batch.ids);
+    if (error) return { ok: false, error: error.message, done: 0, skipped: [] };
+
+    const rows: ReviewCandidate[] = (data ?? []).map((r) => ({
+        id: r.id as string,
+        title: r.title as string,
+        taskId: (r.task_id as string | null) ?? null,
+        reviewStatus: (r.review_status as string) ?? 'pending',
+        deletedAt: (r.deleted_at as string | null) ?? null,
+        createdAt: r.created_at as string,
+    }));
+    const { act, skipped } = chooseForReview(rows, decision);
+
+    let done = 0;
+    const escalatedTo: string[] = [];
+    for (const r of act) {
+        const res = await reviewOutputAction(r.id, decision, note);
+        if (res.ok) {
+            done++;
+            if (res.escalatedTo) escalatedTo.push(res.escalatedTo);
+        } else {
+            skipped.push({ id: r.id, title: r.title, reason: res.error ?? 'it could not be changed' });
+        }
+    }
+
+    return { ok: true, done, skipped, escalatedTo: escalatedTo.length ? escalatedTo : undefined };
 }

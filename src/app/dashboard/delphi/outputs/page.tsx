@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
 import { markOutputsSeen } from '@/lib/delphi/unread';
 import { EmptyTrash, TrashRow } from '@/components/delphi/trash-panel';
+import { SelectableItem, SelectionProvider } from '@/components/delphi/output-selection';
 
 export const dynamic = 'force-dynamic';
 
@@ -238,33 +239,43 @@ export default async function OutputsPage({
                             </CardContent>
                         </Card>
                     ) : (
-                        trashed.map((r) => (
-                            <TrashRow
-                                key={r.artifact.id}
-                                item={{
-                                    id: r.artifact.id,
-                                    title: r.artifact.title,
-                                    kindLabel: (
-                                        KIND_META[r.artifact.kind as ArtifactKind] ?? KIND_META.other
-                                    ).label,
-                                    department: r.department?.title ?? null,
-                                    agent: r.agent?.title ?? null,
-                                    step: r.task?.seq ?? null,
-                                    deletedAt: r.deletedAt,
-                                }}
-                            />
-                        ))
+                        <SelectionProvider ids={trashed.map((r) => r.artifact.id)} mode="trash">
+                            <div className="space-y-3">
+                                {trashed.map((r) => (
+                                    <SelectableItem key={r.artifact.id} id={r.artifact.id} label={r.artifact.title}>
+                                        <TrashRow
+                                            selectable
+                                            item={{
+                                                id: r.artifact.id,
+                                                title: r.artifact.title,
+                                                kindLabel: (
+                                                    KIND_META[r.artifact.kind as ArtifactKind] ?? KIND_META.other
+                                                ).label,
+                                                department: r.department?.title ?? null,
+                                                agent: r.agent?.title ?? null,
+                                                step: r.task?.seq ?? null,
+                                                deletedAt: r.deletedAt,
+                                            }}
+                                        />
+                                    </SelectableItem>
+                                ))}
+                            </div>
+                        </SelectionProvider>
                     )}
                 </div>
             ) : visible.length === 0 ? (
                 <Empty filtered={isFiltered && all.length > 0} />
             ) : (
                 <>
-                    <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
-                        {visible.map((r) => (
-                            <OutputCard key={r.artifact.id} record={r} />
-                        ))}
-                    </div>
+                    <SelectionProvider ids={visible.map((r) => r.artifact.id)} mode="library">
+                        <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
+                            {visible.map((r) => (
+                                <SelectableItem key={r.artifact.id} id={r.artifact.id} label={r.artifact.title} intercept>
+                                    <OutputCard record={r} selectable />
+                                </SelectableItem>
+                            ))}
+                        </div>
+                    </SelectionProvider>
                     {all.length >= 500 && (
                         <p className="text-xs text-muted-foreground text-center">
                             Showing the most recent 500 outputs.

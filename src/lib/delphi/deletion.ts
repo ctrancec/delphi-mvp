@@ -236,6 +236,81 @@ export async function purgeArtifact(
 }
 
 /**
+ * Destroy several trashed deliverables, behind their count typed back.
+ *
+ * The same confirmation as emptying the trash, for a chosen part of it — and
+ * the same order of acts as destroying one: anything selected that is not in
+ * the trash refuses the whole batch rather than being quietly skipped, since
+ * destroying the rest would leave the CHO unsure what they had just lost.
+ */
+export async function purgeArtifacts(
+    db: Db,
+    workspaceId: string,
+    ids: string[],
+    typedCount: string
+): Promise<TrashResult & { purged?: number }> {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return { ok: false, error: 'Nothing is selected.' };
+
+    // `*` for the same reason as purgeArtifact: before migration 0006 there is
+    // no `deleted_at` to name, and every row then reads as not in the trash.
+    const { data, error: readErr } = await db
+        .from('delphi_artifacts')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .in('id', unique);
+    if (readErr) {
+        return { ok: false, error: isMissingColumn(readErr) ? MIGRATION_NEEDED : readErr.message };
+    }
+
+    const rows = (data ?? []) as { id: string; title: string; storage_path: string | null; deleted_at?: string | null }[];
+    if (!rows.length) return { ok: false, error: 'Those deliverables no longer exist.' };
+
+    const live = rows.filter((r) => !r.deleted_at);
+    if (live.length) {
+        return {
+            ok: false,
+            error:
+                live.length === 1
+                    ? `"${live[0].title}" is not in the trash. Move it there first.`
+                    : `${live.length} of these are not in the trash. Move them there first.`,
+        };
+    }
+
+    if (typedCount.trim() !== String(rows.length)) {
+        return { ok: false, error: `Type ${rows.length} to confirm.` };
+    }
+
+    // The files first, as for one: a deleted row with an orphaned object left
+    // behind is a bill nobody can see and nothing can find.
+    const paths = rows.map((r) => r.storage_path).filter((p): p is string => Boolean(p));
+    if (paths.length) {
+        const { error: rmErr } = await db.storage.from(ARTIFACT_BUCKET).remove(paths);
+        if (rmErr) console.warn(`[delphi] could not remove ${paths.length} file(s): ${rmErr.message}`);
+    }
+
+    const { error } = await db
+        .from('delphi_artifacts')
+        .delete()
+        .in(
+            'id',
+            rows.map((r) => r.id)
+        );
+    if (error) return { ok: false, error: error.message };
+
+    await emitEvent(db, {
+        workspaceId,
+        type: 'output_reviewed',
+        actor: 'CHO',
+        verb: 'permanently deleted',
+        object: rows.length === 1 ? rows[0].title : `${rows.length} deliverables from the trash`,
+        payload: { purged: rows.length },
+    });
+
+    return { ok: true, purged: rows.length };
+}
+
+/**
  * Destroy everything in the trash.
  *
  * Confirmed by the count rather than a name, since there is no single title to

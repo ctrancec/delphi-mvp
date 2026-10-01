@@ -24,10 +24,12 @@ import {
     deletionImpact,
     emptyTrash,
     purgeArtifact,
+    purgeArtifacts,
     restoreArtifact,
     trashArtifact,
     MIGRATION_NEEDED,
 } from '../src/lib/delphi/deletion';
+import { checkBatch, chooseForReview, combineImpact, MAX_BULK } from '../src/lib/delphi/bulk';
 import { resolveUpstream } from '../src/lib/delphi/runtime';
 import { listOutputs } from '../src/lib/delphi/outputs';
 
@@ -276,6 +278,82 @@ const byId = (t: Rows, id: string) => artifactsOf(t).find((a) => a.id === id);
         const res = await emptyTrash(db, WS, '2');
         ok(res.ok && res.purged === 2, 'the right count empties it');
         ok(artifactsOf(t).length === 1, 'leaving only what was never in the trash', 'a2');
+    }
+
+    console.log('\nSeveral at once: the same rules, applied to each\n' + '─'.repeat(72));
+
+    {
+        const t = library();
+        const { db, removed } = fakeDb(t);
+
+        await trashArtifact(db, WS, ME, 'a2');
+        const mixed = await purgeArtifacts(db, WS, ['a2', 'a3'], '2');
+        ok(
+            !mixed.ok && /not in the trash/.test(mixed.error ?? '') && artifactsOf(t).length === 3,
+            'one selected item still in the library refuses the batch',
+            'nothing destroyed'
+        );
+
+        await trashArtifact(db, WS, ME, 'a3');
+        const miscount = await purgeArtifacts(db, WS, ['a2', 'a3'], '3');
+        ok(!miscount.ok && /Type 2/.test(miscount.error ?? ''), 'the count typed back must match the selection');
+
+        await trashArtifact(db, WS, ME, 'a1');
+        const res = await purgeArtifacts(db, WS, ['a2', 'a3'], '2');
+        ok(res.ok && res.purged === 2 && !byId(t, 'a2') && !byId(t, 'a3'), 'the selected are destroyed');
+        ok(Boolean(byId(t, 'a1')), 'and the rest of the trash is left alone', 'a1 stays');
+        ok(removed.includes('ws-1/a2.pdf'), 'with their stored files');
+    }
+    {
+        const row = (id: string, taskId: string | null, status: string, createdAt: string, deletedAt: string | null = null) => ({
+            id,
+            title: id,
+            taskId,
+            reviewStatus: status,
+            deletedAt,
+            createdAt,
+        });
+        const rows = [
+            row('v1', 't2', 'superseded', '2026-09-18T10:00:00Z'),
+            row('old', 't3', 'pending', '2026-09-18T11:00:00Z'),
+            row('new', 't3', 'pending', '2026-09-19T11:00:00Z'),
+            row('done', 't4', 'approved', '2026-09-19T12:00:00Z'),
+            row('gone', 't1', 'pending', '2026-09-19T13:00:00Z', '2026-09-20T00:00:00Z'),
+            row('loose', null, 'pending', '2026-09-19T14:00:00Z'),
+        ];
+
+        const back = chooseForReview(rows, 'declined');
+        const why = (id: string) => back.skipped.find((s) => s.id === id)?.reason ?? '';
+        ok(
+            back.act.map((r) => r.id).sort().join(',') === 'done,new',
+            'sending back goes once per step, its newest version',
+            'two refusals would hand it to a new agent'
+        );
+        ok(/newer version of the same step/.test(why('old')), 'the older version of that step is named and left out');
+        ok(
+            /replaced/.test(why('v1')) && /trash/.test(why('gone')) && /no step/.test(why('loose')),
+            'replaced, trashed and step-less ones are named, not touched'
+        );
+
+        const accepted = chooseForReview(rows, 'approved');
+        ok(accepted.act.map((r) => r.id).sort().join(',') === 'loose,new,old', 'accepting takes every live version');
+        ok(/already accepted/.test(accepted.skipped.find((s) => s.id === 'done')?.reason ?? ''), 'and leaves one already accepted as it is');
+    }
+    {
+        const impact = combineImpact([
+            { title: 'a', dependants: [{ seq: 3, title: 'Write' }, { seq: 4, title: 'Audit' }], onlyVersion: true, hasFile: true, reviewStatus: 'approved' },
+            { title: 'b', dependants: [{ seq: 4, title: 'Audit' }], onlyVersion: false, hasFile: false, reviewStatus: 'pending' },
+        ]);
+        ok(
+            impact.count === 2 && impact.dependants.map((d) => d.seq).join(',') === '3,4',
+            'later steps are counted once across the batch',
+            'steps 3 and 4'
+        );
+        ok(impact.onlyVersions === 1 && impact.files === 1 && impact.accepted === 1, 'and so are last versions, files and accepted ones');
+
+        const big = checkBatch(Array.from({ length: MAX_BULK + 1 }, (_, i) => `x${i}`));
+        const dup = checkBatch(['a', 'a', 'b']);
+        ok('error' in big && 'ids' in dup && dup.ids.length === 2, `at most ${MAX_BULK} at a time, each once`);
     }
 
     console.log('\nThe guard: a step whose input is gone must stop\n' + '─'.repeat(72));

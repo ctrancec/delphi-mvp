@@ -22,13 +22,22 @@ import {
     deletionImpact,
     emptyTrash,
     purgeArtifact,
+    purgeArtifacts,
     restoreArtifact,
     trashArtifact,
     type DeletionImpact,
     type TrashResult,
 } from './deletion';
+import {
+    checkBatch,
+    combineImpact,
+    eachLimited,
+    type BulkResult,
+    type BulkSkip,
+    type CombinedImpact,
+} from './bulk';
 
-export type { DeletionImpact, TrashResult };
+export type { BulkResult, CombinedImpact, DeletionImpact, TrashResult };
 
 const ctx = cache(async function ctx(): Promise<
     { db: Db; workspaceId: string; userId: string } | { error: string }
@@ -92,6 +101,83 @@ export async function purgeOutputAction(
     if ('error' in c) return { ok: false, error: c.error };
 
     const res = await purgeArtifact(c.db, c.workspaceId, artifactId, typedTitle);
+    if (res.ok) refreshLibrary();
+    return res;
+}
+
+// ---------------------------------------------------------------------------
+// Several at once. Each item goes through the same function as a single one,
+// so a bulk action refuses exactly what a single one would.
+// ---------------------------------------------------------------------------
+
+/** Titles for the selected ids, so a skipped item can be named. */
+async function titlesOf(db: Db, ids: string[]): Promise<Map<string, string>> {
+    const { data } = await db.from('delphi_artifacts').select('id, title').in('id', ids);
+    return new Map((data ?? []).map((r) => [r.id as string, r.title as string]));
+}
+
+/** Run one item's action for each, and account for every one that did not go. */
+async function forEach(
+    db: Db,
+    ids: string[],
+    act: (id: string) => Promise<TrashResult>
+): Promise<BulkResult> {
+    const titles = await titlesOf(db, ids);
+    const results = await eachLimited(ids, async (id) => ({ id, res: await act(id) }));
+    const skipped: BulkSkip[] = results
+        .filter((r) => !r.res.ok)
+        .map((r) => ({ id: r.id, title: titles.get(r.id) ?? 'A deliverable', reason: r.res.error ?? 'it could not be changed' }));
+    return { ok: true, done: results.length - skipped.length, skipped };
+}
+
+/** What deleting the selected would touch, counted together. */
+export async function bulkDeletionImpactAction(
+    ids: string[]
+): Promise<{ ok: boolean; error?: string; data?: CombinedImpact }> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error };
+    const batch = checkBatch(ids);
+    if ('error' in batch) return { ok: false, error: batch.error };
+
+    const impacts = await eachLimited(batch.ids, (id) => deletionImpact(c.db, id));
+    return { ok: true, data: combineImpact(impacts.filter((i): i is DeletionImpact => Boolean(i))) };
+}
+
+/** Move the selected to the trash. Reversible, one by one or together. */
+export async function bulkDeleteOutputsAction(ids: string[]): Promise<BulkResult> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error, done: 0, skipped: [] };
+    const batch = checkBatch(ids);
+    if ('error' in batch) return { ok: false, error: batch.error, done: 0, skipped: [] };
+
+    const res = await forEach(c.db, batch.ids, (id) => trashArtifact(c.db, c.workspaceId, c.userId, id));
+    if (res.done) refreshLibrary();
+    return res;
+}
+
+/** Put the selected back. */
+export async function bulkRestoreOutputsAction(ids: string[]): Promise<BulkResult> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error, done: 0, skipped: [] };
+    const batch = checkBatch(ids);
+    if ('error' in batch) return { ok: false, error: batch.error, done: 0, skipped: [] };
+
+    const res = await forEach(c.db, batch.ids, (id) => restoreArtifact(c.db, c.workspaceId, id));
+    if (res.done) refreshLibrary();
+    return res;
+}
+
+/** Destroy the selected, behind their count typed back. */
+export async function bulkPurgeOutputsAction(
+    ids: string[],
+    typedCount: string
+): Promise<TrashResult & { purged?: number }> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error };
+    const batch = checkBatch(ids);
+    if ('error' in batch) return { ok: false, error: batch.error };
+
+    const res = await purgeArtifacts(c.db, c.workspaceId, batch.ids, typedCount);
     if (res.ok) refreshLibrary();
     return res;
 }

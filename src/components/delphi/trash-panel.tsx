@@ -39,7 +39,8 @@ export interface TrashedItem {
     deletedAt: string | null;
 }
 
-export function TrashRow({ item }: { item: TrashedItem }) {
+/** `selectable` leaves room on the left for the checkbox the selection layer places there. */
+export function TrashRow({ item, selectable = false }: { item: TrashedItem; selectable?: boolean }) {
     const router = useRouter();
     const [confirming, setConfirming] = useState(false);
     const [typed, setTyped] = useState('');
@@ -57,7 +58,7 @@ export function TrashRow({ item }: { item: TrashedItem }) {
 
     return (
         <Card className="border-white/10 bg-black/40">
-            <CardContent className="space-y-3 py-4">
+            <CardContent className={selectable ? 'space-y-3 py-4 pl-12' : 'space-y-3 py-4'}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 space-y-0.5">
                         <Link
