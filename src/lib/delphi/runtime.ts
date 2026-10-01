@@ -507,7 +507,31 @@ export type StepOutcome =
               | 'model_quota'
               | 'out_of_hours';
       }
-    | { status: 'idle'; reason: 'no_pending_tasks' };
+    | { status: 'idle'; reason: 'no_pending_tasks' | 'waiting_on_upstream' | 'claimed_elsewhere' };
+
+/** Where a step's dependants may go on: it finished, it failed, or the CHO declined its action. */
+const SETTLED = new Set(['done', 'failed', 'skipped']);
+
+/**
+ * The pending step whose turn it is: the lowest whose upstream has settled.
+ *
+ * A step whose upstream is still running, or parked for the CHO, waits. Run
+ * early, it either finds nothing to work from and fails a perfectly healthy
+ * project, or builds on output the CHO has not yet approved — the artifact
+ * exists before the approval does. A missing upstream is left to
+ * resolveUpstream, which names the hole.
+ */
+export function firstRunnable<T extends { depends_on?: string | null }>(
+    pending: T[],
+    upstreamStatus: Map<string, string>
+): T | null {
+    return (
+        pending.find((t) => {
+            const dep = t.depends_on ?? null;
+            return !dep || !upstreamStatus.has(dep) || SETTLED.has(upstreamStatus.get(dep)!);
+        }) ?? null
+    );
+}
 
 /**
  * Fail out tasks whose run died mid-flight.
@@ -761,14 +785,29 @@ export async function runNextTask(
         return { status: 'halted', reason: 'budget' };
     }
 
-    const { data: task } = await db
+    const { data: pending } = await db
         .from('delphi_tasks')
         .select('*, agent:delphi_agents(*)')
         .eq('project_id', projectId)
         .eq('status', 'pending')
-        .order('seq')
-        .limit(1)
-        .maybeSingle();
+        .order('seq');
+
+    const upstreamIds = [
+        ...new Set((pending ?? []).map((t) => t.depends_on as string | null).filter((id): id is string => Boolean(id))),
+    ];
+    const upstreamStatus = new Map<string, string>();
+    if (upstreamIds.length) {
+        const { data: upstream } = await db.from('delphi_tasks').select('id, status').in('id', upstreamIds);
+        for (const u of upstream ?? []) upstreamStatus.set(u.id as string, u.status as string);
+    }
+
+    const task = firstRunnable(pending ?? [], upstreamStatus);
+
+    if (!task && pending?.length) {
+        // Every step left is waiting on one still running or parked for the
+        // CHO. Not finished and not failed: their turn comes when it settles.
+        return { status: 'idle', reason: 'waiting_on_upstream' };
+    }
 
     if (!task) {
         const { data: remaining } = await db
@@ -859,7 +898,16 @@ export async function runNextTask(
         .limit(1)
         .maybeSingle()).data?.attempt ?? 0) + 1;
 
-    await db.from('delphi_tasks').update({ status: 'running' }).eq('id', task.id);
+    // Claim it. Two ticks can reach this point for the same step — the
+    // dashboard's runner and the morning cron — and only one may run it.
+    const { data: claimed } = await db
+        .from('delphi_tasks')
+        .update({ status: 'running' })
+        .eq('id', task.id)
+        .eq('status', 'pending')
+        .select('id');
+    if (!claimed?.length) return { status: 'idle', reason: 'claimed_elsewhere' };
+
     const { data: run } = await db
         .from('delphi_task_runs')
         .insert({

@@ -55,6 +55,10 @@ export function PipelineRunner({ active }: { active: boolean }) {
             case 'failed':
                 return 'A task failed. See the activity log.';
             case 'idle':
+                if (last.reason === 'waiting_on_upstream') {
+                    return 'Waiting: the next step needs one that is still running or awaiting your approval.';
+                }
+                if (last.reason === 'claimed_elsewhere') return 'Another run has just picked up this step.';
                 return 'Nothing left to run.';
             default:
                 return null;

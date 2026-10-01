@@ -108,10 +108,12 @@ export async function sendTaskBack(
 
     // The project has to be running again for the engine to pick it up — a
     // finished project would simply ignore a task that just went back in.
+    // And its last failure cleared, or a project running again still reads
+    // as failed.
     if (task.project_id) {
         await db
             .from('delphi_projects')
-            .update({ status: 'running' })
+            .update({ status: 'running', error: null, finished_at: null })
             .eq('id', task.project_id)
             .in('status', ['done', 'failed', 'halted_budget']);
     }
