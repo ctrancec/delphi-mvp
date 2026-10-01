@@ -21,6 +21,7 @@
     "delphi:trash": "tsx scripts/check_trash.ts",
     "delphi:runner": "tsx scripts/check_runner.ts",
     "delphi:actions": "tsx scripts/check_server_actions.ts",
+    "delphi:pixel": "tsx scripts/check_pixel.ts",
     "delphi:sources": "tsx scripts/check_sources.ts",
     "delphi:markets": "tsx scripts/check_markets.ts",
     "delphi:feeds": "tsx --env-file-if-exists=.env.local scripts/check_feeds.ts"

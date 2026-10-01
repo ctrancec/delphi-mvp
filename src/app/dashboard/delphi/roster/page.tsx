@@ -4,7 +4,9 @@ import { Badge } from '@/components/ui/badge'
 import { ShieldCheck, UserPlus } from 'lucide-react'
 import { formatUsd } from '@/lib/llm/cost'
 import { toneFor } from '@/components/delphi/grade-badge'
+import { AgentSprite } from '@/components/pixel/agent-sprite'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
+import { DELPHI_SLUG } from '@/lib/delphi/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,8 +14,10 @@ const TIER_LABEL: Record<number, string> = { 1: '$', 2: '$$', 3: '$$$' }
 
 interface AgentRow {
     id: string
+    slug: string
     name: string
     title: string
+    avatar_seed: string | null
     skills: string[]
     cost_tier: number
     origin: string
@@ -29,19 +33,43 @@ interface StatsRow {
     avg_quality: number | null
 }
 
-function AgentCard({ agent, stats }: { agent: AgentRow; stats?: StatsRow }) {
+interface HireRow {
+    agent_id: string
+    department: { name: string; status: string } | { name: string; status: string }[] | null
+}
+
+function AgentCard({ agent, stats, hiredIn }: { agent: AgentRow; stats?: StatsRow; hiredIn: string[] }) {
     const done = stats?.tasks_completed ?? 0
     const failed = stats?.tasks_failed ?? 0
     const total = done + failed
     const quality = stats?.avg_quality
+    const hired = hiredIn.length > 0
 
     return (
         <Card className="bg-black/40 border-white/10">
             <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                <div className="flex items-start gap-3">
+                    {/* The character stands in for a headshot; board members always have a seat, so they idle rather than wait. */}
+                    <AgentSprite
+                        agent={{ slug: agent.slug, name: agent.name, avatarSeed: agent.avatar_seed }}
+                        state={hired || agent.is_board ? 'idle' : 'available'}
+                        scale={3}
+                        className="shrink-0 -mt-1"
+                    />
+                    <div className="min-w-0 flex-1">
                         <CardTitle className="text-base leading-tight truncate">{agent.name}</CardTitle>
                         <p className="text-xs text-muted-foreground mt-0.5">{agent.title}</p>
+                        <p className="text-xs mt-1.5 text-muted-foreground">
+                            {agent.is_board ? (
+                                'On every department’s board.'
+                            ) : hired ? (
+                                <>
+                                    Hired in <span className="text-zinc-300">{hiredIn.join(', ')}</span>
+                                </>
+                            ) : (
+                                'Available to hire.'
+                            )}
+                        </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                         {agent.origin === 'invented' && (
@@ -90,6 +118,19 @@ function AgentCard({ agent, stats }: { agent: AgentRow; stats?: StatsRow }) {
     )
 }
 
+/** The departments each agent is hired into, by agent id, archived ones left out. */
+function hiredDepartments(hires: HireRow[]): Map<string, string[]> {
+    const out = new Map<string, string[]>()
+    for (const h of hires) {
+        const dept = Array.isArray(h.department) ? h.department[0] : h.department
+        if (!dept || dept.status === 'archived') continue
+        const list = out.get(h.agent_id) ?? []
+        if (!list.includes(dept.name)) list.push(dept.name)
+        out.set(h.agent_id, list)
+    }
+    return out
+}
+
 export default async function RosterPage() {
     const supabase = await createClient()
     if (!supabase) {
@@ -98,14 +139,19 @@ export default async function RosterPage() {
 
     await bootstrapDelphi(supabase)
 
-    const [{ data: agents }, { data: stats }] = await Promise.all([
+    const [{ data: agents }, { data: stats }, { data: hires }] = await Promise.all([
         supabase.from('delphi_agents').select('*').is('archived_at', null).order('slug'),
         supabase.from('delphi_agent_stats').select('*'),
+        supabase.from('delphi_hires').select('agent_id, department:delphi_departments(name, status)'),
     ])
 
     const statsById = new Map((stats ?? []).map((s) => [s.agent_id as string, s as StatsRow]))
+    const hiredIn = hiredDepartments((hires ?? []) as unknown as HireRow[])
     const all = (agents ?? []) as unknown as AgentRow[]
-    const workers = all.filter((a) => !a.is_board)
+    // The CEO has a row of its own so it can speak and act, but it is not for
+    // hire, so it heads the page rather than standing among the specialists.
+    const ceo = all.find((a) => a.slug === DELPHI_SLUG)
+    const workers = all.filter((a) => !a.is_board && a.slug !== DELPHI_SLUG)
     const board = all.filter((a) => a.is_board)
 
     return (
@@ -125,13 +171,33 @@ export default async function RosterPage() {
                 </Card>
             ) : (
                 <>
+                    {ceo && (
+                        <Card className="bg-black/40 border-white/10">
+                            <CardContent className="flex items-center gap-4 py-4">
+                                <AgentSprite
+                                    agent={{ slug: ceo.slug, name: ceo.name, avatarSeed: ceo.avatar_seed }}
+                                    state="idle"
+                                    scale={4}
+                                    className="shrink-0"
+                                />
+                                <div className="min-w-0">
+                                    <p className="text-base font-semibold leading-tight">{ceo.name}</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">{ceo.title}</p>
+                                    <p className="text-xs text-muted-foreground mt-1.5">
+                                        Staffs every department and reports to you. Never approves anything.
+                                    </p>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     <section className="space-y-3">
                         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                             Specialists ({workers.length})
                         </h2>
                         <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
                             {workers.map((a) => (
-                                <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} />
+                                <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} hiredIn={hiredIn.get(a.id) ?? []} />
                             ))}
                         </div>
                     </section>
@@ -146,7 +212,7 @@ export default async function RosterPage() {
                             </p>
                             <div className="grid gap-3 inner:grid-cols-2 desk:grid-cols-3">
                                 {board.map((a) => (
-                                    <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} />
+                                    <AgentCard key={a.id} agent={a} stats={statsById.get(a.id)} hiredIn={hiredIn.get(a.id) ?? []} />
                                 ))}
                             </div>
                         </section>
