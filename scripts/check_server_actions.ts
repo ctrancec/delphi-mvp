@@ -13,6 +13,8 @@
  * an async function fails. Interfaces and type aliases declared in the file
  * are allowed — the compiler drops those, which the build output confirms.
  *
+ * Runs before every build (`prebuild`), so on Vercel a file like that is a
+ * failed deploy — the last good one stays up — rather than a broken site. Also
  * `npm run delphi:actions`. No network, no database.
  */
 
