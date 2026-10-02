@@ -8,12 +8,13 @@
  */
 
 import { redirect } from 'next/navigation';
-import { KeyRound, ShieldCheck, UserCircle } from 'lucide-react';
+import { KeyRound, ShieldCheck, Smartphone, UserCircle } from 'lucide-react';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PasswordForm } from '@/components/delphi/password-form';
 import { NameForm } from '@/components/delphi/name-form';
+import { InstallCard } from '@/components/delphi/install-card';
 import { SlimeSprite } from '@/components/pixel/agent-sprite';
 import { choNameOf, hasOwnName } from '@/lib/delphi/cho';
 import { CEO_NAME } from '@/lib/pixel/cast/names';
@@ -102,6 +103,21 @@ export default async function AccountPage() {
                 </CardHeader>
                 <CardContent>
                     <NameForm initial={hasOwnName(user) ? cho : ''} />
+                </CardContent>
+            </Card>
+
+            <Card className="border-white/10 bg-black/40">
+                <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Smartphone className="h-4 w-4" /> On your phone
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                        Installed, it opens full screen from the home screen, shows the offline page instead of
+                        an error when there is no signal, and can carry notifications.
+                    </p>
+                </CardHeader>
+                <CardContent>
+                    <InstallCard />
                 </CardContent>
             </Card>
 
