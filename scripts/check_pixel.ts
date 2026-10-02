@@ -110,6 +110,8 @@ console.log('\nThe town');
         at: '2026-10-01T12:00:00Z',
         system: { mode: 'running', reason: 'switch', detail: 'on' },
         pendingApprovals: 2,
+        recent: [],
+        newOutputs: 1,
         deliberating: 0,
         agents: [
             { id: 'ceo', slug: 'delphi-ceo', name: CEO.name, title: 'Chief Executive', avatarSeed: null, isBoard: false, isCeo: true, state: 'idle', task: null, since: null, departments: [], seat: null },

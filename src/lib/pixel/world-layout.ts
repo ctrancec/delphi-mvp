@@ -92,7 +92,8 @@ export type FeatureKind =
     | 'longTable'
     | 'tree'
     | 'tree2'
-    | 'dummy';
+    | 'dummy'
+    | 'board';
 
 export interface Feature extends Point {
     kind: FeatureKind;
@@ -119,6 +120,8 @@ export interface Centre {
     ranga: Point;
     hall: Rect;
     seats: Point[];
+    /** The notice board in the plaza, where new outputs are pinned. */
+    board: Point;
 }
 
 export interface WorldLayout {
@@ -160,7 +163,8 @@ export function layoutWorld(floor: Floor, widthTiles: number): WorldLayout {
     const seat: Point = { x: mid, y: 4 };
     const scrolls: Point = { x: mid + 1, y: 4 };
     const ranga: Point = { x: mid - 2, y: 5 };
-    const centre: Centre = { rect: { x: 0, y: 0, w, h: CENTRE_H }, study, studyDesk, seat, scrolls, ranga, hall, seats };
+    const board: Point = { x: plazaLeft, y: 1 };
+    const centre: Centre = { rect: { x: 0, y: 0, w, h: CENTRE_H }, study, studyDesk, seat, scrolls, ranga, hall, seats, board };
 
     const agentsById = new Map(floor.agents.map((a) => [a.id, a]));
     for (const a of floor.agents) {
@@ -251,6 +255,9 @@ function dress(l: Omit<WorldLayout, 'features'> & { features: Feature[] }, distr
     // The hall: the council table along the back, carpet where the board stands.
     for (let x = centre.hall.x + 1; x < centre.hall.x + centre.hall.w - 1; x++) solid('longTable', x, centre.hall.y + 1);
     for (let x = centre.hall.x + 1; x < centre.hall.x + centre.hall.w - 1; x++) soft('carpet', x, centre.hall.y + 2);
+
+    // The notice board, against the study's wall, read from the tile below it.
+    solid('board', centre.board.x, centre.board.y, { x: centre.board.x, y: centre.board.y + 1 });
 
     // The plaza: a fountain when there is room for one, benches beside it, a well when there is not.
     const plazaLeft = centre.study.x + centre.study.w;

@@ -33,17 +33,18 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import type { Floor, FloorAgent } from '@/lib/delphi/floor';
+import type { Floor, FloorAgent, FloorDepartment } from '@/lib/delphi/floor';
 import { frameAt, phaseFor, STATES, type AgentState, type Bubble } from '@/lib/pixel/animate';
 import { PixelCanvas, type Grid } from '@/lib/pixel/canvas';
-import { castFor, CHO, MASCOT } from '@/lib/pixel/cast';
+import { castFor, CEO, CHO, MASCOT } from '@/lib/pixel/cast';
+import { ceremoniesFrom, newestEvent, type Ceremony } from '@/lib/pixel/ceremonies';
 import { frameCount, renderCharacter, renderRanga, renderSlime, type Look } from '@/lib/pixel/character';
 import { clockWords, daylight, isNight, localHour } from '@/lib/pixel/daylight';
-import { appearance, createLife, freeToRoam, outingSentence, stepLife, type Life } from '@/lib/pixel/life';
+import { appearance, createLife, freeToRoam, outingSentence, startCeremony, stepLife, type Life } from '@/lib/pixel/life';
 import { SPRITE_H, SPRITE_W, type Pose } from '@/lib/pixel/sprites/body';
 import { BUBBLE_COLOURS, BUBBLES, TILES, TOWN } from '@/lib/pixel/sprites/tiles';
 import { animatedTile, deskTile, drawScene } from '@/lib/pixel/world-scene';
-import { layoutWorld, TILE, type Point, type WorldLayout } from '@/lib/pixel/world-layout';
+import { layoutWorld, TILE, type Building, type Point, type WorldLayout } from '@/lib/pixel/world-layout';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { useReducedMotion } from './agent-sprite';
@@ -52,7 +53,8 @@ import { useFrameClock } from './use-frame-clock';
 const SCALE = 2;
 const FRAME_MS = 125;
 const POLL_MS = 60_000;
-const NUDGE_TABLES = ['delphi_tasks', 'delphi_task_runs', 'delphi_projects', 'delphi_approvals'];
+const NUDGE_TABLES = ['delphi_tasks', 'delphi_task_runs', 'delphi_projects', 'delphi_approvals', 'delphi_events', 'delphi_artifacts'];
+const FLOOR_URL = '/api/delphi/floor';
 
 // ---------------------------------------------------------------------------
 // Pixels → canvases, once each.
@@ -175,6 +177,50 @@ export function stateSentence(a: FloorAgent): string {
     }
 }
 
+/** What a house is up to, for its card and its label. */
+export function houseSentence(b: Building, d: FloorDepartment | undefined): string {
+    if (b.kind === 'boarded') return 'Archived.';
+    if (b.kind === 'site') {
+        if (d?.status === 'awaiting_approval') return 'The team is waiting on your approval.';
+        if (d?.status === 'hiring') return `Being set up: ${CEO.name} is hiring.`;
+        return 'A draft, not staffed yet.';
+    }
+    if (d?.status === 'paused') return 'Paused.';
+    return d?.project ? `Working on ${d.project.title}.` : 'Quiet: nothing in flight.';
+}
+
+/** A question for Diablo about an agent, as they are right now. */
+export function questionAbout(a: FloorAgent): string {
+    const t = a.task?.title ? `"${a.task.title}"` : 'their task';
+    if (a.isCeo) return 'What are you working on right now, and what comes next?';
+    if (a.isBoard) return `What is ${a.name} reviewing for the board?`;
+    switch (a.state) {
+        case 'working':
+            return `What is ${a.name} doing on ${t} right now?`;
+        case 'stuck':
+            return `Why did ${a.name}'s step ${t} fail, and what do you suggest?`;
+        case 'waiting_on_you':
+            return `What does ${t} need from me before ${a.name} can continue?`;
+        case 'queued':
+            return `When will ${a.name} start on ${t}?`;
+        case 'done':
+            return `What did ${a.name} just finish on ${t}?`;
+        case 'available':
+            return `Should we hire ${a.name}, and for what?`;
+        default:
+            return `What should ${a.name} work on next?`;
+    }
+}
+
+/** A question for Diablo about a house. */
+export function questionAboutHouse(b: Building, d: FloorDepartment | undefined): string {
+    if (b.kind === 'site') return `When will ${b.name} be ready to start?`;
+    if (b.kind === 'boarded') return `What did ${b.name} achieve before it was archived?`;
+    return d?.project ? `How is ${b.name} getting on with ${d.project.title}?` : `What should ${b.name} take on next?`;
+}
+
+const askHref = (question: string) => `/dashboard/delphi/chat?ask=${encodeURIComponent(question)}`;
+
 function summary(floor: Floor): string {
     const n = (s: AgentState) => floor.agents.filter((a) => a.state === s).length;
     const parts: string[] = [];
@@ -192,11 +238,13 @@ function summary(floor: Floor): string {
 // The component.
 // ---------------------------------------------------------------------------
 
-export function TempestWorld({ initial, className }: { initial: Floor; className?: string }) {
+/** `source` is where fresh readings come from and `pollMs` how often; a preview or a test points them elsewhere. */
+export function TempestWorld({ initial, className, source = FLOOR_URL, pollMs = POLL_MS }: { initial: Floor; className?: string; source?: string; pollMs?: number }) {
     const [floor, setFloor] = useState(initial);
     const [tiles, setTiles] = useState(13);
     const [visible, setVisible] = useState(true);
     const [open, setOpen] = useState<string | null>(null);
+    const [house, setHouse] = useState<string | null>(null);
     const wrap = useRef<HTMLDivElement>(null);
     const canvas = useRef<HTMLCanvasElement>(null);
     const still = useRef<HTMLCanvasElement | null>(null);
@@ -205,6 +253,9 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
     const lastTick = useRef(0);
     const buttons = useRef(new Map<string, HTMLButtonElement>());
     const clock = useRef<HTMLSpanElement>(null);
+    // The log as far as the town has seen it, and what is owed from what came after.
+    const seen = useRef(newestEvent(initial));
+    const owed = useRef<Ceremony[]>([]);
     const reduced = useReducedMotion();
 
     const layout = useMemo(() => layoutWorld(floor, tiles), [floor, tiles]);
@@ -272,6 +323,8 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
                 const dt = lastTick.current ? Math.min(now - lastTick.current, 250) : 0;
                 lastTick.current = now;
                 stepLife(life.current, floor, layout, now, dt, { night: isNight(hour) });
+                // The news, acted on: whoever is not here yet is tried again next frame.
+                if (owed.current.length) owed.current = owed.current.filter((c) => !startCeremony(life.current!, floor, c, now));
             }
 
             // Screens in use, and smoke from a busy house.
@@ -297,6 +350,9 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
             const n = floor.pendingApprovals;
             if (n > 0) ctx.drawImage(tileCanvas(n >= 6 ? 'scrolls3' : n >= 3 ? 'scrolls2' : 'scrolls1'), layout.centre.scrolls.x * TILE, layout.centre.scrolls.y * TILE);
 
+            // New outputs are pinned to the notice board.
+            if (floor.newOutputs > 0) ctx.drawImage(tileCanvas('boardPapers'), layout.centre.board.x * TILE, layout.centre.board.y * TILE);
+
             // Rimuru and Ranga.
             const asleep = floor.system.mode !== 'running';
             ctx.drawImage(rangaCanvas(Math.floor(frame / 6) % 2), layout.centre.ranga.x * TILE, layout.centre.ranga.y * TILE + 7);
@@ -311,7 +367,8 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
                 .sort((u, v) => u.p.y - v.p.y);
             for (const { a, p, w } of placed) {
                 const cast = castFor({ slug: a.slug, name: a.name, avatarSeed: a.avatarSeed });
-                const look = w && freeToRoam(a) ? appearance(w, now) : null;
+                // The walk and the ceremony are the life's to draw; at the desk the state decides the pose.
+                const look = w && (freeToRoam(a) || w.phase !== 'home' || w.activity?.ceremony) ? appearance(w, now) : null;
                 let pose: Pose;
                 let f: number;
                 if (look?.walking) {
@@ -393,8 +450,13 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
             timer = setTimeout(async () => {
                 if (!alive || document.visibilityState !== 'visible') return;
                 try {
-                    const res = await fetch('/api/delphi/floor', { cache: 'no-store' });
-                    if (res.ok && alive) setFloor((await res.json()) as Floor);
+                    const res = await fetch(source, { cache: 'no-store' });
+                    if (!res.ok || !alive) return;
+                    const next = (await res.json()) as Floor;
+                    const news = ceremoniesFrom(seen.current, next);
+                    seen.current = news.seenUpTo;
+                    owed.current.push(...news.ceremonies);
+                    setFloor(next);
                 } catch {
                     // The poll will try again.
                 }
@@ -408,21 +470,25 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
         channel?.subscribe();
         const poll = setInterval(() => {
             if (visible) refetch();
-        }, POLL_MS);
+        }, pollMs);
         return () => {
             alive = false;
             clearTimeout(timer);
             clearInterval(poll);
             channel?.unsubscribe();
         };
-    }, [visible]);
+    }, [visible, source, pollMs]);
 
     // A card closes on Escape and on a click anywhere else.
     useEffect(() => {
-        if (!open) return;
-        const key = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(null);
+        if (!open && !house) return;
+        const close = () => {
+            setOpen(null);
+            setHouse(null);
+        };
+        const key = (e: KeyboardEvent) => e.key === 'Escape' && close();
         const click = (e: MouseEvent) => {
-            if (!(e.target as HTMLElement).closest('[data-town-card]')) setOpen(null);
+            if (!(e.target as HTMLElement).closest('[data-town-card]')) close();
         };
         window.addEventListener('keydown', key);
         window.addEventListener('mousedown', click);
@@ -430,14 +496,18 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
             window.removeEventListener('keydown', key);
             window.removeEventListener('mousedown', click);
         };
-    }, [open]);
+    }, [open, house]);
 
     const px = (v: number) => Math.round(v * TILE * SCALE);
     const card = open ? agents.get(open) : undefined;
     const cardAt = card ? whereIs(card.id) : null;
     const cardWalker = card && !reduced ? life.current?.walkers.get(card.id) : undefined;
-    const outing = card && cardWalker && freeToRoam(card) ? outingSentence(cardWalker) : null;
+    const outing = card && cardWalker && (freeToRoam(card) || cardWalker.activity?.ceremony) ? outingSentence(cardWalker) : null;
     const deptName = (id: string | null | undefined) => floor.departments.find((d) => d.id === id)?.name ?? null;
+    const houseCard = house ? layout.buildings.find((b) => b.id === house) : undefined;
+    const houseDept = houseCard ? floor.departments.find((d) => d.id === houseCard.id) : undefined;
+    const notices = floor.newOutputs;
+    const noticeWords = notices > 0 ? `${notices} new output${notices === 1 ? '' : 's'} to read` : 'nothing new pinned';
 
     return (
         <div ref={wrap} className={cn('w-full', className)}>
@@ -477,6 +547,41 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
                         ) : null
                     )}
 
+                    {/* Each house opens its card; the agents' own buttons sit over this. */}
+                    {layout.buildings.map((b) => (
+                        <button
+                            key={`house-${b.id}`}
+                            type="button"
+                            data-town-card
+                            onClick={() => {
+                                setOpen(null);
+                                setHouse(house === b.id ? null : b.id);
+                            }}
+                            className={cn(
+                                'absolute rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300',
+                                house === b.id && 'outline outline-2 outline-amber-300/70'
+                            )}
+                            style={{ left: px(b.rect.x), top: px(b.rect.y), width: px(b.rect.w), height: px(b.rect.h) }}
+                            aria-label={`${b.name}. ${houseSentence(b, floor.departments.find((d) => d.id === b.id))}`}
+                            title={b.name}
+                        />
+                    ))}
+
+                    {/* The notice board: what has landed in Outputs since you last looked. */}
+                    <Link
+                        href="/dashboard/delphi/outputs"
+                        className="absolute rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
+                        style={{ left: px(layout.centre.board.x), top: px(layout.centre.board.y), width: px(1), height: px(1) }}
+                        aria-label={`Notice board: ${noticeWords}.`}
+                        title={`Notice board: ${noticeWords}`}
+                    >
+                        {notices > 0 && (
+                            <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold leading-none text-black">
+                                {notices > 9 ? '9+' : notices}
+                            </span>
+                        )}
+                    </Link>
+
                     {/* Rimuru's seat: the approvals pile links to the queue. */}
                     <Link
                         href="/dashboard/delphi/approvals"
@@ -499,7 +604,10 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
                                     if (el) buttons.current.set(a.id, el);
                                     else buttons.current.delete(a.id);
                                 }}
-                                onClick={() => setOpen(open === a.id ? null : a.id)}
+                                onClick={() => {
+                                    setHouse(null);
+                                    setOpen(open === a.id ? null : a.id);
+                                }}
                                 className={cn(
                                     'absolute rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300',
                                     open === a.id && 'outline outline-2 outline-amber-300/70'
@@ -539,6 +647,57 @@ export function TempestWorld({ initial, className }: { initial: Floor; className
                                     Open approvals →
                                 </Link>
                             )}
+                            {!card.isCeo && (
+                                <Link href={askHref(questionAbout(card))} className="mt-2 block text-sky-300 hover:underline">
+                                    Ask {CEO.name} about this →
+                                </Link>
+                            )}
+                            {card.isCeo && (
+                                <Link href={askHref(questionAbout(card))} className="mt-2 block text-sky-300 hover:underline">
+                                    Talk to {CEO.name} →
+                                </Link>
+                            )}
+                        </div>
+                    )}
+
+                    {houseCard && (
+                        <div
+                            data-town-card
+                            role="dialog"
+                            aria-label={houseCard.name}
+                            className="absolute z-10 w-60 rounded-md border border-white/15 bg-zinc-950/95 p-3 text-xs shadow-xl backdrop-blur"
+                            style={{
+                                left: Math.min(px(houseCard.rect.x) + 12, px(layout.w) - 246),
+                                top: Math.max(0, Math.min(px(houseCard.rect.y) + 12, px(layout.h) - 200)),
+                            }}
+                        >
+                            <p className="text-sm font-semibold leading-tight">{houseCard.name}</p>
+                            <p className="mt-1 text-zinc-200">{houseSentence(houseCard, houseDept)}</p>
+                            {houseDept && houseDept.team.length > 0 && (
+                                <ul className="mt-2 space-y-0.5">
+                                    {houseDept.team.slice(0, 8).map((id) => {
+                                        const a = agents.get(id);
+                                        return a ? (
+                                            <li key={id} className="flex items-baseline gap-1.5">
+                                                <span>{a.name}</span>
+                                                <span className="text-muted-foreground">{STATES[a.state].label}</span>
+                                            </li>
+                                        ) : null;
+                                    })}
+                                    {houseDept.team.length > 8 && <li className="text-muted-foreground">and {houseDept.team.length - 8} more</li>}
+                                </ul>
+                            )}
+                            {houseDept && houseDept.completed > 0 && (
+                                <p className="mt-2 text-muted-foreground">
+                                    {houseDept.completed} project{houseDept.completed === 1 ? '' : 's'} completed.
+                                </p>
+                            )}
+                            <Link href={`/dashboard/delphi/departments/${houseCard.id}`} className="mt-2 block text-sky-300 hover:underline">
+                                Open department →
+                            </Link>
+                            <Link href={askHref(questionAboutHouse(houseCard, houseDept))} className="mt-1 block text-sky-300 hover:underline">
+                                Ask {CEO.name} about this →
+                            </Link>
                         </div>
                     )}
                 </div>

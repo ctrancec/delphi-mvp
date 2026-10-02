@@ -25,7 +25,7 @@ export async function GET() {
     if (!workspaceId) return NextResponse.json({ error: 'No workspace yet.' }, { status: 404 });
 
     try {
-        const floor = await readFloor(db, workspaceId);
+        const floor = await readFloor(db, workspaceId, new Date(), user.id);
         return NextResponse.json(floor, { headers: { 'Cache-Control': 'no-store' } });
     } catch (err) {
         console.error('[delphi] could not read the floor:', (err as Error).message);

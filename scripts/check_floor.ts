@@ -10,12 +10,13 @@
  * selects compose. No network, no model call.
  */
 
-import { deriveFloor, DONE_WINDOW_MS, readFloor, STUCK_WINDOW_MS, type FloorInput } from '../src/lib/delphi/floor';
+import { deriveFloor, DONE_WINDOW_MS, readFloor, STUCK_WINDOW_MS, type FloorEvent, type FloorInput } from '../src/lib/delphi/floor';
 import { DELPHI_SLUG, type Db } from '../src/lib/delphi/db';
 import { CELL_H, CENTRE_H, columnsFor, DECOR_CAP, layoutWorld } from '../src/lib/pixel/world-layout';
 import { doorOf, findPath, hangouts, isBlocked, routeBetween, walkability } from '../src/lib/pixel/world-path';
 import { frameCount } from '../src/lib/pixel/character';
-import { appearance, createLife, freeToRoam, stepLife, type Life } from '../src/lib/pixel/life';
+import { appearance, createLife, freeToRoam, startCeremony, stepLife, type Life } from '../src/lib/pixel/life';
+import { ceremoniesFrom, newestEvent } from '../src/lib/pixel/ceremonies';
 import { clockWords, daylight, localHour, phaseOf } from '../src/lib/pixel/daylight';
 import { agentForActor, isCho } from '../src/lib/delphi/actors';
 import type { FloorAgent } from '../src/lib/delphi/floor';
@@ -395,6 +396,90 @@ console.log('\nAfter dark');
     ok(clockWords(22.9) === '22:54, night' && clockWords(7.25) === '07:15, dawn', 'the clock reads in words', clockWords(22.9));
 }
 
+console.log('\nThe notice board');
+{
+    const floor = deriveFloor({ ...base(), newOutputs: 3 }, NOW);
+    const map = layoutWorld(floor, 43);
+    const board = map.features.find((f) => f.kind === 'board');
+    ok(!!board && board.x === map.centre.board.x && board.y === map.centre.board.y && board.solid, 'the board stands in the plaza, where the layout says');
+    ok(board?.use?.x === map.centre.board.x && board?.use?.y === map.centre.board.y + 1, 'and is read from the tile below it');
+    const g = walkability(map);
+    ok(isBlocked(g, board!.x, board!.y) && !isBlocked(g, board!.use!.x, board!.use!.y), 'nobody walks through it; everybody can stand before it');
+    ok(floor.newOutputs === 3 && deriveFloor(base(), NOW).newOutputs === 0, 'what is pinned is the unread count, nothing when none is given');
+    const narrow = layoutWorld(floor, 11);
+    ok(narrow.features.some((f) => f.kind === 'board') && narrow.centre.board.x === narrow.centre.study.x + narrow.centre.study.w, 'on the narrowest plaza the board still stands by the study');
+}
+
+console.log('\nCeremonies');
+{
+    const event = (id: number, type: string, actor: string, extra: Partial<FloorEvent> = {}): FloorEvent => ({ id, type, projectId: null, departmentId: null, actor, verb: null, ...extra });
+    const first = deriveFloor({ ...base(), recent: [event(1, 'task_done', 'Shuna'), event(2, 'project_started', 'Diablo')] }, NOW);
+    ok(newestEvent(first) === 2 && ceremoniesFrom(newestEvent(first), first).ceremonies.length === 0, 'a first reading celebrates nothing it has already missed');
+    const seen = newestEvent(first);
+
+    const later = deriveFloor({ ...base(), recent: [event(5, 'approval_decided', 'Rimuru', { verb: 'approved', projectId: 'p1' }), event(4, 'task_failed', 'Benimaru'), event(3, 'task_done', 'Vera Quinn'), event(2, 'project_started', 'Diablo'), event(1, 'task_done', 'Shuna')] }, NOW);
+    const news = ceremoniesFrom(seen, later);
+    const kinds = news.ceremonies.map((c) => `${c.kind}:${c.agentId}`).sort();
+    ok(kinds.includes('deliver:shuna'), 'a finished task sends its agent to Rimuru, even under the name they had before', kinds.join(' '));
+    ok(kinds.includes('report:beni'), 'a failed one sends its agent to Diablo');
+    ok(kinds.includes('cheer:shuna') && kinds.includes('cheer:beni') && !kinds.includes('cheer:gobta'), 'an approval has the house of its project cheer, and nobody else');
+    ok(news.seenUpTo === 5 && ceremoniesFrom(news.seenUpTo, later).ceremonies.length === 0, 'and the same reading read again owes nothing');
+
+    const quiet = deriveFloor({ ...base(), recent: [event(8, 'approval_decided', 'Rimuru', { verb: 'rejected', projectId: 'p1' }), event(7, 'task_failed', 'Rimuru', { verb: 'removed step' }), event(6, 'task_done', 'Nobody Here')] }, NOW);
+    ok(ceremoniesFrom(5, quiet).ceremonies.length === 0, 'a decline, a step the CHO removed, and a stranger move nobody');
+
+    const twice = deriveFloor({ ...base(), recent: [event(10, 'task_done', 'Shuna'), event(9, 'task_done', 'Shuna')] }, NOW);
+    ok(ceremoniesFrom(8, twice).ceremonies.length === 1, 'two steps of one task make one trip');
+
+    // On foot: the deliverer goes to the cushion, raises the scroll, and comes back; work does not stop her.
+    const TICK = 100;
+    const input = base();
+    input.tasks = [{ id: 't1', project_id: 'p1', agent_id: 'shuna', status: 'running', title: 'Gather filings' }];
+    input.runs = [{ task_id: 't1', status: 'running', started_at: ago(60_000), finished_at: null }];
+    const floor = deriveFloor(input, NOW);
+    const map = layoutWorld(floor, 43);
+    const life = createLife(map);
+    stepLife(life, floor, map, 0, 0);
+    ok(floor.agents.find((a) => a.id === 'shuna')?.state === 'working' && startCeremony(life, floor, { kind: 'deliver', agentId: 'shuna', eventId: 3 }, 0), 'a working agent still takes the finished work over');
+    let raised = false;
+    let atSeat = false;
+    let back = false;
+    for (let t = TICK; t < 60_000; t += TICK) {
+        stepLife(life, floor, map, t, TICK);
+        const w = life.walkers.get('shuna')!;
+        const look = appearance(w, t);
+        if (w.phase === 'doing' && look.pose === 'raise' && look.bubble === 'star') {
+            raised = true;
+            atSeat = Math.abs(w.x - map.centre.seat.x) <= 1 && Math.abs(w.y - map.centre.seat.y) <= 1;
+        }
+        if (raised && w.phase === 'home' && w.x === w.home.x && w.y === w.home.y) {
+            back = true;
+            break;
+        }
+    }
+    ok(raised && atSeat, 'she stands before Rimuru and raises it');
+    ok(back && !life.walkers.get('shuna')!.activity, 'then goes back to her desk and stays');
+
+    ok(startCeremony(life, floor, { kind: 'report', agentId: 'beni', eventId: 4 }, 60_000), 'a failed step is reported in person');
+    let reported = false;
+    for (let t = 60_100; t < 120_000; t += TICK) {
+        stepLife(life, floor, map, t, TICK);
+        const w = life.walkers.get('beni')!;
+        if (w.phase === 'doing' && appearance(w, t).pose === 'slump' && w.x === map.centre.studyDesk.x + 1 && w.y === map.centre.studyDesk.y + 1 && w.facing === -1) reported = true;
+    }
+    ok(reported, "in Diablo's study, beside his desk, facing him");
+
+    ok(startCeremony(life, floor, { kind: 'cheer', agentId: 'gobta', eventId: 5 }, 120_000), 'a cheer happens on the spot');
+    const g = life.walkers.get('gobta')!;
+    ok(g.phase === 'doing' && appearance(g, 120_000).pose === 'cheer', 'straight away, with no walk');
+    for (let t = 120_100; t < 125_000; t += TICK) stepLife(life, floor, map, t, TICK);
+    ok(life.walkers.get('gobta')!.activity === null, 'and is over in a few seconds');
+
+    const off = deriveFloor({ ...input, effective: { mode: 'stopped', reason: 'switch', detail: 'off' } }, NOW);
+    ok(startCeremony(life, off, { kind: 'deliver', agentId: 'shuna', eventId: 9 }, 130_000) && !life.walkers.get('shuna')!.activity, 'with the system off nobody gets up');
+    ok(!startCeremony(life, floor, { kind: 'deliver', agentId: 'stranger', eventId: 9 }, 130_000) === false, 'and a ceremony for nobody is simply dropped');
+}
+
 console.log('\nThe quest log');
 {
     const agent = (id: string, slug: string, name: string, isCeo = false): FloorAgent => ({
@@ -428,15 +513,30 @@ console.log('\nReading from a database');
         delphi_reviews: [{ workspace_id: 'ws', status: 'deliberating' }],
         delphi_approvals: [{ workspace_id: 'ws', status: 'pending' }, { workspace_id: 'ws', status: 'pending' }],
         delphi_system_state: [],
+        delphi_events: [
+            { id: 1, workspace_id: 'ws', type: 'task_done', project_id: 'p1', department_id: null, payload: { actor: 'Shuna', verb: 'finished' } },
+            { id: 2, workspace_id: 'ws', type: 'approval_decided', project_id: 'p1', department_id: null, payload: { actor: 'Rimuru', verb: 'approved' } },
+        ],
+        delphi_user_state: [],
+        delphi_artifacts: [
+            { workspace_id: 'ws', title: 'Morning brief', created_at: ago(3_600_000) },
+            { workspace_id: 'ws', title: 'Screen', created_at: ago(1_800_000) },
+        ],
     };
     const queries: string[] = [];
     function builder(table: string) {
         const filters: ((r: Row) => boolean)[] = [];
         let head = false;
+        let order: { k: string; asc: boolean } | null = null;
+        let limit = Infinity;
         const run = () => {
-            const rows = (tables[table] ?? []).filter((r) => filters.every((f) => f(r)));
+            let rows = (tables[table] ?? []).filter((r) => filters.every((f) => f(r)));
+            // Like Supabase: the count is of everything that matched, the rows are what the limit allows.
+            const count = rows.length;
+            if (order) rows = [...rows].sort((a, b) => (String(a[order!.k]) < String(b[order!.k]) ? -1 : 1) * (order!.asc ? 1 : -1));
+            rows = rows.slice(0, limit);
             queries.push(table);
-            return head ? { data: null, count: rows.length, error: null } : { data: rows.map((r) => ({ ...r })), error: null, count: rows.length };
+            return head ? { data: null, count, error: null } : { data: rows.map((r) => ({ ...r })), error: null, count };
         };
         const b: Record<string, unknown> = {
             select: (_c: string, opts?: { head?: boolean }) => ((head = !!opts?.head), b),
@@ -444,6 +544,9 @@ console.log('\nReading from a database');
             is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), b),
             in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), b),
             gte: (k: string, v: string) => (filters.push((r) => String(r[k]) >= v), b),
+            gt: (k: string, v: string) => (filters.push((r) => String(r[k]) > v), b),
+            order: (k: string, opts?: { ascending?: boolean }) => ((order = { k, asc: opts?.ascending !== false }), b),
+            limit: (n: number) => ((limit = n), b),
             maybeSingle: () => ({ then: (res: (v: unknown) => unknown) => Promise.resolve({ data: run().data?.[0] ?? null, error: null }).then(res) }),
             then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(run()).then(res, rej),
         };
@@ -451,13 +554,15 @@ console.log('\nReading from a database');
     }
     const db = { from: builder } as unknown as Db;
 
-    readFloor(db, 'ws', NOW)
+    readFloor(db, 'ws', NOW, 'u1')
         .then((floor) => {
             ok(floor.agents.find((a) => a.id === 'shuna')?.state === 'working', 'readFloor sees the running task through the project in flight');
             ok(floor.agents.find((a) => a.id === 'beni')?.state === 'done', 'and a finish in a done project through its recent run');
             ok(floor.agents.find((a) => a.id === 'carrera')?.state === 'reviewing' && floor.deliberating === 1, 'and counts the review the board is on');
             ok(floor.pendingApprovals === 2, 'and the approvals waiting on the CHO');
-            ok(queries.filter((q) => q === 'delphi_tasks').length === 2 && queries.length === 10, 'in two rounds of lean selects', `${queries.length} queries`);
+            ok(floor.recent.length === 2 && floor.recent[0].id === 2 && floor.recent[0].actor === 'Rimuru' && floor.recent[0].verb === 'approved' && floor.recent[0].projectId === 'p1', 'and carries the newest lines of the log, newest first');
+            ok(floor.newOutputs === 2, 'and the unread count for whose board it is');
+            ok(queries.filter((q) => q === 'delphi_tasks').length === 2 && queries.length === 13, 'in two rounds of lean selects', `${queries.length} queries`);
         })
         .catch((e) => {
             ok(false, 'readFloor threw', String(e));

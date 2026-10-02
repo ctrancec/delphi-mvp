@@ -16,7 +16,9 @@ import { AgentSprite } from '@/components/pixel/agent-sprite';
 import { DELPHI_SLUG } from '@/lib/delphi/db';
 export const dynamic = 'force-dynamic';
 
-export default async function ChatPage() {
+export default async function ChatPage({ searchParams }: { searchParams: Promise<{ ask?: string }> }) {
+    // A question carried over from a card in the town, ready to send or to change.
+    const ask = ((await searchParams).ask ?? '').slice(0, 500);
     const supabase = await createClient();
     if (!supabase) {
         return (
@@ -53,7 +55,7 @@ export default async function ChatPage() {
                     approve its own plans or anything waiting in your queue.
                 </p>
             </div>
-            <CeoChat initial={history} />
+            <CeoChat initial={history} draft={ask} />
         </div>
     );
 }

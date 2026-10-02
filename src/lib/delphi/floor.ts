@@ -15,11 +15,14 @@
 import type { AgentState } from '@/lib/pixel/animate';
 import { DELPHI_SLUG, getSystemState, type Db, type SystemMode } from './db';
 import { effectiveState, type EffectiveReason } from './schedule';
+import { countNewOutputs } from './unread';
 
 /** A finish this recent is still worth a cheer. */
 export const DONE_WINDOW_MS = 15 * 60_000;
 /** A failure older than this has been looked at, or is in a project nobody is coming back to. */
 export const STUCK_WINDOW_MS = 24 * 3_600_000;
+/** How much of the activity log the town carries, so a fresh reading can see what just happened. */
+export const RECENT_EVENTS = 20;
 
 const IN_FLIGHT = new Set(['planning', 'awaiting_approval', 'running', 'paused']);
 
@@ -64,6 +67,16 @@ export interface FloorDepartment {
     completed: number;
 }
 
+/** A line of the activity log, as much of it as the town needs to react. */
+export interface FloorEvent {
+    id: number;
+    type: string;
+    projectId: string | null;
+    departmentId: string | null;
+    actor: string | null;
+    verb: string | null;
+}
+
 export interface Floor {
     at: string;
     system: { mode: SystemMode; reason: EffectiveReason; detail: string };
@@ -72,6 +85,10 @@ export interface Floor {
     deliberating: number;
     agents: FloorAgent[];
     departments: FloorDepartment[];
+    /** The newest lines of the log, newest first: what the town celebrates or mourns when they are new. */
+    recent: FloorEvent[];
+    /** Deliverables landed since the CHO last opened Outputs: what is pinned to the notice board. */
+    newOutputs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +105,8 @@ export interface FloorInput {
     deliberating: number;
     pendingApprovals: number;
     effective: { mode: SystemMode; reason: EffectiveReason; detail: string };
+    recent?: FloorEvent[];
+    newOutputs?: number;
 }
 
 type Run = FloorInput['runs'][number];
@@ -230,6 +249,8 @@ export function deriveFloor(input: FloorInput, now: Date): Floor {
         deliberating: input.deliberating,
         agents,
         departments: floorDepartments,
+        recent: [...(input.recent ?? [])].sort((a, b) => b.id - a.id),
+        newOutputs: input.newOutputs ?? 0,
     };
 }
 
@@ -237,10 +258,14 @@ export function deriveFloor(input: FloorInput, now: Date): Floor {
 // Reading the rows.
 // ---------------------------------------------------------------------------
 
-export async function readFloor(db: Db, workspaceId: string, now = new Date()): Promise<Floor> {
+/**
+ * `userId` is whose notice board it is: the unread count is per person. Left
+ * out, the board is empty, which is right for a reading nobody is looking at.
+ */
+export async function readFloor(db: Db, workspaceId: string, now = new Date(), userId?: string): Promise<Floor> {
     const recent = new Date(now.getTime() - STUCK_WINDOW_MS).toISOString();
 
-    const [agents, departments, hires, projects, runs, reviews, approvals, state] = await Promise.all([
+    const [agents, departments, hires, projects, runs, reviews, approvals, state, events, unread] = await Promise.all([
         db.from('delphi_agents').select('id, slug, name, title, avatar_seed, is_board').eq('workspace_id', workspaceId).is('archived_at', null),
         db.from('delphi_departments').select('id, name, status, created_at').eq('workspace_id', workspaceId),
         db.from('delphi_hires').select('department_id, agent_id, seq').eq('workspace_id', workspaceId),
@@ -249,7 +274,19 @@ export async function readFloor(db: Db, workspaceId: string, now = new Date()): 
         db.from('delphi_reviews').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('status', 'deliberating'),
         db.from('delphi_approvals').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('status', 'pending'),
         getSystemState(db, workspaceId),
+        db.from('delphi_events').select('id, type, project_id, department_id, payload').eq('workspace_id', workspaceId).order('id', { ascending: false }).limit(RECENT_EVENTS),
+        userId ? countNewOutputs(db, workspaceId, userId) : Promise.resolve({ newOutputs: 0 }),
     ]);
+
+    type EventRow = { id: number | string; type: string; project_id: string | null; department_id: string | null; payload: { actor?: string; verb?: string } | null };
+    const recentEvents: FloorEvent[] = ((events.data ?? []) as EventRow[]).map((e) => ({
+        id: Number(e.id),
+        type: e.type,
+        projectId: e.project_id ?? null,
+        departmentId: e.department_id ?? null,
+        actor: e.payload?.actor ?? null,
+        verb: e.payload?.verb ?? null,
+    }));
 
     const projectRows = (projects.data ?? []) as FloorInput['projects'];
     const runRows = (runs.data ?? []) as FloorInput['runs'];
@@ -282,6 +319,8 @@ export async function readFloor(db: Db, workspaceId: string, now = new Date()): 
             deliberating: reviews.count ?? 0,
             pendingApprovals: approvals.count ?? 0,
             effective: { mode: effective.mode, reason: effective.reason, detail: effective.detail },
+            recent: recentEvents,
+            newOutputs: unread.newOutputs,
         },
         now
     );

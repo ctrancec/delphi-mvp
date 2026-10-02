@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, currentUser } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -71,7 +71,8 @@ export default async function DelphiHqPage() {
 
     // The town is read alongside the rest; it draws from the same rows the
     // pipeline writes, under the same RLS.
-    const floorPromise = provisioned ? readFloor(supabase, provisioned.workspaceId).catch(() => null) : Promise.resolve(null)
+    const user = await currentUser()
+    const floorPromise = provisioned ? readFloor(supabase, provisioned.workspaceId, new Date(), user?.id).catch(() => null) : Promise.resolve(null)
 
     // RLS scopes all of this to the signed-in CHO's workspaces.
     const [{ data: departments }, { data: agents }, { data: events }, { data: approvals }, floor] =

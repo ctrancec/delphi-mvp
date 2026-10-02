@@ -31,10 +31,11 @@ const SUGGESTIONS = [
     'Pause everything',
 ];
 
-export function CeoChat({ initial }: { initial: ChatMessage[] }) {
+/** `draft` starts the composer with a question, as a card in the town does with "Ask Diablo about this". */
+export function CeoChat({ initial, draft: initialDraft = '' }: { initial: ChatMessage[]; draft?: string }) {
     const router = useRouter();
     const [messages, setMessages] = useState<ChatMessage[]>(initial);
-    const [draft, setDraft] = useState('');
+    const [draft, setDraft] = useState(initialDraft);
     const [error, setError] = useState<string | null>(null);
     const [spend, setSpend] = useState(0);
     const [pending, startTransition] = useTransition();
@@ -156,6 +157,7 @@ export function CeoChat({ initial }: { initial: ChatMessage[] }) {
                             }
                         }}
                         placeholder={`Ask ${CEO_NAME}, or tell him what to set up…`}
+                        autoFocus={initialDraft.length > 0}
                         rows={2}
                         className="min-h-0 resize-none border-white/10 bg-white/5 text-sm"
                     />

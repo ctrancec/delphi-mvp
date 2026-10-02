@@ -17,18 +17,35 @@
 
 import type { Floor, FloorAgent } from '@/lib/delphi/floor';
 import type { Bubble } from './animate';
-import { CEO_SLUG } from './cast/names';
+import { CEO_NAME, CEO_SLUG, CHO_NAME } from './cast/names';
+import type { Ceremony } from './ceremonies';
 import { hash, random } from './residents';
 import type { Pose } from './sprites/body';
 import type { Feature, FeatureKind, Place, Point, WorldLayout } from './world-layout';
-import { counterTiles, hangouts, routeBetween, walkability, type Walkability } from './world-path';
+import { counterTiles, hangouts, isBlocked, routeBetween, walkability, type Walkability } from './world-path';
 
 /** Tiles per second. */
 export const SPEED = 3;
 /** Seconds at home between outings. */
 const WAIT = { min: 8, max: 30 };
 
-export type ActivityKind = 'stroll' | 'fountain' | 'read' | 'drink' | 'nap' | 'garden' | 'train' | 'greet' | 'chat' | 'tinker' | 'speech';
+export type ActivityKind =
+    | 'stroll'
+    | 'fountain'
+    | 'read'
+    | 'drink'
+    | 'nap'
+    | 'garden'
+    | 'train'
+    | 'greet'
+    | 'chat'
+    | 'tinker'
+    | 'speech'
+    | 'notices'
+    // Ceremonies: not chosen, but called for by the news (see ceremonies.ts).
+    | 'deliver'
+    | 'report'
+    | 'cheer';
 
 export interface Activity {
     kind: ActivityKind;
@@ -43,6 +60,8 @@ export interface Activity {
     partnerId?: string;
     /** In a chat, the one who started it speaks first. */
     lead?: boolean;
+    /** A ceremony happens whatever the agent's state; work waits the few seconds it takes. */
+    ceremony?: boolean;
 }
 
 export type Phase = 'home' | 'going' | 'doing' | 'returning' | 'moving';
@@ -88,16 +107,20 @@ const RECIPES: Record<ActivityKind, Recipe> = {
     chat: { pose: 'idle', bubble: 'dots', min: 10, max: 20 },
     tinker: { pose: 'type', bubble: null, min: 8, max: 14 },
     speech: { pose: 'raise', bubble: 'bang', min: 8, max: 14 },
+    notices: { pose: 'think', bubble: null, min: 8, max: 14 },
+    deliver: { pose: 'raise', bubble: 'star', min: 3, max: 3 },
+    report: { pose: 'slump', bubble: 'question', min: 4, max: 4 },
+    cheer: { pose: 'cheer', bubble: 'star', min: 3.5, max: 3.5 },
 };
 
 /** What each character reaches for; repetition is weight. */
 const TASTES: Record<string, ActivityKind[]> = {
     [CEO_SLUG]: ['greet', 'read', 'read'],
     'research-analyst': ['read', 'read', 'fountain', 'garden', 'chat'],
-    'global-news-monitor': ['stroll', 'stroll', 'fountain', 'read'],
+    'global-news-monitor': ['stroll', 'stroll', 'fountain', 'read', 'notices'],
     'market-analyst': ['train', 'train', 'drink', 'chat'],
     writer: ['drink', 'chat', 'greet', 'stroll'],
-    critic: ['train', 'read', 'stroll', 'chat'],
+    critic: ['train', 'read', 'stroll', 'chat', 'notices'],
     'data-engineer': ['tinker', 'tinker', 'drink', 'chat'],
     editor: ['greet', 'chat', 'chat', 'stroll'],
     'video-editor': ['tinker', 'train', 'drink'],
@@ -105,12 +128,12 @@ const TASTES: Record<string, ActivityKind[]> = {
     'caption-writer': ['garden', 'garden', 'fountain', 'read'],
     'social-strategist': ['speech', 'speech', 'chat', 'train'],
     'social-publisher': ['nap', 'nap', 'drink', 'chat'],
-    archivist: ['read', 'read', 'nap', 'drink'],
+    archivist: ['read', 'read', 'nap', 'drink', 'notices'],
     'llr-liabilities': ['read', 'chat', 'stroll'],
     'llr-risk': ['chat', 'drink', 'stroll'],
     'llr-legal': ['read', 'read', 'stroll'],
 };
-const EVERYTHING: ActivityKind[] = ['stroll', 'fountain', 'read', 'drink', 'nap', 'garden', 'train', 'greet', 'chat', 'tinker'];
+const EVERYTHING: ActivityKind[] = ['stroll', 'fountain', 'read', 'drink', 'nap', 'garden', 'train', 'greet', 'chat', 'tinker', 'notices'];
 /** After dark: the inn, the fire, a book. Nobody trains in the yard at midnight. */
 const AT_NIGHT: ActivityKind[] = ['nap', 'nap', 'drink', 'drink', 'read'];
 
@@ -264,6 +287,15 @@ function choose(life: Life, floor: Floor, agent: FloorAgent, w: Walker, taken: S
                 if (f?.use) return make('speech', 'making a speech in the plaza', f.use);
                 break;
             }
+            case 'notices': {
+                const f = usable(layout, 'board', agent, taken);
+                if (f?.use) return make('notices', 'reading the notice board', f.use);
+                break;
+            }
+            case 'deliver':
+            case 'report':
+            case 'cheer':
+                break;
             case 'chat': {
                 const others = floor.agents.filter((o) => o.id !== agent.id && freeToRoam(o));
                 const partner = others.map((o) => life.walkers.get(o.id)).find((o) => o && o.phase === 'home');
@@ -337,7 +369,8 @@ export function stepLife(life: Life, floor: Floor, layout: WorldLayout, now: num
         if (!w) continue;
 
         // Work arrived: whatever they were doing, it is over, and home they go.
-        if (!freeToRoam(a)) {
+        // A ceremony is the one thing work waits for.
+        if (!freeToRoam(a) && !w.activity?.ceremony) {
             if (w.activity) endActivity(life, w);
             if (w.phase === 'going' || w.phase === 'doing') head(w, walk, w.home, 'returning');
             if (w.phase === 'home' && !same(w, w.home)) head(w, walk, w.home, 'moving');
@@ -408,6 +441,62 @@ export function stepLife(life: Life, floor: Floor, layout: WorldLayout, now: num
     }
 }
 
+/**
+ * Begin a ceremony. True once it is under way, or cannot happen (nobody by
+ * that id, or they are asleep); false while the agent's walker is not here
+ * yet, so the caller tries again next tick.
+ */
+export function startCeremony(life: Life, floor: Floor, c: Ceremony, now: number): boolean {
+    const agent = floor.agents.find((a) => a.id === c.agentId);
+    if (!agent || agent.state === 'off' || agent.state === 'asleep') return true;
+    const w = life.walkers.get(c.agentId);
+    if (!w) return false;
+    const { layout, walk } = life;
+    const recipe = RECIPES[c.kind];
+    const taken = takenTiles(life);
+    let spot: Point;
+    let label: string;
+    let facing: 1 | -1 = 1;
+    switch (c.kind) {
+        case 'deliver': {
+            // In front of the cushion, or beside it when someone is already there.
+            const seat = layout.centre.seat;
+            const options = [
+                { x: seat.x, y: seat.y - 1 },
+                { x: seat.x - 1, y: seat.y },
+                { x: seat.x - 1, y: seat.y - 1 },
+            ];
+            spot = options.find((p) => !taken.has(tileKey(p)) && !isBlocked(walk, p.x, p.y)) ?? options[0];
+            label = `bringing the finished work to ${CHO_NAME}-sama`;
+            break;
+        }
+        case 'report': {
+            // Beside Diablo at his desk, facing him.
+            const desk = layout.centre.studyDesk;
+            spot = { x: desk.x + 1, y: desk.y + 1 };
+            label = `reporting a failed step to ${CEO_NAME}`;
+            facing = -1;
+            break;
+        }
+        case 'cheer': {
+            // Wherever they are, mid-step included: a cheer is not worth a walk.
+            spot = { x: w.x, y: w.y };
+            label = 'cheering an approval';
+            break;
+        }
+    }
+    if (w.activity && !w.activity.ceremony) endActivity(life, w);
+    w.activity = { kind: c.kind, label, pose: recipe.pose, bubble: recipe.bubble, spot, facing, seconds: recipe.min, ceremony: true };
+    if (same(w, spot)) {
+        w.phase = 'doing';
+        w.facing = facing;
+        w.at = now + recipe.min * 1000;
+    } else {
+        head(w, walk, spot, 'going');
+    }
+    return true;
+}
+
 /** What to draw for a walker right now. */
 export function appearance(w: Walker, now: number): { walking: boolean; pose: Pose | null; bubble: Bubble | null; facing: 1 | -1 } {
     const walking = (w.phase === 'going' || w.phase === 'returning' || w.phase === 'moving') && w.leg < w.path.length;
@@ -425,6 +514,7 @@ export function appearance(w: Walker, now: number): { walking: boolean; pose: Po
 export function outingSentence(w: Walker): string | null {
     if (!w.activity) return w.phase === 'moving' || w.phase === 'returning' ? 'Heading back to their desk.' : null;
     const what = w.activity.label.charAt(0).toUpperCase() + w.activity.label.slice(1);
+    if (w.activity.ceremony) return `${what}.`;
     if (w.phase === 'going') return `Off to go ${w.activity.label}.`;
     if (w.phase === 'doing') return `${what}.`;
     return null;
