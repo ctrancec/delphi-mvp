@@ -33,6 +33,7 @@ import { ESCALATION_MODEL, generateStructured } from '@/lib/llm/gemini';
 import type { CostTier, InventedAgentSpec } from './types';
 
 import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
+import { notify } from './notify';
 export interface ReplacementOutcome {
     replaced: boolean;
     /** Set when the cap is hit — nobody is swapped in, the CHO is told instead. */
@@ -445,6 +446,12 @@ async function proposeHire(
         verb: 'wants to hire someone new for',
         object: `${task.title} — ${spec.name}, ${spec.title}`,
         payload: { kind: 'staffing', reason: spec.reason },
+    });
+    await notify(db, workspaceId, {
+        kind: 'approval',
+        title: 'Waiting on you',
+        body: `${CEO_NAME} wants to hire ${spec.name}, ${spec.title}, for ${task.title}.`,
+        url: '/dashboard/delphi/approvals',
     });
 
     return true;

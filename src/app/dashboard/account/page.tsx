@@ -8,13 +8,16 @@
  */
 
 import { redirect } from 'next/navigation';
-import { KeyRound, ShieldCheck, Smartphone, UserCircle } from 'lucide-react';
+import { Bell, KeyRound, ShieldCheck, Smartphone, UserCircle } from 'lucide-react';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PasswordForm } from '@/components/delphi/password-form';
 import { NameForm } from '@/components/delphi/name-form';
 import { InstallCard } from '@/components/delphi/install-card';
+import { NotificationsCard } from '@/components/delphi/notifications-card';
+import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { countSubscriptions, DEFAULT_PREFS, isEmailConfigured, isPushConfigured, readPrefs, type Prefs } from '@/lib/delphi/notify';
 import { SlimeSprite } from '@/components/pixel/agent-sprite';
 import { choNameOf, hasOwnName } from '@/lib/delphi/cho';
 import { CEO_NAME } from '@/lib/pixel/cast/names';
@@ -45,6 +48,20 @@ export default async function AccountPage() {
     ].filter(Boolean);
     const hasPassword = providers.includes('email');
     const cho = choNameOf(user);
+
+    // Notification settings, tolerating a database the migration has not reached.
+    let prefs: Prefs = DEFAULT_PREFS;
+    let devices = 0;
+    let migrated = true;
+    try {
+        const workspaceId = await findWorkspace(supabase);
+        if (workspaceId) {
+            prefs = await readPrefs(supabase, workspaceId, user.id);
+            devices = await countSubscriptions(supabase, workspaceId, user.id);
+        }
+    } catch {
+        migrated = false;
+    }
 
     return (
         <div className="max-w-2xl space-y-6">
@@ -103,6 +120,28 @@ export default async function AccountPage() {
                 </CardHeader>
                 <CardContent>
                     <NameForm initial={hasOwnName(user) ? cho : ''} />
+                </CardContent>
+            </Card>
+
+            <Card className="border-white/10 bg-black/40">
+                <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Bell className="h-4 w-4" /> Notifications
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                        What reaches you when the app is closed. Nothing is sent until you switch it on here.
+                    </p>
+                </CardHeader>
+                <CardContent>
+                    <NotificationsCard
+                        prefs={prefs}
+                        signInEmail={user.email ?? ''}
+                        pushConfigured={isPushConfigured()}
+                        emailConfigured={isEmailConfigured()}
+                        vapidPublicKey={isPushConfigured() ? (process.env.VAPID_PUBLIC_KEY ?? '').trim() : null}
+                        devices={devices}
+                        migrated={migrated}
+                    />
                 </CardContent>
             </Card>
 

@@ -17,6 +17,7 @@ import { Type, type Schema } from '@google/genai';
 import { generateWithTools, ModelQuotaError, SchemaValidationError } from '@/lib/llm/gemini';
 import { clearRevisionNote } from './revision';
 import { isMissingColumn } from './db';
+import { notify } from './notify';
 import { toolsForChannels } from '@/lib/channels/registry';
 import { emitEvent, getSystemState, listChannels, type Db } from './db';
 import { effectiveState } from './schedule';
@@ -783,6 +784,12 @@ export async function runNextTask(
             verb: 'halted the project on budget',
             object: `$${Number(project.spent_usd).toFixed(4)} of $${Number(project.budget_usd).toFixed(2)}`,
         });
+        await notify(db, workspaceId, {
+            kind: 'halt',
+            title: 'Halted on budget',
+            body: `${project.title}: $${Number(project.spent_usd).toFixed(2)} of $${Number(project.budget_usd).toFixed(2)} spent. Raise the budget to continue.`,
+            url: '/dashboard/delphi',
+        });
         return { status: 'halted', reason: 'budget' };
     }
 
@@ -829,6 +836,12 @@ export async function runNextTask(
                 actor: CEO_NAME,
                 verb: 'finished the project',
                 object: project.title,
+            });
+            await notify(db, workspaceId, {
+                kind: 'report',
+                title: `Report landed: ${project.title}`,
+                body: `${CEO_NAME} finished the project. The deliverables are in Outputs.`,
+                url: `/dashboard/delphi/outputs?project=${projectId}`,
             });
         }
         return { status: 'idle', reason: 'no_pending_tasks' };
@@ -1132,6 +1145,12 @@ export async function runNextTask(
                 actor: agent.name,
                 verb: 'needs your approval to',
                 object: out.proposedAction.summary,
+            });
+            await notify(db, workspaceId, {
+                kind: 'approval',
+                title: 'Waiting on you',
+                body: `${agent.name} needs your approval to ${out.proposedAction.summary}`,
+                url: '/dashboard/delphi/approvals',
             });
 
             return { status: 'awaiting_approval', taskId: task.id, approvalId: approval!.id };

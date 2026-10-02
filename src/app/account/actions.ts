@@ -14,10 +14,13 @@
  *   keyboard is the account holder. A borrowed laptop should not be a takeover.
  */
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, currentUser } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { cleanName, NAME_MAX } from '@/lib/delphi/cho';
+import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { addSubscription, notify, removeSubscription, savePrefs, type Prefs } from '@/lib/delphi/notify';
+import { APP_NAME } from '@/lib/pixel/cast/names';
 
 export interface AuthResult {
     ok: boolean;
@@ -199,4 +202,68 @@ export async function setNameAction(name: string): Promise<AuthResult> {
 
     revalidatePath('/dashboard', 'layout');
     return { ok: true, message: clean ? `From now on the town calls you ${clean}.` : 'Cleared. The town calls you by the role again.' };
+}
+
+// ---------------------------------------------------------------------------
+// Notifications: what reaches you outside the app, and on which devices.
+// ---------------------------------------------------------------------------
+
+async function whoAndWhere(): Promise<{ db: NonNullable<Awaited<ReturnType<typeof createClient>>>; userId: string; workspaceId: string } | { error: string }> {
+    const db = await createClient();
+    if (!db) return { error: 'Authentication is not configured.' };
+    const user = await currentUser();
+    if (!user) return { error: 'You are not signed in.' };
+    const workspaceId = await findWorkspace(db);
+    if (!workspaceId) return { error: 'There is no workspace yet. Open Mission control once first.' };
+    return { db, userId: user.id, workspaceId };
+}
+
+const looksLikeEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+
+export async function saveNotifyPrefsAction(prefs: Prefs): Promise<AuthResult> {
+    const ctx = await whoAndWhere();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const email = (prefs.email ?? '').trim();
+    if (email && !looksLikeEmail(email)) return { ok: false, error: 'That does not look like an email address.' };
+    const saved = await savePrefs(ctx.db, ctx.workspaceId, ctx.userId, { email: email || null, onReport: !!prefs.onReport, onApproval: !!prefs.onApproval, onHalt: !!prefs.onHalt });
+    if (!saved.ok) return { ok: false, error: saved.error?.includes('delphi_notify_prefs') ? 'The notifications tables are not in the database yet: run migration 0009 in the Supabase SQL editor.' : saved.error };
+    revalidatePath('/dashboard/account');
+    return { ok: true, message: 'Saved.' };
+}
+
+export async function subscribePushAction(sub: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<AuthResult> {
+    const ctx = await whoAndWhere();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const agent = (await headers()).get('user-agent');
+    const added = await addSubscription(ctx.db, ctx.workspaceId, ctx.userId, sub, agent);
+    if (!added.ok) return { ok: false, error: added.error };
+    revalidatePath('/dashboard/account');
+    return { ok: true, message: 'This device will be notified.' };
+}
+
+export async function unsubscribePushAction(endpoint: string): Promise<AuthResult> {
+    const ctx = await whoAndWhere();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    await removeSubscription(ctx.db, ctx.userId, endpoint);
+    revalidatePath('/dashboard/account');
+    return { ok: true, message: 'This device will not be notified.' };
+}
+
+/** A note to yourself, to see that the channels work before relying on them. */
+export async function sendTestNotificationAction(): Promise<AuthResult> {
+    const ctx = await whoAndWhere();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const out = await notify(
+        ctx.db,
+        ctx.workspaceId,
+        { kind: 'test', title: `${APP_NAME} can reach you`, body: 'This is the test you asked for from Account settings.', url: '/dashboard/delphi' },
+        { onlyUserId: ctx.userId }
+    );
+    const parts: string[] = [];
+    if (out.pushed) parts.push(`${out.pushed} device${out.pushed === 1 ? '' : 's'}`);
+    if (out.emailed) parts.push('your email');
+    if (!parts.length) {
+        return { ok: false, error: out.errors[0] ? `Nothing arrived: ${out.errors[0]}` : 'Nothing is switched on yet: add an email address or turn on push on this device.' };
+    }
+    return { ok: true, message: `Sent to ${parts.join(' and ')}.${out.errors.length ? ` Some failed: ${out.errors[0]}` : ''}` };
 }
