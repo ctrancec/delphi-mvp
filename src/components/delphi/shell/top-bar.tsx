@@ -14,6 +14,7 @@ import { ShieldCheck, Wallet } from 'lucide-react';
 import { SystemSwitch } from './system-switch';
 import { LookSwitch } from './look';
 import { useCho } from './cho';
+import { useRole } from './role';
 import { PixelIcon } from '@/components/pixel/pixel-icon';
 import { titleFor } from './nav';
 import type { SystemMode } from '@/lib/delphi/db';
@@ -32,6 +33,7 @@ export interface TopBarProps {
 export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps) {
     const pathname = usePathname();
     const cho = useCho();
+    const role = useRole();
 
     return (
         <header className="flex h-16 shrink-0 items-center gap-3 border-b border-white/10 bg-black/40 px-4 backdrop-blur-xl desk:px-6">
@@ -66,7 +68,9 @@ export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps)
 
             <LookSwitch />
 
-            <SystemSwitch mode={mode} />
+            <span title={role === 'owner' ? undefined : 'Only the owner switches the system'}>
+                <SystemSwitch mode={mode} disabled={role !== 'owner'} />
+            </span>
 
             <Link
                 href="/dashboard/account"

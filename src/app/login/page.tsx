@@ -16,6 +16,9 @@ function LoginContent() {
     const [isLogin, setIsLogin] = useState(mode !== 'signup')
     const error = searchParams.get('error')
     const message = searchParams.get('message')
+    // An invitation link sends people here and wants them back; only a path on this site is honoured.
+    const requested = searchParams.get('next') ?? ''
+    const next = /^\/(?!\/)/.test(requested) ? requested : '/dashboard/delphi'
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] p-4">
@@ -44,6 +47,7 @@ function LoginContent() {
                 )}
 
                 <form className="space-y-6">
+                    <input type="hidden" name="next" value={next} />
                     {!isLogin && (
                         <div className="space-y-2">
                             <Label htmlFor="full_name">Your name</Label>
@@ -97,7 +101,7 @@ function LoginContent() {
                                     await supabase.auth.signInWithOAuth({
                                         provider: 'google',
                                         options: {
-                                            redirectTo: `${window.location.origin}/auth/callback`
+                                            redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
                                         }
                                     })
                                 } else {

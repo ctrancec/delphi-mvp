@@ -15,6 +15,7 @@
 import { cache } from 'react';
 import { revalidatePath } from 'next/cache';
 import { createClient, currentUser } from '@/lib/supabase/server';
+import { OWNER_ONLY, roleOf } from './members';
 import { emitEvent, isMissingColumn, type Db } from './db';
 import { findWorkspace } from './bootstrap';
 import { sendTaskBack, undoSendBack } from './revision';
@@ -39,6 +40,9 @@ const ctx = cache(async function ctx(): Promise<
 
     const workspaceId = await findWorkspace(db);
     if (!workspaceId) return { error: 'No workspace yet.' };
+
+    // Ruling on a deliverable is the owner's alone.
+    if ((await roleOf(db, workspaceId, user.id)) !== 'owner') return { error: OWNER_ONLY };
 
     return { db, workspaceId, userId: user.id };
 });

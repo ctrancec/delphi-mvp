@@ -7,7 +7,9 @@
  */
 
 import { ShieldCheck } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, currentUser } from '@/lib/supabase/server';
+import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { roleOf } from '@/lib/delphi/members';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ReopenApproval } from '@/components/delphi/reopen-approval';
@@ -40,6 +42,16 @@ export default async function ApprovalsPage() {
 
     const pending = all.filter((a) => a.status === 'pending');
     const decided = all.filter((a) => a.status !== 'pending');
+
+    // Only the owner decides. Everyone else sees the queue and the record.
+    let canDecide = true;
+    try {
+        const user = await currentUser();
+        const workspaceId = await findWorkspace(supabase);
+        if (user && workspaceId) canDecide = (await roleOf(supabase, workspaceId, user.id)) === 'owner';
+    } catch {
+        // Before the members migration there is only the owner.
+    }
 
     return (
         <div className="space-y-6">
@@ -75,7 +87,7 @@ export default async function ApprovalsPage() {
             ) : (
                 <div className="space-y-3">
                     {pending.map((a) => (
-                        <ApprovalCard key={a.id} approval={a} />
+                        <ApprovalCard key={a.id} approval={a} canDecide={canDecide} />
                     ))}
                 </div>
             )}

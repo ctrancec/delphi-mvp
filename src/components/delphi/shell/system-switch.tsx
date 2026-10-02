@@ -21,7 +21,7 @@ const MODES: Record<SystemMode, { label: string; dot: string; text: string }> = 
     stopped: { label: 'Stopped', dot: 'bg-red-400', text: 'text-red-400' },
 };
 
-export function SystemSwitch({ mode: initial, compact }: { mode: SystemMode; compact?: boolean }) {
+export function SystemSwitch({ mode: initial, compact, disabled = false }: { mode: SystemMode; compact?: boolean; disabled?: boolean }) {
     const [mode, setMode] = useState<SystemMode>(initial);
     const [open, setOpen] = useState(false);
     const [pending, startTransition] = useTransition();
@@ -50,7 +50,7 @@ export function SystemSwitch({ mode: initial, compact }: { mode: SystemMode; com
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                disabled={pending}
+                disabled={pending || disabled}
                 title={`System is ${meta.label.toLowerCase()} — click to change`}
                 className={cn(
                     'inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs transition-colors hover:border-white/25 disabled:opacity-60',

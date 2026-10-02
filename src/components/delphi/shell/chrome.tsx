@@ -15,11 +15,14 @@ import { TabBar } from './tab-bar';
 import { TopBar, type TopBarProps } from './top-bar';
 import { LookProvider, useLook, type Look } from './look';
 import { ChoProvider } from './cho';
+import { RoleProvider } from './role';
 import { ServiceWorker } from './service-worker';
+import type { Role } from '@/lib/delphi/members';
 
 export function DashboardChrome({
     look,
     cho,
+    role,
     ...props
 }: TopBarProps & {
     children: React.ReactNode;
@@ -27,11 +30,15 @@ export function DashboardChrome({
     look: Look;
     /** What the CHO goes by, resolved by the server layout from the signed-in user. */
     cho: string;
+    /** What the signed-in person may do here. */
+    role: Role;
 }) {
     return (
         <LookProvider initial={look}>
             <ChoProvider name={cho}>
-                <Shell {...props} />
+                <RoleProvider role={role}>
+                    <Shell {...props} />
+                </RoleProvider>
             </ChoProvider>
         </LookProvider>
     );

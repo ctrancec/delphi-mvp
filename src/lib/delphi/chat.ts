@@ -179,7 +179,11 @@ interface ToolContext {
     db: Db;
     workspaceId: string;
     actions: string[];
+    /** False for a reviewer or a viewer: they may ask anything and change nothing. */
+    canAct: boolean;
 }
+
+const NOT_THE_OWNER = 'Not done: only the workspace owner, the CHO, can change that. Say so plainly, and describe what you would do if they asked.';
 
 async function runTool(
     ctx: ToolContext,
@@ -262,6 +266,7 @@ async function runTool(
         }
 
         case 'create_department': {
+            if (!ctx.canAct) return { content: NOT_THE_OWNER };
             const name = String(args.name ?? '').trim();
             const charter = String(args.charter ?? '').trim();
             if (!name || charter.length < 20) {
@@ -299,6 +304,7 @@ async function runTool(
         }
 
         case 'set_department_budget': {
+            if (!ctx.canAct) return { content: NOT_THE_OWNER };
             const needle = String(args.department ?? '');
             const budget = Number(args.budgetUsd);
             if (!Number.isFinite(budget) || budget < 0) return { content: 'Rejected: budget must be a positive number.' };
@@ -319,6 +325,7 @@ async function runTool(
         }
 
         case 'set_system_mode': {
+            if (!ctx.canAct) return { content: NOT_THE_OWNER };
             const mode = String(args.mode ?? '') as 'running' | 'paused' | 'stopped';
             if (!['running', 'paused', 'stopped'].includes(mode)) {
                 return { content: 'Rejected: mode must be running, paused or stopped.' };
@@ -355,9 +362,11 @@ export async function chatWithDelphi(
     history: ChatTurn[],
     message: string,
     /** What the CHO goes by: how Diablo addresses them. */
-    cho: string = CHO_NAME
+    cho: string = CHO_NAME,
+    /** Whether the person asking may change anything: the owner may, nobody else. */
+    canAct = true
 ): Promise<ChatResult> {
-    const ctx: ToolContext = { db, workspaceId, actions: [] };
+    const ctx: ToolContext = { db, workspaceId, actions: [], canAct };
 
     const transcript = history
         .slice(-12)

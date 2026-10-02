@@ -5,6 +5,12 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cleanName } from '@/lib/delphi/cho'
 
+/** Where to go after signing in: a path on this site, never anywhere else. */
+function safeNext(value: FormDataEntryValue | null): string {
+    const s = typeof value === 'string' ? value : ''
+    return /^\/(?!\/)/.test(s) ? s : '/dashboard/delphi'
+}
+
 export async function login(formData: FormData) {
 
     const email = formData.get('email') as string
@@ -24,7 +30,7 @@ export async function login(formData: FormData) {
         return redirect(`/login?error=${encodeURIComponent(error.message)}`)
     }
 
-    redirect('/dashboard/delphi')
+    redirect(safeNext(formData.get('next')))
 }
 
 export async function signup(formData: FormData) {
@@ -59,5 +65,5 @@ export async function signup(formData: FormData) {
         )
     }
 
-    redirect('/dashboard/delphi')
+    redirect(safeNext(formData.get('next')))
 }

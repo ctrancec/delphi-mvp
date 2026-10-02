@@ -34,6 +34,7 @@ import type { SystemMode } from './db';
 import type { WorkSchedule } from './schedule';
 
 import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
+import { can, OWNER_ONLY, roleOf, type Role } from './members';
 export interface ActionResult<T = void> {
     ok: boolean;
     error?: string;
@@ -46,20 +47,26 @@ export interface ActionResult<T = void> {
  * round trip and a second workspace lookup on the way back out.
  */
 const getDb = cache(async function getDb(): Promise<
-    { db: Db; workspaceId: string } | { error: string }
+    { db: Db; workspaceId: string; role: Role } | { error: string }
 > {
     const db = await createClient();
     if (!db) return { error: 'Supabase is not configured. Check your environment variables.' };
 
-    if (!(await currentUser())) return { error: 'You are not signed in.' };
+    const user = await currentUser();
+    if (!user) return { error: 'You are not signed in.' };
 
     const workspaceId = await ensureWorkspace(db);
     if (!workspaceId) {
         return { error: 'Could not create your workspace. Check the database connection.' };
     }
 
-    return { db, workspaceId };
+    // Who they are in it: the owner acts, a reviewer posts, a viewer reads.
+    const role = await roleOf(db, workspaceId, user.id);
+    return { db, workspaceId, role };
 });
+
+/** The refusal an owner-only action gives anyone else. */
+const ownerOnly = (ctx: { role: Role }): { ok: false; error: string } | null => (ctx.role === 'owner' ? null : { ok: false, error: OWNER_ONLY });
 
 // ---------------------------------------------------------------------------
 // Departments
@@ -73,6 +80,8 @@ export async function createDepartmentAction(input: {
 }): Promise<ActionResult<{ id: string }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     if (!input.name.trim()) return { ok: false, error: 'Give the department a name.' };
@@ -127,6 +136,8 @@ export async function proposeHiringAction(
 ): Promise<ActionResult<{ taskCount: number; estimatedCostUsd: number }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     const { data: dept, error: deptErr } = await db
@@ -296,6 +307,8 @@ export async function proposeHiringAction(
 export async function approvePlanAction(departmentId: string): Promise<ActionResult> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     const { data: project } = await db
@@ -329,6 +342,8 @@ export async function approvePlanAction(departmentId: string): Promise<ActionRes
 export async function seedRosterAction(): Promise<ActionResult<{ inserted: number }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     const { seedRoster } = await import('./db');
@@ -358,6 +373,8 @@ export async function setSystemModeAction(
 ): Promise<ActionResult<{ mode: SystemMode }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     try {
@@ -428,6 +445,8 @@ export async function decideApprovalAction(
 ): Promise<ActionResult<{ decision: Decision; escalatedTo?: string }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     const {
@@ -548,6 +567,7 @@ export async function postToThreadAction(
 ): Promise<ActionResult> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    if (!can(ctx.role, 'post')) return { ok: false, error: 'A viewer reads the thread; a reviewer or the owner can post into it.' };
     const { db, workspaceId } = ctx;
 
     const body = content.trim();
@@ -628,7 +648,7 @@ export async function chatWithDelphiAction(message: string): Promise<ActionResul
         });
 
         const { choNameOf } = await import('./cho');
-        const result = await chatWithDelphi(db, workspaceId, history, body, choNameOf(user));
+        const result = await chatWithDelphi(db, workspaceId, history, body, choNameOf(user), ctx.role === 'owner');
 
         await db.from('delphi_messages').insert({
             workspace_id: workspaceId,
@@ -675,6 +695,8 @@ export async function setWorkScheduleAction(
 ): Promise<ActionResult<{ detail: string }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -769,6 +791,8 @@ export async function reopenApprovalAction(
 ): Promise<ActionResult<{ reopened: true }>> {
     const ctx = await getDb();
     if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
     const { db, workspaceId } = ctx;
 
     const { data: approval, error: readErr } = await db

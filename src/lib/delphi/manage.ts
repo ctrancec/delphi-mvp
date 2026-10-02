@@ -21,6 +21,7 @@
 import { revalidatePath } from 'next/cache';
 import { cache } from 'react';
 import { createClient, currentUser } from '@/lib/supabase/server';
+import { OWNER_ONLY, roleOf } from './members';
 import { emitEvent, type Db } from './db';
 import { findWorkspace } from './bootstrap';
 
@@ -38,10 +39,14 @@ const ctx = cache(async function ctx(): Promise<
     const db = await createClient();
     if (!db) return { error: 'Supabase is not configured.' };
 
-    if (!(await currentUser())) return { error: 'You are not signed in.' };
+    const user = await currentUser();
+    if (!user) return { error: 'You are not signed in.' };
 
     const workspaceId = await findWorkspace(db);
     if (!workspaceId) return { error: 'No workspace yet.' };
+
+    // Everything in this file changes the organisation: the owner's alone.
+    if ((await roleOf(db, workspaceId, user.id)) !== 'owner') return { error: OWNER_ONLY };
 
     return { db, workspaceId };
 });

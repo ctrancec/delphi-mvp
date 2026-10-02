@@ -20,6 +20,8 @@ import { revalidatePath } from 'next/cache';
 import { cleanName, NAME_MAX } from '@/lib/delphi/cho';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
 import { addSubscription, notify, removeSubscription, savePrefs, type Prefs } from '@/lib/delphi/notify';
+import { createInvite, OWNER_ONLY, removeMember, revokeInvite, roleOf, setMemberRole, type Invite } from '@/lib/delphi/members';
+import { randomBytes } from 'node:crypto';
 import { APP_NAME } from '@/lib/pixel/cast/names';
 
 export interface AuthResult {
@@ -266,4 +268,51 @@ export async function sendTestNotificationAction(): Promise<AuthResult> {
         return { ok: false, error: out.errors[0] ? `Nothing arrived: ${out.errors[0]}` : 'Nothing is switched on yet: add an email address or turn on push on this device.' };
     }
     return { ok: true, message: `Sent to ${parts.join(' and ')}.${out.errors.length ? ` Some failed: ${out.errors[0]}` : ''}` };
+}
+
+// ---------------------------------------------------------------------------
+// The team: invitations and roles. The owner's alone.
+// ---------------------------------------------------------------------------
+
+async function asOwner(): Promise<{ db: NonNullable<Awaited<ReturnType<typeof createClient>>>; userId: string; workspaceId: string } | { error: string }> {
+    const ctx = await whoAndWhere();
+    if ('error' in ctx) return ctx;
+    if ((await roleOf(ctx.db, ctx.workspaceId, ctx.userId)) !== 'owner') return { error: OWNER_ONLY };
+    return ctx;
+}
+
+export async function createInviteAction(role: 'reviewer' | 'viewer'): Promise<AuthResult & { invite?: Invite }> {
+    const ctx = await asOwner();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    if (role !== 'reviewer' && role !== 'viewer') return { ok: false, error: 'A guest is a reviewer or a viewer.' };
+    const token = randomBytes(24).toString('base64url');
+    const made = await createInvite(ctx.db, ctx.workspaceId, ctx.userId, role, null, token);
+    if (!made.ok) return { ok: false, error: made.error?.includes('delphi_invites') ? 'The members tables are not in the database yet: run migration 0010 in the Supabase SQL editor.' : made.error };
+    revalidatePath('/dashboard/account');
+    return { ok: true, invite: made.invite };
+}
+
+export async function revokeInviteAction(inviteId: string): Promise<AuthResult> {
+    const ctx = await asOwner();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    await revokeInvite(ctx.db, ctx.workspaceId, inviteId);
+    revalidatePath('/dashboard/account');
+    return { ok: true };
+}
+
+export async function setMemberRoleAction(userId: string, role: 'reviewer' | 'viewer'): Promise<AuthResult> {
+    const ctx = await asOwner();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    if (role !== 'reviewer' && role !== 'viewer') return { ok: false, error: 'A guest is a reviewer or a viewer.' };
+    const res = await setMemberRole(ctx.db, ctx.workspaceId, ctx.userId, userId, role);
+    revalidatePath('/dashboard/account');
+    return res.ok ? { ok: true } : { ok: false, error: res.error };
+}
+
+export async function removeMemberAction(userId: string): Promise<AuthResult> {
+    const ctx = await asOwner();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const res = await removeMember(ctx.db, ctx.workspaceId, ctx.userId, userId);
+    revalidatePath('/dashboard/account');
+    return res.ok ? { ok: true } : { ok: false, error: res.error };
 }

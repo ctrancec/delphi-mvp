@@ -17,13 +17,14 @@ import { HousePlaque } from '@/components/delphi/house-plaque'
 import { QuestLog } from '@/components/delphi/quest-log'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
 import { choNameOf } from '@/lib/delphi/cho'
+import { roleOf } from '@/lib/delphi/members'
 import { readFloor, type FloorAgent } from '@/lib/delphi/floor'
 import { TempestWorld } from '@/components/pixel/tempest-world'
 
 import { APP_NAME, CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
 
-function Empty({ hasRoster }: { hasRoster: boolean }) {
+function Empty({ hasRoster, owner }: { hasRoster: boolean; owner: boolean }) {
     return (
         <Card className="bg-black/40 border-white/10 border-dashed">
             <CardContent className="py-14 text-center space-y-4">
@@ -35,11 +36,15 @@ function Empty({ hasRoster }: { hasRoster: boolean }) {
                         standing, like a morning brief on global events and market moves.
                     </p>
                 </div>
-                <Button asChild>
-                    <Link href="/dashboard/delphi/departments/new">
-                        <Plus className="h-4 w-4 mr-2" /> Create a department
-                    </Link>
-                </Button>
+                {owner ? (
+                    <Button asChild>
+                        <Link href="/dashboard/delphi/departments/new">
+                            <Plus className="h-4 w-4 mr-2" /> Create a department
+                        </Link>
+                    </Button>
+                ) : (
+                    <p className="text-xs text-muted-foreground">The owner creates departments.</p>
+                )}
                 {!hasRoster && (
                     <p className="text-xs text-amber-400 flex items-center justify-center gap-2">
                         <AlertTriangle className="h-3.5 w-3.5" />
@@ -74,6 +79,7 @@ export default async function DelphiHqPage() {
     // pipeline writes, under the same RLS.
     const user = await currentUser()
     const cho = choNameOf(user)
+    const owner = provisioned && user ? (await roleOf(supabase, provisioned.workspaceId, user.id).catch(() => 'owner' as const)) === 'owner' : true
     const floorPromise = provisioned
         ? readFloor(supabase, provisioned.workspaceId, new Date(), user ? { id: user.id, name: cho } : undefined).catch(() => null)
         : Promise.resolve(null)
@@ -110,11 +116,13 @@ export default async function DelphiHqPage() {
                 <p className="text-sm text-muted-foreground">
                     {APP_NAME} headquarters. Every house is a department; {CEO_NAME} hires into them and reports to you.
                 </p>
-                <Button asChild className="shrink-0">
-                    <Link href="/dashboard/delphi/departments/new">
-                        <Plus className="h-4 w-4 mr-2" /> <span className="hidden inner:inline">New department</span><span className="inner:hidden">New</span>
-                    </Link>
-                </Button>
+                {owner && (
+                    <Button asChild className="shrink-0">
+                        <Link href="/dashboard/delphi/departments/new">
+                            <Plus className="h-4 w-4 mr-2" /> <span className="hidden inner:inline">New department</span><span className="inner:hidden">New</span>
+                        </Link>
+                    </Button>
+                )}
             </div>
 
             {floor && (
@@ -149,7 +157,7 @@ export default async function DelphiHqPage() {
             </div>
 
             {depts.length === 0 ? (
-                <Empty hasRoster={workerCount > 0} />
+                <Empty hasRoster={workerCount > 0} owner={owner} />
             ) : (
                 <section className="space-y-3" aria-labelledby="houses">
                     <h2 id="houses" className="text-sm font-semibold text-zinc-300">

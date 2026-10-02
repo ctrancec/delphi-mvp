@@ -8,7 +8,7 @@
  */
 
 import { redirect } from 'next/navigation';
-import { Bell, KeyRound, ShieldCheck, Smartphone, UserCircle } from 'lucide-react';
+import { Bell, KeyRound, ShieldCheck, Smartphone, UserCircle, Users } from 'lucide-react';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,9 @@ import { PasswordForm } from '@/components/delphi/password-form';
 import { NameForm } from '@/components/delphi/name-form';
 import { InstallCard } from '@/components/delphi/install-card';
 import { NotificationsCard } from '@/components/delphi/notifications-card';
+import { TeamCard } from '@/components/delphi/team-card';
+import { listInvites, listMembers, roleOf, roleWords, type Invite, type Member, type Role } from '@/lib/delphi/members';
+import { headers } from 'next/headers';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
 import { countSubscriptions, DEFAULT_PREFS, isEmailConfigured, isPushConfigured, readPrefs, type Prefs } from '@/lib/delphi/notify';
 import { SlimeSprite } from '@/components/pixel/agent-sprite';
@@ -53,8 +56,8 @@ export default async function AccountPage() {
     let prefs: Prefs = DEFAULT_PREFS;
     let devices = 0;
     let migrated = true;
+    const workspaceId = await findWorkspace(supabase);
     try {
-        const workspaceId = await findWorkspace(supabase);
         if (workspaceId) {
             prefs = await readPrefs(supabase, workspaceId, user.id);
             devices = await countSubscriptions(supabase, workspaceId, user.id);
@@ -62,6 +65,25 @@ export default async function AccountPage() {
     } catch {
         migrated = false;
     }
+
+    // The team: who is in the workspace, and the links to bring more in.
+    let role: Role = 'owner';
+    let members: Member[] = [];
+    let invites: Invite[] = [];
+    let teamReady = true;
+    try {
+        if (workspaceId) {
+            role = await roleOf(supabase, workspaceId, user.id);
+            if (role === 'owner') {
+                members = await listMembers(supabase, workspaceId, user.id);
+                invites = await listInvites(supabase, workspaceId);
+            }
+        }
+    } catch {
+        teamReady = false;
+    }
+    const host = (await headers()).get('host') ?? 'localhost:3000';
+    const origin = `${host.startsWith('localhost') ? 'http' : 'https'}://${host}`;
 
     return (
         <div className="max-w-2xl space-y-6">
@@ -120,6 +142,30 @@ export default async function AccountPage() {
                 </CardHeader>
                 <CardContent>
                     <NameForm initial={hasOwnName(user) ? cho : ''} />
+                </CardContent>
+            </Card>
+
+            <Card className="border-white/10 bg-black/40">
+                <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Users className="h-4 w-4" /> Team
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                        {role === 'owner'
+                            ? 'Others can read everything you see. A reviewer can also post into review threads. Only you decide, staff, spend or switch the system.'
+                            : `You are ${roleWords(role)}.`}
+                    </p>
+                </CardHeader>
+                <CardContent>
+                    {role === 'owner' ? (
+                        teamReady ? (
+                            <TeamCard members={members} invites={invites} origin={origin} you={user.id} />
+                        ) : (
+                            <p className="text-xs text-amber-400">The members tables are not in the database yet. Run migration 0010 in the Supabase SQL editor.</p>
+                        )
+                    ) : (
+                        <p className="text-sm text-muted-foreground">The owner manages the team.</p>
+                    )}
                 </CardContent>
             </Card>
 

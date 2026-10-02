@@ -13,6 +13,7 @@ import { usePathname } from 'next/navigation';
 import { Plus, Triangle } from 'lucide-react';
 import { NAV, activeHref } from './nav';
 import { useLook } from './look';
+import { useRole } from './role';
 import { PixelIcon } from '@/components/pixel/pixel-icon';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +28,7 @@ export function Rail({
     const pathname = usePathname();
     const active = activeHref(pathname);
     const { look } = useLook();
+    const role = useRole();
 
     return (
         <nav className="hidden h-full w-[68px] shrink-0 flex-col border-r border-white/10 bg-black/40 inner:flex desk:w-[216px]">
@@ -103,6 +105,7 @@ export function Rail({
                 })}
             </div>
 
+            {role === 'owner' && (
             <div className="p-3">
                 <Link
                     href="/dashboard/delphi/departments/new"
@@ -113,6 +116,7 @@ export function Rail({
                     <span className="hidden truncate desk:inline">New department</span>
                 </Link>
             </div>
+            )}
         </nav>
     );
 }

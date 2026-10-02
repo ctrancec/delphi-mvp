@@ -14,6 +14,7 @@ import { findWorkspace } from '@/lib/delphi/bootstrap'
 import { getSystemMode, type SystemMode } from '@/lib/delphi/db'
 import { countNewOutputs } from '@/lib/delphi/unread'
 import { choNameOf } from '@/lib/delphi/cho'
+import { roleOf, type Role } from '@/lib/delphi/members'
 
 export const dynamic = 'force-dynamic'
 
@@ -74,6 +75,16 @@ export default async function DashboardLayout({
     }
 
     const status = supabase ? await readStatus(supabase, user.id) : NO_STATUS
+    // The owner acts; a reviewer posts; a viewer reads. Resolved once, for the chrome.
+    let role: Role = 'owner'
+    if (supabase) {
+        try {
+            const workspaceId = await findWorkspace(supabase)
+            if (workspaceId) role = await roleOf(supabase, workspaceId, user.id)
+        } catch {
+            // Before the members migration there is only ever the owner.
+        }
+    }
     // Read here so the first paint is already in the right look, with no flash.
     const look = lookFrom((await cookies()).get(LOOK_COOKIE)?.value)
 
@@ -123,6 +134,7 @@ export default async function DashboardLayout({
             email={user.email ?? ''}
             look={look}
             cho={choNameOf(user)}
+            role={role}
         >
             {children}
         </DashboardChrome>

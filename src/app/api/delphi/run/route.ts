@@ -23,6 +23,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { OWNER_ONLY, roleOf } from '@/lib/delphi/members';
 import { reconcileStaleRuns, runNextTask, type StepOutcome } from '@/lib/delphi/runtime';
 import { syncChannels, type Db } from '@/lib/delphi/db';
 import { runAndStoreReview } from '@/lib/delphi/reviews';
@@ -295,6 +296,9 @@ export async function POST(req: NextRequest) {
     const workspaceId = await findWorkspace(db);
     if (!workspaceId) {
         return NextResponse.json({ ok: true, more: false, outcomes: [] });
+    }
+    if ((await roleOf(db, workspaceId, user.id)) !== 'owner') {
+        return NextResponse.json({ error: OWNER_ONLY }, { status: 403 });
     }
 
     try {
