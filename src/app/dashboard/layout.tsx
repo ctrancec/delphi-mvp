@@ -13,6 +13,7 @@ import { LOOK_COOKIE, lookFrom } from '@/components/delphi/shell/look-cookie'
 import { findWorkspace } from '@/lib/delphi/bootstrap'
 import { getSystemMode, type SystemMode } from '@/lib/delphi/db'
 import { countNewOutputs } from '@/lib/delphi/unread'
+import { choNameOf } from '@/lib/delphi/cho'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,7 +64,7 @@ export default async function DashboardLayout({
     // Resolved once per request rather than once per caller: `getUser()` is a
     // round trip to Supabase's auth server, and the layout and the page inside
     // it were each making their own.
-    const user: { id: string; email?: string } | null = supabase
+    const user: { id: string; email?: string; user_metadata?: Record<string, unknown> } | null = supabase
         ? await currentUser()
         : // Mock Mode Fallback
           { email: 'demo@delphi.com', id: 'mock-user-id' }
@@ -121,6 +122,7 @@ export default async function DashboardLayout({
             newOutputs={status.newOutputs}
             email={user.email ?? ''}
             look={look}
+            cho={choNameOf(user)}
         >
             {children}
         </DashboardChrome>

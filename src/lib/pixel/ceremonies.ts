@@ -46,7 +46,7 @@ export function ceremoniesFrom(seenUpTo: number, floor: Floor): { ceremonies: Ce
     for (const e of fresh) {
         if (e.type === 'task_done' || e.type === 'task_failed') {
             // A step the CHO removed is logged as a failure too; nobody reports that to Diablo.
-            if (!e.actor || isCho(e.actor)) continue;
+            if (!e.actor || isCho(e.actor, floor.cho)) continue;
             const who = agentForActor(e.actor, floor.agents);
             if (who) add(e.type === 'task_done' ? 'deliver' : 'report', who.id, e.id);
         } else if (e.type === 'approval_decided' && e.verb?.startsWith('approved')) {

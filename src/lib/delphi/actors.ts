@@ -19,7 +19,10 @@ export function agentForActor(actor: string, agents: readonly FloorAgent[]): Flo
     return slug ? (agents.find((a) => a.slug === slug) ?? null) : null;
 }
 
-/** The CHO, by their name or by the role's old label on past lines. */
-export function isCho(actor: string): boolean {
-    return actor === CHO_NAME || actor === 'CHO';
+/**
+ * The CHO: by the name they go by now, by the cast's name for the role, or
+ * by the role's old label on the oldest lines.
+ */
+export function isCho(actor: string, cho: string = CHO_NAME): boolean {
+    return actor === cho || actor === CHO_NAME || actor === 'CHO';
 }

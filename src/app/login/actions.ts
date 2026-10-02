@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 
 import { createClient } from '@/lib/supabase/server'
+import { cleanName } from '@/lib/delphi/cho'
 
 export async function login(formData: FormData) {
 
@@ -36,9 +37,13 @@ export async function signup(formData: FormData) {
         return redirect('/login?error=Authentication not configured (Missing Env Vars)')
     }
 
+    // Their name, kept with the account: what the town will call them.
+    const fullName = cleanName(formData.get('full_name'))
+
     const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: fullName ? { data: { full_name: fullName } } : undefined,
     })
 
     if (error) {

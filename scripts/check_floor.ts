@@ -428,6 +428,11 @@ console.log('\nCeremonies');
     const quiet = deriveFloor({ ...base(), recent: [event(8, 'approval_decided', 'Rimuru', { verb: 'rejected', projectId: 'p1' }), event(7, 'task_failed', 'Rimuru', { verb: 'removed step' }), event(6, 'task_done', 'Nobody Here')] }, NOW);
     ok(ceremoniesFrom(5, quiet).ceremonies.length === 0, 'a decline, a step the CHO removed, and a stranger move nobody');
 
+    // The CHO under their own name: what they approve is cheered, what they remove is not reported.
+    const named = deriveFloor({ ...base(), cho: 'Curtis', recent: [event(12, 'task_failed', 'Curtis', { verb: 'removed step' }), event(11, 'approval_decided', 'Curtis', { verb: 'approved', projectId: 'p1' })] }, NOW);
+    const own = ceremoniesFrom(10, named).ceremonies.map((c) => c.kind);
+    ok(named.cho === 'Curtis' && own.every((k) => k === 'cheer') && own.length === 2, 'and the same holds when the CHO goes by their own name', own.join(' '));
+
     const twice = deriveFloor({ ...base(), recent: [event(10, 'task_done', 'Shuna'), event(9, 'task_done', 'Shuna')] }, NOW);
     ok(ceremoniesFrom(8, twice).ceremonies.length === 1, 'two steps of one task make one trip');
 
@@ -441,6 +446,7 @@ console.log('\nCeremonies');
     const life = createLife(map);
     stepLife(life, floor, map, 0, 0);
     ok(floor.agents.find((a) => a.id === 'shuna')?.state === 'working' && startCeremony(life, floor, { kind: 'deliver', agentId: 'shuna', eventId: 3 }, 0), 'a working agent still takes the finished work over');
+    ok(life.walkers.get('shuna')!.activity?.label === 'bringing the finished work to Rimuru-sama', 'to the CHO by name');
     let raised = false;
     let atSeat = false;
     let back = false;
@@ -554,7 +560,7 @@ console.log('\nReading from a database');
     }
     const db = { from: builder } as unknown as Db;
 
-    readFloor(db, 'ws', NOW, 'u1')
+    readFloor(db, 'ws', NOW, { id: 'u1', name: 'Curtis' })
         .then((floor) => {
             ok(floor.agents.find((a) => a.id === 'shuna')?.state === 'working', 'readFloor sees the running task through the project in flight');
             ok(floor.agents.find((a) => a.id === 'beni')?.state === 'done', 'and a finish in a done project through its recent run');
@@ -562,6 +568,7 @@ console.log('\nReading from a database');
             ok(floor.pendingApprovals === 2, 'and the approvals waiting on the CHO');
             ok(floor.recent.length === 2 && floor.recent[0].id === 2 && floor.recent[0].actor === 'Rimuru' && floor.recent[0].verb === 'approved' && floor.recent[0].projectId === 'p1', 'and carries the newest lines of the log, newest first');
             ok(floor.newOutputs === 2, 'and the unread count for whose board it is');
+            ok(floor.cho === 'Curtis' && deriveFloor(base(), NOW).cho === 'Rimuru', 'and what the town calls them, the role until they have a name');
             ok(queries.filter((q) => q === 'delphi_tasks').length === 2 && queries.length === 13, 'in two rounds of lean selects', `${queries.length} queries`);
         })
         .catch((e) => {

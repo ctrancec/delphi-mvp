@@ -14,18 +14,24 @@ import { Rail } from './rail';
 import { TabBar } from './tab-bar';
 import { TopBar, type TopBarProps } from './top-bar';
 import { LookProvider, useLook, type Look } from './look';
+import { ChoProvider } from './cho';
 
 export function DashboardChrome({
     look,
+    cho,
     ...props
 }: TopBarProps & {
     children: React.ReactNode;
     legacy: React.ReactNode;
     look: Look;
+    /** What the CHO goes by, resolved by the server layout from the signed-in user. */
+    cho: string;
 }) {
     return (
         <LookProvider initial={look}>
-            <Shell {...props} />
+            <ChoProvider name={cho}>
+                <Shell {...props} />
+            </ChoProvider>
         </LookProvider>
     );
 }

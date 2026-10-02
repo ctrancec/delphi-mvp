@@ -16,6 +16,7 @@ import type { AgentState } from '@/lib/pixel/animate';
 import { DELPHI_SLUG, getSystemState, type Db, type SystemMode } from './db';
 import { effectiveState, type EffectiveReason } from './schedule';
 import { countNewOutputs } from './unread';
+import { CHO_NAME } from '@/lib/pixel/cast/names';
 
 /** A finish this recent is still worth a cheer. */
 export const DONE_WINDOW_MS = 15 * 60_000;
@@ -89,6 +90,8 @@ export interface Floor {
     recent: FloorEvent[];
     /** Deliverables landed since the CHO last opened Outputs: what is pinned to the notice board. */
     newOutputs: number;
+    /** What the town calls the CHO: their own name, or the cast's for the role. */
+    cho: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +110,7 @@ export interface FloorInput {
     effective: { mode: SystemMode; reason: EffectiveReason; detail: string };
     recent?: FloorEvent[];
     newOutputs?: number;
+    cho?: string;
 }
 
 type Run = FloorInput['runs'][number];
@@ -251,6 +255,7 @@ export function deriveFloor(input: FloorInput, now: Date): Floor {
         departments: floorDepartments,
         recent: [...(input.recent ?? [])].sort((a, b) => b.id - a.id),
         newOutputs: input.newOutputs ?? 0,
+        cho: input.cho || CHO_NAME,
     };
 }
 
@@ -258,11 +263,18 @@ export function deriveFloor(input: FloorInput, now: Date): Floor {
 // Reading the rows.
 // ---------------------------------------------------------------------------
 
+/** Who is looking: whose notice board it is, and what the town calls them. */
+export interface Viewer {
+    id: string;
+    name?: string;
+}
+
 /**
- * `userId` is whose notice board it is: the unread count is per person. Left
- * out, the board is empty, which is right for a reading nobody is looking at.
+ * The viewer is whose reading this is: the unread count is per person, and
+ * the CHO is called by their name. Left out, the board is empty and the CHO
+ * goes by the cast's name, which is right for a reading nobody is looking at.
  */
-export async function readFloor(db: Db, workspaceId: string, now = new Date(), userId?: string): Promise<Floor> {
+export async function readFloor(db: Db, workspaceId: string, now = new Date(), viewer?: Viewer): Promise<Floor> {
     const recent = new Date(now.getTime() - STUCK_WINDOW_MS).toISOString();
 
     const [agents, departments, hires, projects, runs, reviews, approvals, state, events, unread] = await Promise.all([
@@ -275,7 +287,7 @@ export async function readFloor(db: Db, workspaceId: string, now = new Date(), u
         db.from('delphi_approvals').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('status', 'pending'),
         getSystemState(db, workspaceId),
         db.from('delphi_events').select('id, type, project_id, department_id, payload').eq('workspace_id', workspaceId).order('id', { ascending: false }).limit(RECENT_EVENTS),
-        userId ? countNewOutputs(db, workspaceId, userId) : Promise.resolve({ newOutputs: 0 }),
+        viewer ? countNewOutputs(db, workspaceId, viewer.id) : Promise.resolve({ newOutputs: 0 }),
     ]);
 
     type EventRow = { id: number | string; type: string; project_id: string | null; department_id: string | null; payload: { actor?: string; verb?: string } | null };
@@ -321,6 +333,7 @@ export async function readFloor(db: Db, workspaceId: string, now = new Date(), u
             effective: { mode: effective.mode, reason: effective.reason, detail: effective.detail },
             recent: recentEvents,
             newOutputs: unread.newOutputs,
+            cho: viewer?.name,
         },
         now
     );

@@ -2,14 +2,16 @@ import { AgentSprite, SlimeSprite } from '@/components/pixel/agent-sprite';
 import { PixelIcon } from '@/components/pixel/pixel-icon';
 import { agentForActor, isCho } from '@/lib/delphi/actors';
 import type { FloorAgent } from '@/lib/delphi/floor';
+import { CHO_NAME } from '@/lib/pixel/cast/names';
 import { ActivityLine, type ActivityEvent } from './activity-line';
 
 /**
  * The activity log with a face on every line: the agent who did the thing,
  * the slime when it was the CHO, and the Tempest mark when it was nobody in
- * particular.
+ * particular. `cho` is what the CHO goes by now; lines written under the
+ * role's old names show it too.
  */
-export function QuestLog({ events, agents }: { events: ActivityEvent[]; agents: readonly FloorAgent[] }) {
+export function QuestLog({ events, agents, cho = CHO_NAME }: { events: ActivityEvent[]; agents: readonly FloorAgent[]; cho?: string }) {
     return (
         <div className="space-y-1 font-mono text-xs">
             {events.map((e) => {
@@ -17,12 +19,12 @@ export function QuestLog({ events, agents }: { events: ActivityEvent[]; agents: 
                 const who = agentForActor(actor, agents);
                 const avatar = who ? (
                     <AgentSprite agent={{ slug: who.slug, name: who.name, avatarSeed: who.avatarSeed }} crop="head" scale={2} label={who.name} />
-                ) : isCho(actor) ? (
-                    <SlimeSprite scale={2} />
+                ) : isCho(actor, cho) ? (
+                    <SlimeSprite scale={2} name={cho} />
                 ) : (
                     <PixelIcon id="mark" className="mb-1 h-5 w-5 text-muted-foreground/40" />
                 );
-                return <ActivityLine key={e.id} event={e} avatar={avatar} />;
+                return <ActivityLine key={e.id} event={e} avatar={avatar} cho={cho} />;
             })}
         </div>
     );

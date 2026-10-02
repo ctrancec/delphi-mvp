@@ -16,6 +16,8 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
+import { revalidatePath } from 'next/cache';
+import { cleanName, NAME_MAX } from '@/lib/delphi/cho';
 
 export interface AuthResult {
     ok: boolean;
@@ -176,4 +178,25 @@ export async function emailMyselfAResetAction(): Promise<AuthResult> {
     if (error) return { ok: false, error: error.message };
 
     return { ok: true, message: `Reset link sent to ${user.email}.` };
+}
+
+/**
+ * Set the name the CHO goes by. Kept on the auth user, where a sign-up or a
+ * Google account puts it too, so one place answers "what do we call you".
+ * Blank clears it, and the cast's name for the role takes over.
+ */
+export async function setNameAction(name: string): Promise<AuthResult> {
+    const clean = cleanName(name);
+    if (typeof name === 'string' && name.trim().length > NAME_MAX) {
+        return { ok: false, error: `Keep it to ${NAME_MAX} characters.` };
+    }
+
+    const supabase = await createClient();
+    if (!supabase) return { ok: false, error: 'Authentication is not configured.' };
+
+    const { error } = await supabase.auth.updateUser({ data: { full_name: clean || null } });
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath('/dashboard', 'layout');
+    return { ok: true, message: clean ? `From now on the town calls you ${clean}.` : 'Cleared. The town calls you by the role again.' };
 }

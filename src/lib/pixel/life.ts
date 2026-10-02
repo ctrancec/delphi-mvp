@@ -17,7 +17,7 @@
 
 import type { Floor, FloorAgent } from '@/lib/delphi/floor';
 import type { Bubble } from './animate';
-import { CEO_NAME, CEO_SLUG, CHO_NAME } from './cast/names';
+import { CEO_NAME, CEO_SLUG } from './cast/names';
 import type { Ceremony } from './ceremonies';
 import { hash, random } from './residents';
 import type { Pose } from './sprites/body';
@@ -274,7 +274,7 @@ function choose(life: Life, floor: Floor, agent: FloorAgent, w: Walker, taken: S
             }
             case 'greet': {
                 const spot = { x: layout.centre.seat.x, y: layout.centre.seat.y - 1 };
-                if (!taken.has(tileKey(spot))) return make('greet', 'greeting Rimuru-sama', spot);
+                if (!taken.has(tileKey(spot))) return make('greet', `greeting ${floor.cho}-sama`, spot);
                 break;
             }
             case 'tinker': {
@@ -467,7 +467,7 @@ export function startCeremony(life: Life, floor: Floor, c: Ceremony, now: number
                 { x: seat.x - 1, y: seat.y - 1 },
             ];
             spot = options.find((p) => !taken.has(tileKey(p)) && !isBlocked(walk, p.x, p.y)) ?? options[0];
-            label = `bringing the finished work to ${CHO_NAME}-sama`;
+            label = `bringing the finished work to ${floor.cho}-sama`;
             break;
         }
         case 'report': {

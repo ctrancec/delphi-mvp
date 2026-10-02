@@ -16,6 +16,8 @@ import { DELPHI_SLUG, ensureDelphiAgent, insertInventedAgent, seedRoster, type D
 import { DELPHI_SYSTEM_PROMPT } from '../src/lib/delphi/delphi';
 import { ALL_SEED_AGENTS, composeSystemPrompt } from '../src/lib/delphi/roster';
 import { CAST_NAMES, castNameFor, CEO_FORMERLY, CEO_NAME, CHO_NAME, nextPoolName, POOL_NAMES, renameInPrompt } from '../src/lib/pixel/cast/names';
+import { choNameOf, cleanName, hasOwnName, NAME_MAX } from '../src/lib/delphi/cho';
+import { isCho } from '../src/lib/delphi/actors';
 import { POOL } from '../src/lib/pixel/cast';
 
 const G = '\x1b[32m', R = '\x1b[31m', D = '\x1b[2m', RS = '\x1b[0m';
@@ -164,10 +166,21 @@ const src = (f: string) => readFileSync(join(__dirname, '..', 'src', 'lib', 'del
         ok(kept.name === 'Zed Marlow' && kept.systemPrompt === spec.systemPrompt, 'after which a hire keeps the name the CEO gave it');
     }
 
+    console.log("\nThe CHO's name");
+    {
+        ok(choNameOf(null) === CHO_NAME && choNameOf({ user_metadata: {} }) === CHO_NAME, 'with no name given, the CHO goes by the role');
+        ok(choNameOf({ user_metadata: { full_name: 'Curtis' } }) === 'Curtis', 'the name from sign-up wins');
+        ok(choNameOf({ user_metadata: { name: 'Curtis Chan' } }) === 'Curtis Chan', 'a Google account brings its own');
+        ok(choNameOf({ user_metadata: { full_name: '  ', name: 'Ada' } }) === 'Ada', 'blank is no name');
+        ok(cleanName('  Curtis\n Chan\t') === 'Curtis Chan' && cleanName('x'.repeat(60)).length === NAME_MAX && cleanName(42) === '', 'a name is one trimmed line, no longer than a label');
+        ok(hasOwnName({ user_metadata: { full_name: 'Curtis' } }) && !hasOwnName(null), 'and the account page knows whether one was set');
+        ok(isCho('Curtis', 'Curtis') && isCho(CHO_NAME, 'Curtis') && isCho('CHO', 'Curtis') && !isCho('Shuna', 'Curtis'), 'the log knows the CHO by their name, the role, and the old label');
+    }
+
     console.log('\nThe voice');
     {
         const chat = src('chat.ts');
-        ok(/\$\{CHO_NAME\}-sama/.test(chat) && /Kufufu/.test(chat), 'the chat prompt carries the persona');
+        ok(/\$\{cho\}-sama/.test(chat) && /Kufufu/.test(chat), 'the chat prompt carries the persona, addressed to the CHO by name');
         ok(DELPHI_SYSTEM_PROMPT.includes(`You are ${CEO_NAME},`) && DELPHI_SYSTEM_PROMPT.includes(`the CHO, ${CHO_NAME},`), 'the CEO prompt knows both names');
         const quiet = ['delphi.ts', 'grading.ts', 'retrospective.ts', 'board.ts', 'replacement.ts', 'runtime.ts', 'roster.ts'].filter((f) => /sama|Kufufu/.test(src(f)));
         ok(quiet.length === 0, 'and nothing else does: plans, grades, the board and the agents stay neutral', quiet.join(', '));

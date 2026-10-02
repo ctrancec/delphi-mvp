@@ -16,6 +16,7 @@ import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-l
 import { HousePlaque } from '@/components/delphi/house-plaque'
 import { QuestLog } from '@/components/delphi/quest-log'
 import { bootstrapDelphi } from '@/lib/delphi/bootstrap'
+import { choNameOf } from '@/lib/delphi/cho'
 import { readFloor, type FloorAgent } from '@/lib/delphi/floor'
 import { TempestWorld } from '@/components/pixel/tempest-world'
 
@@ -72,7 +73,10 @@ export default async function DelphiHqPage() {
     // The town is read alongside the rest; it draws from the same rows the
     // pipeline writes, under the same RLS.
     const user = await currentUser()
-    const floorPromise = provisioned ? readFloor(supabase, provisioned.workspaceId, new Date(), user?.id).catch(() => null) : Promise.resolve(null)
+    const cho = choNameOf(user)
+    const floorPromise = provisioned
+        ? readFloor(supabase, provisioned.workspaceId, new Date(), user ? { id: user.id, name: cho } : undefined).catch(() => null)
+        : Promise.resolve(null)
 
     // RLS scopes all of this to the signed-in CHO's workspaces.
     const [{ data: departments }, { data: agents }, { data: events }, { data: approvals }, floor] =
@@ -205,11 +209,11 @@ export default async function DelphiHqPage() {
                 <CardContent>
                     {events?.length ? (
                         floor ? (
-                            <QuestLog events={events as unknown as ActivityEvent[]} agents={floor.agents} />
+                            <QuestLog events={events as unknown as ActivityEvent[]} agents={floor.agents} cho={cho} />
                         ) : (
                             <div className="space-y-1 font-mono text-xs">
                                 {events.map((e) => (
-                                    <ActivityLine key={e.id} event={e as unknown as ActivityEvent} />
+                                    <ActivityLine key={e.id} event={e as unknown as ActivityEvent} cho={cho} />
                                 ))}
                             </div>
                         )

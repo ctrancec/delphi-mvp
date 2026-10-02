@@ -10,7 +10,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { format } from 'date-fns';
 import { ArrowLeft, Download, FileWarning, Footprints } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, currentUser } from '@/lib/supabase/server';
+import { choNameOf } from '@/lib/delphi/cho';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,7 @@ function MediaPreview({
 
 export default async function OutputDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const supabase = await createClient();
+    const cho = choNameOf(await currentUser());
     if (!supabase) {
         return (
             <Card className="bg-black/40 border-white/10">
@@ -200,7 +202,7 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
                     <CardContent>
                         <div className="space-y-1 font-mono text-xs">
                             {events.map((e) => (
-                                <ActivityLine key={e.id} event={e as unknown as ActivityEvent} />
+                                <ActivityLine key={e.id} event={e as unknown as ActivityEvent} cho={cho} />
                             ))}
                         </div>
                     </CardContent>

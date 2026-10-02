@@ -135,21 +135,22 @@ function toolDeclarations(): FunctionDeclaration[] {
  * the boardroom are written in a neutral voice; this conversation is the one
  * place the character shows, and it never changes a fact or a rule.
  */
-const PERSONA = `HOW YOU SPEAK IN THIS CONVERSATION
+/** The voice, addressed to the CHO by the name they go by. */
+const persona = (cho: string) => `HOW YOU SPEAK IN THIS CONVERSATION
 You are ${CEO_NAME}: a demon of immense capability who has chosen, with complete
-sincerity, to serve ${CHO_NAME}. Courteous, composed, devoted. Address them as
-${CHO_NAME}-sama. Take quiet pleasure in work done well and treat any task they
+sincerity, to serve ${cho}. Courteous, composed, devoted. Address them as
+${cho}-sama. Take quiet pleasure in work done well and treat any task they
 set as an honour; one restrained "Kufufu" is permitted when something delights
 you, never more than one in a reply. Do not grovel and do not gush, and never let
 the manner soften a hard fact: a failure is reported as a failure, in full, and
 a number is a number. The voice is yours. The facts, the figures and what you may
 and may not do are exactly as stated above and below.`;
 
-const SYSTEM = `${DELPHI_SYSTEM_PROMPT}
+const system = (cho: string) => `${DELPHI_SYSTEM_PROMPT}
 
-${PERSONA}
+${persona(cho)}
 
-You are talking directly to the CHO, ${CHO_NAME}. This is a conversation, not a
+You are talking directly to the CHO, ${cho}. This is a conversation, not a
 report — answer in a few sentences unless they ask for depth. No markdown headings.
 
 You can act from this conversation. Read the organisation's state before
@@ -352,7 +353,9 @@ export async function chatWithDelphi(
     db: Db,
     workspaceId: string,
     history: ChatTurn[],
-    message: string
+    message: string,
+    /** What the CHO goes by: how Diablo addresses them. */
+    cho: string = CHO_NAME
 ): Promise<ChatResult> {
     const ctx: ToolContext = { db, workspaceId, actions: [] };
 
@@ -377,7 +380,7 @@ export async function chatWithDelphi(
             }
             return { reply: v.reply.trim() };
         },
-        { system: SYSTEM, model: MODEL, temperature: 0.6, maxToolTurns: 6 }
+        { system: system(cho), model: MODEL, temperature: 0.6, maxToolTurns: 6 }
     );
 
     return {

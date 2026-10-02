@@ -13,6 +13,7 @@ import { usePathname } from 'next/navigation';
 import { ShieldCheck, Wallet } from 'lucide-react';
 import { SystemSwitch } from './system-switch';
 import { LookSwitch } from './look';
+import { useCho } from './cho';
 import { PixelIcon } from '@/components/pixel/pixel-icon';
 import { titleFor } from './nav';
 import type { SystemMode } from '@/lib/delphi/db';
@@ -30,6 +31,7 @@ export interface TopBarProps {
 
 export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps) {
     const pathname = usePathname();
+    const cho = useCho();
 
     return (
         <header className="flex h-16 shrink-0 items-center gap-3 border-b border-white/10 bg-black/40 px-4 backdrop-blur-xl desk:px-6">
@@ -68,10 +70,10 @@ export function TopBar({ mode, spentUsd, pendingApprovals, email }: TopBarProps)
 
             <Link
                 href="/dashboard/account"
-                title={`${email} — account settings`}
+                title={`${cho} (${email}) — account settings`}
                 className="flex h-8 w-9 shrink-0 items-center justify-center rounded-full border border-sky-300/30 bg-sky-400/10 transition-colors hover:border-sky-300/60 hover:bg-sky-400/20"
             >
-                <SlimeSprite scale={2} />
+                <SlimeSprite scale={2} name={cho} />
             </Link>
         </header>
     );

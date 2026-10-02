@@ -627,7 +627,8 @@ export async function chatWithDelphiAction(message: string): Promise<ActionResul
             round: 0,
         });
 
-        const result = await chatWithDelphi(db, workspaceId, history, body);
+        const { choNameOf } = await import('./cho');
+        const result = await chatWithDelphi(db, workspaceId, history, body, choNameOf(user));
 
         await db.from('delphi_messages').insert({
             workspace_id: workspaceId,

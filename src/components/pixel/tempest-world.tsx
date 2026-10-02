@@ -587,7 +587,7 @@ export function TempestWorld({ initial, className, source = FLOOR_URL, pollMs = 
                         href="/dashboard/delphi/approvals"
                         className="absolute rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
                         style={{ left: px(layout.centre.seat.x) - 4, top: px(layout.centre.seat.y) - 8, width: px(2) + 8, height: px(1) + 12 }}
-                        aria-label={`${CHO.name} (you). ${floor.pendingApprovals ? `${floor.pendingApprovals} waiting for your decision` : 'Nothing waiting for you'}.`}
+                        aria-label={`${floor.cho} (you). ${floor.pendingApprovals ? `${floor.pendingApprovals} waiting for your decision` : 'Nothing waiting for you'}.`}
                         title={floor.pendingApprovals ? `${floor.pendingApprovals} waiting for your decision` : 'Nothing waiting for you'}
                     />
 

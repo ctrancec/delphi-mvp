@@ -112,6 +112,7 @@ console.log('\nThe town');
         pendingApprovals: 2,
         recent: [],
         newOutputs: 1,
+        cho: 'Rimuru',
         deliberating: 0,
         agents: [
             { id: 'ceo', slug: 'delphi-ceo', name: CEO.name, title: 'Chief Executive', avatarSeed: null, isBoard: false, isCeo: true, state: 'idle', task: null, since: null, departments: [], seat: null },

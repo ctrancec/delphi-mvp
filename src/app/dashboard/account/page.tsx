@@ -13,6 +13,10 @@ import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PasswordForm } from '@/components/delphi/password-form';
+import { NameForm } from '@/components/delphi/name-form';
+import { SlimeSprite } from '@/components/pixel/agent-sprite';
+import { choNameOf, hasOwnName } from '@/lib/delphi/cho';
+import { CEO_NAME } from '@/lib/pixel/cast/names';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +43,7 @@ export default async function AccountPage() {
         user.app_metadata?.provider as string,
     ].filter(Boolean);
     const hasPassword = providers.includes('email');
+    const cho = choNameOf(user);
 
     return (
         <div className="max-w-2xl space-y-6">
@@ -82,6 +87,21 @@ export default async function AccountPage() {
                             </span>
                         ))}
                     </div>
+                </CardContent>
+            </Card>
+
+            <Card className="border-white/10 bg-black/40">
+                <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <SlimeSprite scale={2} name={cho} /> Your name
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                        The town calls you {cho}, and {CEO_NAME} addresses you as {cho}-sama.
+                        {!hasOwnName(user) && ' Set your own name here, or it stays the role\u2019s.'}
+                    </p>
+                </CardHeader>
+                <CardContent>
+                    <NameForm initial={hasOwnName(user) ? cho : ''} />
                 </CardContent>
             </Card>
 

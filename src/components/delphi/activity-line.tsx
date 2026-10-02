@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { ExternalLink, Film, FileText, LineChart } from 'lucide-react'
+import { isCho } from '@/lib/delphi/actors'
 
 /**
  * One line of the activity log, rendered as a quest-log entry:
@@ -134,11 +135,13 @@ const TONE: Record<string, string> = {
 /**
  * `avatar` is the actor's face, when the log has one to show: it sits in a
  * fixed column before the name, and is hidden from assistive technology
- * because the name beside it already says who.
+ * because the name beside it already says who. `cho` is what the CHO goes
+ * by now, so a line they wrote under an older name still reads as theirs.
  */
-export function ActivityLine({ event, avatar }: { event: ActivityEvent; avatar?: ReactNode }) {
+export function ActivityLine({ event, avatar, cho }: { event: ActivityEvent; avatar?: ReactNode; cho?: string }) {
     const p = event.payload ?? {}
-    const actor = p.actor ?? 'System'
+    const written = p.actor ?? 'System'
+    const actor = cho && isCho(written, cho) ? cho : written
     const verb = p.verb ?? VERB_FALLBACK[event.type] ?? event.type.replace(/_/g, ' ')
     const dur = duration(p.durationMs)
 

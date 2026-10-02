@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { choNameOf } from '@/lib/delphi/cho';
 import { readFloor } from '@/lib/delphi/floor';
 import { createClient, currentUser } from '@/lib/supabase/server';
 
@@ -25,7 +26,7 @@ export async function GET() {
     if (!workspaceId) return NextResponse.json({ error: 'No workspace yet.' }, { status: 404 });
 
     try {
-        const floor = await readFloor(db, workspaceId, new Date(), user.id);
+        const floor = await readFloor(db, workspaceId, new Date(), { id: user.id, name: choNameOf(user) });
         return NextResponse.json(floor, { headers: { 'Cache-Control': 'no-store' } });
     } catch (err) {
         console.error('[delphi] could not read the floor:', (err as Error).message);

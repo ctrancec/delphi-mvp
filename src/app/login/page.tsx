@@ -44,6 +44,13 @@ function LoginContent() {
                 )}
 
                 <form className="space-y-6">
+                    {!isLogin && (
+                        <div className="space-y-2">
+                            <Label htmlFor="full_name">Your name</Label>
+                            <Input id="full_name" name="full_name" type="text" autoComplete="name" maxLength={40} required placeholder="What should we call you?" className="bg-white/5 border-white/10" />
+                            <p className="text-xs text-muted-foreground">How {APP_NAME} will address you. You can change it later in Account.</p>
+                        </div>
+                    )}
                     <div className="space-y-2">
                         <Label htmlFor="email">Email</Label>
                         <Input id="email" name="email" type="email" placeholder="name@example.com" required className="bg-white/5 border-white/10" />

@@ -109,8 +109,8 @@ const SLIME_W = 16;
 const SLIME_H = 13;
 const slimeFrames = new Map<string, ImageData>();
 
-/** The CHO, as Rimuru. */
-export function SlimeSprite({ asleep = false, scale = 3, className }: { asleep?: boolean; scale?: number; className?: string }) {
+/** The CHO, as the slime; `name` is what they go by. */
+export function SlimeSprite({ asleep = false, scale = 3, className, name = CHO.name }: { asleep?: boolean; scale?: number; className?: string; name?: string }) {
     const ref = useRef<HTMLCanvasElement>(null);
     const painted = useRef(-1);
     const reduced = useReducedMotion();
@@ -141,7 +141,7 @@ export function SlimeSprite({ asleep = false, scale = 3, className }: { asleep?:
     }, [paint]);
     useFrameClock(paint, !reduced && !asleep);
 
-    const text = `${CHO.name}${asleep ? ', asleep' : ''}`;
+    const text = `${name}${asleep ? ', asleep' : ''}`;
     return (
         <canvas
             ref={ref}
