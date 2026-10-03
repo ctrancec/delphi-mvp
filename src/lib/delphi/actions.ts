@@ -22,6 +22,7 @@ import {
     emitEvent,
     getAgentStats,
     insertInventedAgent,
+    isMissingColumn,
     listAgents,
     listChannels,
     recallMemories,
@@ -34,6 +35,8 @@ import type { SystemMode } from './db';
 import type { WorkSchedule } from './schedule';
 
 import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
+import { listAccounts } from '@/lib/studio/accounts';
+import { refreshStudioRoles, withProducers } from '@/lib/studio/roles';
 import { can, OWNER_ONLY, roleOf, type Role } from './members';
 export interface ActionResult<T = void> {
     ok: boolean;
@@ -166,6 +169,10 @@ export async function proposeHiringAction(
         // deployment has — and sees each agent holding what its role calls for.
         await syncChannels(db, workspaceId);
 
+        // The two studio roles, described as they now work. Once each; a
+        // no-op select afterwards.
+        await refreshStudioRoles(db, workspaceId);
+
         const agents = await listAgents(db, workspaceId);
         if (agents.length === 0) {
             return { ok: false, error: 'The roster could not be seeded. Check the database connection.' };
@@ -174,7 +181,12 @@ export async function proposeHiringAction(
         const stats = await getAgentStats(db, workspaceId);
         const connected = await listChannels(db, workspaceId, true);
         const memories = await recallMemories(db, workspaceId, dept.charter);
-        const shortlist = shortlistCandidates(agents, stats, dept.charter);
+        // The channels and pages this department produces for. Delphi plans
+        // one production chain per account, and the studio renders to each
+        // account's own preferences — so whoever produces those formats is
+        // on the shortlist whatever the charter's words.
+        const accounts = await listAccounts(db, workspaceId, departmentId);
+        const shortlist = withProducers(shortlistCandidates(agents, stats, dept.charter), agents, stats, accounts);
 
         const result = await proposePlan({
             brief: dept.charter,
@@ -184,6 +196,7 @@ export async function proposeHiringAction(
             channelKindsById: Object.fromEntries(connected.map((c) => [c.id, c.kind])),
             memories,
             departmentName: dept.name,
+            accounts,
         });
         const plan = result.data;
 
@@ -191,8 +204,16 @@ export async function proposeHiringAction(
         await db.from('delphi_hires').delete().eq('department_id', departmentId);
 
         const bySlug = new Map(agents.map((a) => [a.slug, a]));
-        let previousTaskId: string | null = null;
         const projectTitle = plan.departmentName || dept.name;
+
+        // The handoff chain. Ordinary work follows the task before it. Work
+        // for an account follows the last task for that account — or, at
+        // the start of its chain, the last shared task — so two channels
+        // branch from the same research without ever reading each other's
+        // scripts.
+        let previousTaskId: string | null = null;
+        let lastShared: string | null = null;
+        const lastForAccount = new Map<string, string>();
 
         const { data: project, error: projErr } = await db
             .from('delphi_projects')
@@ -238,24 +259,42 @@ export async function proposeHiringAction(
                 seq: task.seq,
             });
 
+            const dependsOn = task.accountId
+                ? (lastForAccount.get(task.accountId) ?? lastShared)
+                : previousTaskId;
+
+            const taskRow = {
+                workspace_id: workspaceId,
+                project_id: project.id,
+                agent_id: agent.id,
+                seq: task.seq,
+                title: task.title,
+                objective: task.objective,
+                depends_on: dependsOn,
+                status: 'pending',
+            };
+
             // Annotated because `row` feeds `previousTaskId`, which is read by the
             // very insert that produces it — TypeScript cannot infer through that loop.
-            const { data: row } = (await db
+            // The deliverable and account columns arrive with migration 0011;
+            // until it has run, the task is written without them.
+            type Inserted = { data: { id: string } | null; error: { code?: string; message?: string } | null };
+            let inserted = (await db
                 .from('delphi_tasks')
-                .insert({
-                    workspace_id: workspaceId,
-                    project_id: project.id,
-                    agent_id: agent.id,
-                    seq: task.seq,
-                    title: task.title,
-                    objective: task.objective,
-                    depends_on: previousTaskId,
-                    status: 'pending',
-                })
+                .insert({ ...taskRow, deliverable: task.deliverable, account_id: task.accountId })
                 .select('id')
-                .single()) as { data: { id: string } | null };
+                .single()) as Inserted;
+            if (inserted.error && isMissingColumn(inserted.error)) {
+                inserted = (await db.from('delphi_tasks').insert(taskRow).select('id').single()) as Inserted;
+            }
+            if (inserted.error) return { ok: false, error: inserted.error.message ?? 'Could not write the task.' };
+            const row = inserted.data;
 
             previousTaskId = row?.id ?? null;
+            if (row?.id) {
+                if (task.accountId) lastForAccount.set(task.accountId, row.id);
+                else lastShared = row.id;
+            }
 
             await emitEvent(db, {
                 workspaceId,
@@ -336,6 +375,62 @@ export async function approvePlanAction(departmentId: string): Promise<ActionRes
 
     revalidatePath(`/dashboard/delphi/departments/${departmentId}`);
     return { ok: true };
+}
+
+/**
+ * Set the department's current plan aside and staff it again.
+ *
+ * For a department whose accounts changed after it was staffed: the plan it
+ * is running was made without them. Work already finished stays where it is
+ * — in Outputs, graded, on the record. What was still to come is skipped, an
+ * approval still waiting is withdrawn, and a step running right now finishes
+ * on its own. Then the CEO proposes a new team, and nothing runs until the
+ * CHO approves it, exactly as the first time.
+ */
+export async function restaffDepartmentAction(
+    departmentId: string
+): Promise<ActionResult<{ taskCount: number; estimatedCostUsd: number }>> {
+    const ctx = await getDb();
+    if ('error' in ctx) return { ok: false, error: ctx.error };
+    const refused = ownerOnly(ctx);
+    if (refused) return refused;
+    const { db, workspaceId } = ctx;
+
+    const { data: open, error } = await db
+        .from('delphi_projects')
+        .select('id')
+        .eq('department_id', departmentId)
+        .in('status', ['draft', 'planning', 'awaiting_approval', 'running', 'paused', 'halted_budget']);
+    if (error) return { ok: false, error: error.message };
+
+    const ids = (open ?? []).map((p) => p.id as string);
+    if (ids.length) {
+        await db
+            .from('delphi_tasks')
+            .update({ status: 'skipped' })
+            .in('project_id', ids)
+            .in('status', ['pending', 'awaiting_approval']);
+        await db
+            .from('delphi_approvals')
+            .update({ status: 'cancelled' })
+            .in('project_id', ids)
+            .eq('status', 'pending');
+        await db
+            .from('delphi_projects')
+            .update({ status: 'cancelled', finished_at: new Date().toISOString() })
+            .in('id', ids);
+
+        await emitEvent(db, {
+            workspaceId,
+            departmentId,
+            type: 'hiring_started',
+            actor: CHO_NAME,
+            verb: 'set the current plan aside to re-staff',
+            object: `${ids.length} ${ids.length === 1 ? 'project' : 'projects'}`,
+        });
+    }
+
+    return proposeHiringAction(departmentId);
 }
 
 /** Seed the roster from the UI, for a workspace that has never been seeded. */

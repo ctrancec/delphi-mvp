@@ -142,6 +142,8 @@ function toTask(r: Row): Task {
         objective: r.objective,
         dependsOn: r.depends_on ?? null,
         status: r.status,
+        deliverable: ['short', 'landscape', 'post', 'carousel'].includes(r.deliverable) ? r.deliverable : 'text',
+        accountId: r.account_id ?? null,
     };
 }
 

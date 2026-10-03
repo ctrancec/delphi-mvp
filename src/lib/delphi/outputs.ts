@@ -75,6 +75,47 @@ export function isBinaryKind(kind: ArtifactKind): boolean {
 }
 
 /**
+ * Every stored file an artifact owns: its own, and — for a studio render —
+ * the thumbnail, the captions and the other slides recorded beside it.
+ * Destroying an artifact removes all of them; anything missed would sit in
+ * the bucket, counted against the storage allowance, pointed at by nothing.
+ */
+export function storedPathsOf(row: { storage_path?: string | null; data?: unknown }): string[] {
+    const out: string[] = [];
+    const add = (p: unknown) => {
+        if (typeof p === 'string' && p && !out.includes(p)) out.push(p);
+    };
+    add(row.storage_path);
+    const files = (row.data as { studio?: { files?: Record<string, unknown> } } | null | undefined)?.studio?.files;
+    if (files && typeof files === 'object') {
+        for (const v of Object.values(files)) {
+            for (const f of Array.isArray(v) ? v : [v]) add((f as { path?: unknown } | null)?.path);
+        }
+    }
+    return out;
+}
+
+/** Short-lived URLs for many stored files in one request, keyed by path. */
+export async function signedUrlsFor(
+    db: Db,
+    paths: string[],
+    expiresInSeconds = 60 * 10
+): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const unique = [...new Set(paths.filter(Boolean))];
+    if (unique.length === 0) return out;
+    const { data, error } = await db.storage.from(ARTIFACT_BUCKET).createSignedUrls(unique, expiresInSeconds);
+    if (error) {
+        console.warn(`[delphi] could not sign ${unique.length} file(s): ${error.message}`);
+        return out;
+    }
+    for (const row of data ?? []) {
+        if (row.path && row.signedUrl && !row.error) out.set(row.path, row.signedUrl);
+    }
+    return out;
+}
+
+/**
  * The embed that carries provenance.
  *
  * `!inner` on the project is what makes a department filter work: PostgREST
@@ -209,13 +250,33 @@ export interface OutputsFacets {
     departments: ArtifactRef[];
     projects: (ArtifactRef & { departmentId: string | null })[];
     kinds: { kind: ArtifactKind; count: number }[];
+    /** The media accounts renders were made for, with how many each. */
+    accounts: (ArtifactRef & { count: number })[];
     total: number;
+}
+
+/** The account a studio render was made for, as recorded on it. */
+export function accountOf(r: OutputRecord): ArtifactRef | null {
+    const a = (r.artifact.data as { studio?: { account?: { id?: unknown; label?: unknown } | null } }).studio?.account;
+    return a && typeof a.id === 'string' && typeof a.label === 'string' ? { id: a.id, title: a.label } : null;
+}
+
+/** The picture a card shows for a render: a video's thumbnail, an image itself. */
+export function previewPathOf(r: OutputRecord): string | null {
+    const studio = (r.artifact.data as { studio?: { kind?: string; files?: { thumbnail?: { path?: unknown } } } }).studio;
+    if (!studio) return null;
+    if (studio.kind === 'video') {
+        const p = studio.files?.thumbnail?.path;
+        return typeof p === 'string' ? p : null;
+    }
+    return r.artifact.kind === 'image' ? r.artifact.storagePath : null;
 }
 
 export function facetsFrom(records: OutputRecord[]): OutputsFacets {
     const departments = new Map<string, ArtifactRef>();
     const projects = new Map<string, ArtifactRef & { departmentId: string | null }>();
     const kinds = new Map<ArtifactKind, number>();
+    const accounts = new Map<string, ArtifactRef & { count: number }>();
 
     for (const r of records) {
         if (r.department) departments.set(r.department.id, r.department);
@@ -226,6 +287,8 @@ export function facetsFrom(records: OutputRecord[]): OutputsFacets {
             });
         }
         kinds.set(r.artifact.kind, (kinds.get(r.artifact.kind) ?? 0) + 1);
+        const account = accountOf(r);
+        if (account) accounts.set(account.id, { ...account, count: (accounts.get(account.id)?.count ?? 0) + 1 });
     }
 
     return {
@@ -234,6 +297,7 @@ export function facetsFrom(records: OutputRecord[]): OutputsFacets {
         kinds: [...kinds.entries()]
             .map(([kind, count]) => ({ kind, count }))
             .sort((a, b) => b.count - a.count),
+        accounts: [...accounts.values()].sort((a, b) => a.title.localeCompare(b.title)),
         total: records.length,
     };
 }

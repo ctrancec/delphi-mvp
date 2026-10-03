@@ -26,7 +26,26 @@ function safeFilename(title: string, extension: string): string {
     return `${base}.${extension}`;
 }
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+/**
+ * A rendered deliverable carries companions — the thumbnail, the captions,
+ * the other slides of a carousel — recorded under `data.studio.files`.
+ * `?file=thumbnail`, `?file=captions` or `?file=slide-2` fetches one of them.
+ */
+function companion(data: Record<string, unknown>, key: string): { path: string } | null {
+    const studio = data.studio as { files?: Record<string, unknown> } | undefined;
+    const files = studio?.files;
+    if (!files) return null;
+    const slide = /^slide-(\d+)$/.exec(key);
+    if (slide) {
+        const slides = files.slides as { path: string }[] | undefined;
+        const f = slides?.[Number(slide[1]) - 1];
+        return f?.path ? { path: f.path } : null;
+    }
+    const f = files[key] as { path?: string } | undefined;
+    return f?.path ? { path: f.path } : null;
+}
+
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
     const supabase = await createClient();
     if (!supabase) {
         return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 });
@@ -45,6 +64,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     }
 
     const { artifact } = record;
+
+    const wanted = new URL(req.url).searchParams.get('file');
+    if (wanted) {
+        const f = companion(artifact.data, wanted);
+        if (!f) return NextResponse.json({ error: 'This deliverable has no such file.' }, { status: 404 });
+        const url = await signedUrlFor(supabase, f.path, 60);
+        if (!url) {
+            return NextResponse.json({ error: 'The file is recorded but could not be reached in storage.' }, { status: 502 });
+        }
+        return NextResponse.redirect(url);
+    }
+
+    // A rendered file is the deliverable; the markdown beside it is its script.
+    if (artifact.storagePath && artifact.contentMd) {
+        const url = await signedUrlFor(supabase, artifact.storagePath, 60);
+        if (url) return NextResponse.redirect(url);
+    }
 
     if (artifact.contentMd) {
         return new NextResponse(artifact.contentMd, {

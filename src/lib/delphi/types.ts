@@ -137,6 +137,13 @@ export type TaskStatus =
     | 'failed'
     | 'skipped';
 
+/**
+ * What a step produces. `text` is written by the agent. The four formats are
+ * planned by the agent and rendered by the studio: a vertical short, a
+ * horizontal video, an image post, an image carousel.
+ */
+export type Deliverable = 'text' | 'short' | 'landscape' | 'post' | 'carousel';
+
 export interface Task {
     id: string;
     projectId: string;
@@ -147,6 +154,9 @@ export interface Task {
     /** The handoff edge: the task whose artifact feeds this one. */
     dependsOn: string | null;
     status: TaskStatus;
+    deliverable: Deliverable;
+    /** The media account a production step is for, when there is one. */
+    accountId: string | null;
 }
 
 export interface TaskRun {
@@ -284,7 +294,11 @@ export type DelphiEventType =
     /** The CHO refused a deliverable or an action and sent it back to be redone. */
     | 'revision_requested'
     /** The CHO ruled on a finished deliverable. */
-    | 'output_reviewed';
+    | 'output_reviewed'
+    /** A seeded role's job description was brought up to date. */
+    | 'roles_updated'
+    /** The CHO added, changed or removed a media account. */
+    | 'account_changed';
 
 export interface DelphiEvent {
     id: number;
@@ -318,6 +332,10 @@ export interface PlannedTask {
     seq: number;
     title: string;
     objective: string;
+    /** text unless this is the step the studio renders. */
+    deliverable: Deliverable;
+    /** The media account a production step is for; null for shared work. */
+    accountId: string | null;
     /** Slug of a roster agent, when Delphi hires an existing specialist. */
     assignedSlug?: string;
     /** A new hire, when no roster agent fits. */

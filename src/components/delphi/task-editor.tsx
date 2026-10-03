@@ -33,7 +33,18 @@ export interface EditableTask {
     status: string;
     agentName: string | null;
     agent: { slug: string; name: string; avatarSeed: string | null } | null;
+    /** text, or a format the studio renders. */
+    deliverable?: string;
+    /** Which channel or page a production step is for. */
+    accountLabel?: string | null;
 }
+
+const DELIVERABLE_CHIP: Record<string, { label: string; tone: string }> = {
+    short: { label: 'short', tone: 'text-rose-400 border-rose-400/30' },
+    landscape: { label: 'video', tone: 'text-rose-400 border-rose-400/30' },
+    post: { label: 'image', tone: 'text-amber-400 border-amber-400/30' },
+    carousel: { label: 'carousel', tone: 'text-amber-400 border-amber-400/30' },
+};
 
 const STATUS_TONE: Record<string, string> = {
     done: 'text-emerald-400 border-emerald-400/30',
@@ -94,6 +105,16 @@ export function TaskEditor({ task }: { task: EditableTask }) {
                 )}
                 {task.agentName && (
                     <span className="text-xs text-muted-foreground">{task.agentName}</span>
+                )}
+                {task.deliverable && DELIVERABLE_CHIP[task.deliverable] && (
+                    <Badge variant="outline" className={cn('text-[10px]', DELIVERABLE_CHIP[task.deliverable].tone)} title="Rendered by the studio from this agent's plan">
+                        {DELIVERABLE_CHIP[task.deliverable].label}
+                    </Badge>
+                )}
+                {task.accountLabel && (
+                    <span className="truncate text-[11px] text-muted-foreground/80" title="The account this step is for">
+                        for {task.accountLabel}
+                    </span>
                 )}
 
                 {!editing && (

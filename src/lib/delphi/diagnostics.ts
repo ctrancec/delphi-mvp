@@ -12,6 +12,7 @@
  * when something is broken right now.
  */
 
+import { PEXELS_ENV } from '@/lib/studio/pexels';
 import {
     CHANNEL_CAPABILITIES,
     channelHealth,
@@ -110,6 +111,21 @@ function envChecks(): Check[] {
             ? `Present. ${CEO_NAME} can hire and agents can think.`
             : `Missing. ${CEO_NAME} cannot hire, and no agent can run.`,
         remedy: gemini?.trim() ? undefined : 'This is the one key nothing works without.',
+    });
+
+    // The studio's pictures. Whether ffmpeg itself made it into the
+    // functions that render is checked where it runs: the Test render on a
+    // department's Accounts card, and GET /api/delphi/studio.
+    const pexels = process.env[PEXELS_ENV];
+    checks.push({
+        name: PEXELS_ENV,
+        level: pexels?.trim() ? 'ok' : 'degraded',
+        detail: pexels?.trim()
+            ? 'Present. The studio uses stock photos for its shots.'
+            : 'Not set. The studio paints its backgrounds in brand colours instead of using stock photos.',
+        remedy: pexels?.trim()
+            ? undefined
+            : 'A free key from pexels.com/api, added in Vercel as PEXELS_API_KEY, gives every shot a real photo.',
     });
 
     const cron = process.env.CRON_SECRET;

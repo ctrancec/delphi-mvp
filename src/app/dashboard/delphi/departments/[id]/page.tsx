@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, currentUser } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Wallet, Clock, ShieldCheck } from 'lucide-react'
@@ -9,6 +9,10 @@ import { PipelineRunner } from '@/components/delphi/pipeline-runner'
 import { GradeCard, type GradeRow } from '@/components/delphi/grade-badge'
 import { TaskEditor } from '@/components/delphi/task-editor'
 import { DepartmentSettings } from '@/components/delphi/department-settings'
+import { AccountsCard } from '@/components/delphi/accounts-card'
+import { accountLabel, listAccounts } from '@/lib/studio/accounts'
+import { findWorkspace } from '@/lib/delphi/bootstrap'
+import { roleOf } from '@/lib/delphi/members'
 
 import { CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
@@ -45,6 +49,15 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
     const { data: tasks } = project
         ? await supabase.from('delphi_tasks').select('*').eq('project_id', project.id).order('seq')
         : { data: [] }
+
+    // The accounts this department produces for, and whether the viewer may
+    // change them. Both are cheap, and the card is on every department page.
+    const [workspaceId, user] = await Promise.all([findWorkspace(supabase), currentUser()])
+    const [accounts, role] = await Promise.all([
+        workspaceId ? listAccounts(supabase, workspaceId, id) : Promise.resolve([]),
+        workspaceId && user ? roleOf(supabase, workspaceId, user.id) : Promise.resolve(null),
+    ])
+    const accountById = new Map(accounts.map((a) => [a.id, a]))
 
     // Grades and handoffs for this project's tasks, so a replacement is
     // visible as something that happened rather than inferred from a name
@@ -127,6 +140,8 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                 </span>
             </div>
 
+            <AccountsCard departmentId={id} accounts={accounts} canEdit={role === 'owner'} hasTeam={team.length > 0} />
+
             <HiringPanel departmentId={id} team={team} status={dept.status} approved={approved} />
 
             {/* Running means work is outstanding; the runner keeps poking the
@@ -157,6 +172,10 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                                         status: t.status as string,
                                         agentName: member?.name ?? null,
                                         agent: member ? { slug: member.slug, name: member.name, avatarSeed: member.avatarSeed } : null,
+                                        deliverable: (t.deliverable as string) ?? 'text',
+                                        accountLabel: t.account_id && accountById.get(t.account_id as string)
+                                            ? accountLabel(accountById.get(t.account_id as string)!)
+                                            : null,
                                     }}
                                 />
                             )

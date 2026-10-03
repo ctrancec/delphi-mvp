@@ -19,7 +19,8 @@ import { ArtifactMarkdown } from '@/components/delphi/markdown';
 import { KIND_META } from '@/components/delphi/output-card';
 import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-line';
 import { OutputReview } from '@/components/delphi/output-review';
-import { formatBytes, getOutput, isBinaryKind, readingTime, signedUrlFor } from '@/lib/delphi/outputs';
+import { formatBytes, getOutput, isBinaryKind, readingTime, signedUrlFor, signedUrlsFor } from '@/lib/delphi/outputs';
+import { StudioPanel, studioOf } from '@/components/delphi/studio-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +97,14 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
 
     const size = formatBytes(artifact.sizeBytes);
     const reading = readingTime(artifact.contentMd);
+    const studio = studioOf(artifact.data);
+
+    // A carousel is every slide, in order, not just the first.
+    const slidePaths = studio?.kind === 'image' ? (studio.files.slides ?? []).map((f) => f.path) : [];
+    const slideUrls =
+        slidePaths.length > 1
+            ? await signedUrlsFor(supabase, slidePaths).then((m) => slidePaths.map((p) => m.get(p)).filter((u): u is string => Boolean(u)))
+            : [];
 
     return (
         <div className="space-y-6">
@@ -152,6 +161,28 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
                     </a>
                 </Button>
             </div>
+
+            {slideUrls.length > 1 ? (
+                <Card className="bg-black/40 border-white/10">
+                    <CardContent className="grid grid-cols-1 gap-3 pt-6 inner:grid-cols-2 desk:grid-cols-3">
+                        {slideUrls.map((u, i) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={u} src={u} alt={`${artifact.title}, slide ${i + 1}`} className="w-full rounded-lg object-contain" />
+                        ))}
+                    </CardContent>
+                </Card>
+            ) : (
+                mediaUrl &&
+                artifact.contentMd && (
+                    <Card className="bg-black/40 border-white/10">
+                        <CardContent className="pt-6">
+                            <MediaPreview kind={artifact.kind} url={mediaUrl} mimeType={artifact.mimeType} title={artifact.title} />
+                        </CardContent>
+                    </Card>
+                )
+            )}
+
+            {studio && <StudioPanel artifactId={artifact.id} studio={studio} />}
 
             <Card className="bg-black/40 border-white/10">
                 <CardContent className="pt-6">

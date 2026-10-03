@@ -35,13 +35,23 @@ import { replaceAgentOnTask, shouldReplace } from '@/lib/delphi/replacement';
 export const dynamic = 'force-dynamic';
 
 /**
- * Vercel caps this by plan — 60s on Hobby, up to 300s on Pro — and silently
- * clamps rather than failing, so asking for more than the plan allows is safe.
+ * Five minutes: the most a Hobby project gets with fluid compute, which is
+ * Vercel's default. A project without fluid compute is clamped lower, and a
+ * studio render that outlives the clamp is cut off — so keep fluid compute
+ * on (Settings → Functions) for the studio to work.
  */
 export const maxDuration = 300;
 
 /** Stop with time to spare, so the response is always written. */
 const TIME_BUDGET_MS = 45_000;
+
+/**
+ * The hard stop: maxDuration, less a margin. The loop above stops taking new
+ * steps at 45s, but a step it has started runs to completion — and a studio
+ * render can take a few minutes. A render is only started with the time to
+ * finish before this, and is given what is left.
+ */
+const HARD_LIMIT_MS = 285_000;
 
 /** A runaway loop is a runaway bill. The budget check is the real guard; this is the backstop. */
 const MAX_STEPS = 24;
@@ -54,7 +64,8 @@ interface ProjectRow {
 async function drive(
     db: Db,
     workspaceId: string,
-    deadline: number
+    deadline: number,
+    hardDeadline: number
 ): Promise<{ outcomes: StepOutcome[]; more: boolean }> {
     const outcomes: StepOutcome[] = [];
 
@@ -85,8 +96,14 @@ async function drive(
             return { outcomes, more: false };
         }
 
-        const outcome = await runNextTask(db, workspaceId, project.id);
+        const outcome = await runNextTask(db, workspaceId, project.id, { deadline: hardDeadline });
         outcomes.push(outcome);
+
+        // A render was next and this invocation is too far along to finish
+        // one. Nothing is wrong: a fresh call has the whole budget.
+        if (outcome.status === 'idle' && outcome.reason === 'needs_fresh_run') {
+            return { outcomes, more: true };
+        }
 
         // The board reviews before the CHO sees anything, not after. Doing it
         // here rather than inside runNextTask keeps the executor to one job and
@@ -244,7 +261,9 @@ async function assessTask(
 }
 
 export async function POST(req: NextRequest) {
-    const deadline = Date.now() + TIME_BUDGET_MS;
+    const startedAt = Date.now();
+    const deadline = startedAt + TIME_BUDGET_MS;
+    const hardDeadline = startedAt + HARD_LIMIT_MS;
     const secret = process.env.CRON_SECRET;
     const isCron = !!secret && req.headers.get('authorization') === `Bearer ${secret}`;
 
@@ -271,7 +290,7 @@ export async function POST(req: NextRequest) {
                 more = true;
                 break;
             }
-            const r = await drive(db, id, deadline);
+            const r = await drive(db, id, deadline, hardDeadline);
             results[id] = r.outcomes;
             more = more || r.more;
         }
@@ -302,7 +321,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const { outcomes, more } = await drive(db, workspaceId, deadline);
+        const { outcomes, more } = await drive(db, workspaceId, deadline, hardDeadline);
         return NextResponse.json({ ok: true, via: 'user', more, outcomes });
     } catch (err) {
         // runNextTask records ordinary failures rather than throwing, so

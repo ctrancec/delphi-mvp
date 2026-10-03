@@ -223,12 +223,18 @@ export async function gradeTask(
                 .maybeSingle(),
             db
                 .from('delphi_artifacts')
-                .select('id, title, content_md')
+                .select('id, title, kind, content_md')
                 .eq('task_id', taskId)
                 .order('created_at', { ascending: false })
                 .limit(1)
                 .maybeSingle(),
         ]);
+
+        // A studio render is a plan turned into a file. Its facts are the
+        // script's, from the step before, so it carries no citations of its
+        // own — and grading it for their absence would replace the agent for
+        // doing exactly what it was asked.
+        const rendered = artifact?.kind === 'video' || artifact?.kind === 'image';
 
         const facts = measureRun(run, !!artifact);
 
@@ -245,6 +251,14 @@ export async function gradeTask(
             `  produced a deliverable: ${facts.producedArtifact ? 'yes' : 'no'}`,
             `  duration: ${(facts.durationMs / 1000).toFixed(1)}s`,
             `  cost: $${facts.costUsd.toFixed(4)}`,
+            ...(rendered
+                ? [
+                      '',
+                      'NOTE: this step was rendered by the studio from the agent\'s plan. It makes no factual',
+                      'claims of its own — its facts come from the step before — so judge the plan against',
+                      'the objective and the account it was made for, not its citations.',
+                  ]
+                : []),
             '',
             'DELIVERABLE:',
             artifact?.content_md

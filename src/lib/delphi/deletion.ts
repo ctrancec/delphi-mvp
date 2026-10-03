@@ -24,7 +24,7 @@
 
 import { emitEvent, isMissingColumn, type Db } from './db';
 import { dependantsOf } from './revision';
-import { ARTIFACT_BUCKET } from './outputs';
+import { ARTIFACT_BUCKET, storedPathsOf } from './outputs';
 
 import { CHO_NAME } from '@/lib/pixel/cast/names';
 export interface TrashResult {
@@ -208,14 +208,14 @@ export async function purgeArtifact(
         return { ok: false, error: 'The title does not match.' };
     }
 
-    // The file first. A purged row with an orphaned object left behind is a
-    // bill nobody can see and nothing can find.
-    if (artifact.storage_path) {
-        const { error: rmErr } = await db.storage
-            .from(ARTIFACT_BUCKET)
-            .remove([artifact.storage_path as string]);
+    // The files first. A purged row with an orphaned object left behind is a
+    // bill nobody can see and nothing can find — and a render owns more than
+    // one: the video, its thumbnail, its captions.
+    const owned = storedPathsOf(artifact);
+    if (owned.length) {
+        const { error: rmErr } = await db.storage.from(ARTIFACT_BUCKET).remove(owned);
         if (rmErr) {
-            console.warn(`[delphi] could not remove ${artifact.storage_path}: ${rmErr.message}`);
+            console.warn(`[delphi] could not remove ${owned.join(', ')}: ${rmErr.message}`);
         }
     }
 
@@ -264,7 +264,7 @@ export async function purgeArtifacts(
         return { ok: false, error: isMissingColumn(readErr) ? MIGRATION_NEEDED : readErr.message };
     }
 
-    const rows = (data ?? []) as { id: string; title: string; storage_path: string | null; deleted_at?: string | null }[];
+    const rows = (data ?? []) as { id: string; title: string; storage_path: string | null; data?: unknown; deleted_at?: string | null }[];
     if (!rows.length) return { ok: false, error: 'Those deliverables no longer exist.' };
 
     const live = rows.filter((r) => !r.deleted_at);
@@ -284,7 +284,7 @@ export async function purgeArtifacts(
 
     // The files first, as for one: a deleted row with an orphaned object left
     // behind is a bill nobody can see and nothing can find.
-    const paths = rows.map((r) => r.storage_path).filter((p): p is string => Boolean(p));
+    const paths = rows.flatMap(storedPathsOf);
     if (paths.length) {
         const { error: rmErr } = await db.storage.from(ARTIFACT_BUCKET).remove(paths);
         if (rmErr) console.warn(`[delphi] could not remove ${paths.length} file(s): ${rmErr.message}`);
@@ -325,7 +325,7 @@ export async function emptyTrash(
 ): Promise<TrashResult & { purged?: number }> {
     const { data: trashed, error: readErr } = await db
         .from('delphi_artifacts')
-        .select('id, title, storage_path')
+        .select('id, title, storage_path, data')
         .eq('workspace_id', workspaceId)
         .not('deleted_at', 'is', null);
 
@@ -333,7 +333,7 @@ export async function emptyTrash(
         return { ok: false, error: isMissingColumn(readErr) ? MIGRATION_NEEDED : readErr.message };
     }
 
-    const rows = (trashed ?? []) as { id: string; storage_path: string | null }[];
+    const rows = (trashed ?? []) as { id: string; storage_path: string | null; data?: unknown }[];
     if (rows.length === 0) return { ok: false, error: 'The trash is already empty.' };
 
     // The count is read now, and confirmed against now. If something landed in
@@ -344,7 +344,7 @@ export async function emptyTrash(
         return { ok: false, error: `Type ${rows.length} to confirm.` };
     }
 
-    const paths = rows.map((r) => r.storage_path).filter((p): p is string => Boolean(p));
+    const paths = rows.flatMap(storedPathsOf);
     if (paths.length) {
         const { error: rmErr } = await db.storage.from(ARTIFACT_BUCKET).remove(paths);
         if (rmErr) console.warn(`[delphi] could not remove ${paths.length} file(s): ${rmErr.message}`);

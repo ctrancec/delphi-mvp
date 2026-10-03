@@ -19,6 +19,8 @@ import { clearRevisionNote } from './revision';
 import { isMissingColumn } from './db';
 import { notify } from './notify';
 import { toolsForChannels } from '@/lib/channels/registry';
+import { produceDeliverable, type StoredFile } from '@/lib/studio/produce';
+import { FORMAT_WORD, isFormat, type Format } from '@/lib/studio/accounts';
 import { emitEvent, getSystemState, listChannels, type Db } from './db';
 import { effectiveState } from './schedule';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
@@ -509,7 +511,31 @@ export type StepOutcome =
               | 'model_quota'
               | 'out_of_hours';
       }
-    | { status: 'idle'; reason: 'no_pending_tasks' | 'waiting_on_upstream' | 'claimed_elsewhere' };
+    | {
+          status: 'idle';
+          reason:
+              | 'no_pending_tasks'
+              | 'waiting_on_upstream'
+              | 'claimed_elsewhere'
+              /** The next step renders, and this invocation has too little time left to finish one. */
+              | 'needs_fresh_run';
+      };
+
+/** How the caller is running this step. */
+export interface RunOptions {
+    /**
+     * When this invocation must be finished by, in epoch ms. A studio step
+     * takes minutes rather than seconds, so it is not started without the
+     * time to finish, and its render is given what is left.
+     */
+    deadline?: number;
+}
+
+/** What a studio step needs left on the clock before it starts. */
+export const MIN_RENDER_MS = 120_000;
+
+/** Kept back from a render's budget for uploading the files and writing the rows. */
+const RENDER_MARGIN_MS = 25_000;
 
 /** Where a step's dependants may go on: it finished, it failed, or the CHO declined its action. */
 const SETTLED = new Set(['done', 'failed', 'skipped']);
@@ -736,6 +762,24 @@ export function buildPrompt(opts: {
     return parts.join('\n');
 }
 
+/** What a step produced, whichever way it was produced. */
+interface Produced {
+    out: AgentOutput;
+    usage: { promptTokens: number; completionTokens: number; cachedTokens?: number };
+    costUsd: number;
+    model: string;
+    /** A rendered file in Storage, when the studio made it. */
+    file?: StoredFile;
+    accountId?: string | null;
+    /** Extra keys for the artifact's `data`. */
+    extra?: Record<string, unknown>;
+}
+
+async function departmentNameOf(db: Db, departmentId: string): Promise<string> {
+    const { data } = await db.from('delphi_departments').select('name').eq('id', departmentId).maybeSingle();
+    return (data?.name as string) ?? 'Studio';
+}
+
 /**
  * Execute the next pending task in a project.
  *
@@ -747,7 +791,8 @@ export function buildPrompt(opts: {
 export async function runNextTask(
     db: Db,
     workspaceId: string,
-    projectId: string
+    projectId: string,
+    opts: RunOptions = {}
 ): Promise<StepOutcome> {
     // 1. The master switch and the working hours, together, win over
     //    everything. Reported apart because "switched off" and "it is 3am" are
@@ -850,6 +895,14 @@ export async function runNextTask(
     const agent = task.agent as unknown as {
         id: string; name: string; title: string; system_prompt: string; model: string;
     };
+
+    // A step the studio renders, and whether there is time to render it. Asked
+    // before the claim, so a step that cannot finish here is never marked
+    // running and left for the reconciler to call dead.
+    const format: Format | null = isFormat(task.deliverable) ? (task.deliverable as Format) : null;
+    if (format && opts.deadline !== undefined && opts.deadline - Date.now() < MIN_RENDER_MS) {
+        return { status: 'idle', reason: 'needs_fresh_run' };
+    }
 
     // A task Delphi escalated runs on the stronger model, whoever holds it.
     // Set per task rather than on the agent, so an agent that struggled with
@@ -962,49 +1015,101 @@ export async function runNextTask(
         // cite at all, this is the catalogue the repair round shows it.
         const allowedLocators = new Map<string, SourceLocator>();
 
-        const result = await generateWithTools<AgentOutput>(
-            buildPrompt({
-                objective: task.objective,
+        // What this step produces. A text deliverable is written by the agent
+        // with its tools; a video or an image is planned by the agent and
+        // rendered by the studio, and comes back in the same shape with the
+        // file attached, so everything below records it the same way.
+        let produced: Produced;
+
+        if (format) {
+            const studio = await produceDeliverable({
+                db,
+                workspaceId,
+                projectId,
                 projectBrief: project.brief,
+                departmentName: await departmentNameOf(db, project.department_id as string),
+                task: {
+                    id: task.id as string,
+                    title: task.title as string,
+                    objective: task.objective as string,
+                    format,
+                    accountId: (task.account_id as string | null) ?? null,
+                    choNote: (task.cho_note as string | null) ?? null,
+                    revision: Number(task.revision_count ?? 0),
+                },
+                agent: { name: agent.name, systemPrompt: agent.system_prompt },
+                model,
                 upstream,
-                choNote: (task.cho_note as string | null) ?? null,
-                revision: Number(task.revision_count ?? 0),
-                handoffDossier: dossier
-                    ? [
-                          `Why your predecessor was replaced: ${dossier.reason}`,
-                          `Completed and verified: ${dossier.completed_summary}`,
-                          `Remaining: ${dossier.remaining_work}`,
-                          `Already consulted: ${JSON.stringify(dossier.sources_consulted)}`,
-                      ].join('\n')
-                    : null,
-                toolNames: tools.map((t) => t.declaration.name ?? ''),
-            }),
-            tools.map((t) => t.declaration),
-            async (name, args) => {
-                const tool = tools.find((t) => t.declaration.name === name);
-                if (!tool) throw new Error(`No such tool: ${name}`);
+                budgetMs:
+                    opts.deadline !== undefined
+                        ? Math.max(60_000, Math.min(240_000, opts.deadline - Date.now() - RENDER_MARGIN_MS))
+                        : undefined,
+                log: (line) =>
+                    emitEvent(db, {
+                        workspaceId,
+                        projectId,
+                        taskId: task.id,
+                        type: 'task_done',
+                        actor: agent.name,
+                        verb: line,
+                    }),
+            });
+            produced = {
+                out: studio.out,
+                usage: studio.usage,
+                costUsd: studio.costUsd,
+                model: studio.model,
+                file: studio.file,
+                accountId: studio.accountId,
+                extra: { studio: studio.studio },
+            };
+        } else {
+            const result = await generateWithTools<AgentOutput>(
+                buildPrompt({
+                    objective: task.objective,
+                    projectBrief: project.brief,
+                    upstream,
+                    choNote: (task.cho_note as string | null) ?? null,
+                    revision: Number(task.revision_count ?? 0),
+                    handoffDossier: dossier
+                        ? [
+                              `Why your predecessor was replaced: ${dossier.reason}`,
+                              `Completed and verified: ${dossier.completed_summary}`,
+                              `Remaining: ${dossier.remaining_work}`,
+                              `Already consulted: ${JSON.stringify(dossier.sources_consulted)}`,
+                          ].join('\n')
+                        : null,
+                    toolNames: tools.map((t) => t.declaration.name ?? ''),
+                }),
+                tools.map((t) => t.declaration),
+                async (name, args) => {
+                    const tool = tools.find((t) => t.declaration.name === name);
+                    if (!tool) throw new Error(`No such tool: ${name}`);
 
-                const out = await tool.execute(args);
-                for (const loc of out.locators) allowedLocators.set(locatorKey(loc), loc);
+                    const out = await tool.execute(args);
+                    for (const loc of out.locators) allowedLocators.set(locatorKey(loc), loc);
 
-                await emitEvent(db, {
-                    workspaceId,
-                    projectId,
-                    taskId: task.id,
-                    type: 'task_started',
-                    actor: agent.name,
-                    verb: `queried ${name}`,
-                    object: String(args.query ?? args.seriesId ?? '').slice(0, 80),
-                });
+                    await emitEvent(db, {
+                        workspaceId,
+                        projectId,
+                        taskId: task.id,
+                        type: 'task_started',
+                        actor: agent.name,
+                        verb: `queried ${name}`,
+                        object: String(args.query ?? args.seriesId ?? '').slice(0, 80),
+                    });
 
-                return { content: out.content, searchRequests: out.searchRequests };
-            },
-            TASK_OUTPUT_SCHEMA,
-            (value) => validateAgentOutput(value, tools.length > 0 ? allowedLocators : undefined),
-            { system: agent.system_prompt, model, temperature: 0.4 }
-        );
+                    return { content: out.content, searchRequests: out.searchRequests };
+                },
+                TASK_OUTPUT_SCHEMA,
+                (value) => validateAgentOutput(value, tools.length > 0 ? allowedLocators : undefined),
+                { system: agent.system_prompt, model, temperature: 0.4 }
+            );
+            produced = { out: result.data, usage: result.usage, costUsd: result.costUsd, model: result.model };
+        }
 
-        const out = result.data;
+        const { out } = produced;
+        const result = produced;
         const durationMs = Date.now() - startedAt;
 
         await db
@@ -1053,13 +1158,27 @@ export async function runNextTask(
             kind: out.kind,
             title: task.title,
             content_md: out.contentMd,
+            ...(produced.file
+                ? {
+                      storage_path: produced.file.path,
+                      mime_type: produced.file.mimeType,
+                      size_bytes: produced.file.sizeBytes,
+                  }
+                : {}),
             data: {
                 summary: out.summary,
                 steps: out.steps,
                 claims: out.claims,
                 handoffNote: out.handoffNote,
+                ...(produced.extra ?? {}),
             },
         };
+
+        // Which account a rendered piece is for. Its own column, so the
+        // library can filter on it — and its own insert attempt, because the
+        // column arrives with migration 0011 and the row must be written
+        // either way.
+        const accountColumn = produced.accountId ? { account_id: produced.accountId } : {};
 
         // Written with the revision columns when the database has them, and
         // without when it does not. A deploy and a migration do not land at the
@@ -1068,12 +1187,12 @@ export async function runNextTask(
         let artifact: { id: string } | null = null;
         const withRevision = await db
             .from('delphi_artifacts')
-            .insert({ ...base, revision, supersedes })
+            .insert({ ...base, ...accountColumn, revision, supersedes })
             .select('id')
             .single();
 
         if (withRevision.error && isMissingColumn(withRevision.error)) {
-            console.warn('[delphi] artifact revision columns not present yet; run migration 0004.');
+            console.warn('[delphi] an artifact column is not present yet; run migrations 0004 and 0011.');
             const plain = await db.from('delphi_artifacts').insert(base).select('id').single();
             artifact = (plain.data as { id: string } | null) ?? null;
         } else {
@@ -1113,7 +1232,7 @@ export async function runNextTask(
             taskId: task.id,
             type: 'artifact_created',
             actor: agent.name,
-            verb: `produced ${out.kind}`,
+            verb: format ? `rendered a ${FORMAT_WORD[format]}` : `produced ${out.kind}`,
             object: task.title,
             durationMs,
             payload: { costUsd: result.costUsd, claims: out.claims.length },

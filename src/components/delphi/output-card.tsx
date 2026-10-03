@@ -63,7 +63,16 @@ const REVIEW_BADGE: Record<string, { label: string; tone: string }> = {
 };
 
 /** `selectable` leaves room on the left for the checkbox the selection layer places there. */
-export function OutputCard({ record, selectable = false }: { record: OutputRecord; selectable?: boolean }) {
+export function OutputCard({
+    record,
+    selectable = false,
+    picture = null,
+}: {
+    record: OutputRecord;
+    selectable?: boolean;
+    /** A signed URL for a render's picture: a video's thumbnail, or the image. */
+    picture?: string | null;
+}) {
     const { artifact, review, department, project, agent, task } = record;
     const verdict = REVIEW_BADGE[review.status];
     const meta = KIND_META[artifact.kind] ?? KIND_META.other;
@@ -71,11 +80,30 @@ export function OutputCard({ record, selectable = false }: { record: OutputRecor
     const preview = excerpt(artifact.contentMd);
     const size = formatBytes(artifact.sizeBytes);
     const reading = readingTime(artifact.contentMd);
+    // A rendered piece says which account it is for and how long it runs.
+    const studio = (artifact.data as { studio?: { account?: { label?: string } | null; render?: { seconds?: number; slides?: number } } }).studio;
+    const forAccount = studio?.account?.label ?? null;
+    const length =
+        studio?.render?.seconds !== undefined
+            ? `${Math.round(studio.render.seconds)}s`
+            : studio?.render?.slides !== undefined
+              ? `${studio.render.slides} slide${studio.render.slides === 1 ? '' : 's'}`
+              : null;
 
     return (
         <Link href={`/dashboard/delphi/outputs/${artifact.id}`} className="group block h-full">
             <Card className="bg-black/40 border-white/10 hover:border-white/25 transition-colors h-full">
                 <CardContent className={selectable ? 'pt-6 pl-12 space-y-3' : 'pt-6 space-y-3'}>
+                    {picture && (
+                        // Not next/image: a short-lived signed URL on the Supabase host.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={picture}
+                            alt=""
+                            loading="lazy"
+                            className="h-40 w-full rounded-md border border-white/10 bg-black object-cover"
+                        />
+                    )}
                     <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 space-y-1">
                             <h3 className="font-semibold leading-tight text-sm group-hover:text-white transition-colors line-clamp-2">
@@ -86,6 +114,9 @@ export function OutputCard({ record, selectable = false }: { record: OutputRecor
                                     {department.title}
                                     {project && project.title !== department.title && ` · ${project.title}`}
                                 </p>
+                            )}
+                            {forAccount && (
+                                <p className="text-xs text-rose-300/80 truncate">for {forAccount}</p>
                             )}
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -115,7 +146,7 @@ export function OutputCard({ record, selectable = false }: { record: OutputRecor
                             <span className="text-muted-foreground/60">unattributed</span>
                         )}
                         <span className="ml-auto shrink-0 whitespace-nowrap">
-                            {reading ?? size ?? ''}
+                            {length ? `${length}${size ? ` · ${size}` : ''}` : (reading ?? size ?? '')}
                         </span>
                     </div>
 

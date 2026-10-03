@@ -59,6 +59,8 @@ export function PipelineRunner({ active }: { active: boolean }) {
                     return 'Waiting: the next step needs one that is still running or awaiting your approval.';
                 }
                 if (last.reason === 'claimed_elsewhere') return 'Another run has just picked up this step.';
+                // A render starts on a fresh call with the whole time budget.
+                if (last.reason === 'needs_fresh_run') return null;
                 return 'Nothing left to run.';
             default:
                 return null;

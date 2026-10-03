@@ -19,12 +19,14 @@ import { Type, type Schema } from '@google/genai';
 import { generateStructured, type GenerateResult } from '@/lib/llm/gemini';
 import { CHANNEL_CAPABILITIES } from '@/lib/channels/registry';
 import { AGENT_PROTOCOL } from './roster';
+import { describeAccount, FORMATS, isFormat, isVideoFormat, producerFor, type MediaAccount } from '@/lib/studio/accounts';
 import type {
     Agent,
     AgentStats,
     Candidate,
     ChannelKind,
     CostTier,
+    Deliverable,
     InventedAgentSpec,
     Memory,
     PlannedTask,
@@ -51,7 +53,8 @@ HOW YOU STAFF WORK
 - Prefer the smallest team that can do the job. Four focused agents beat eight
   overlapping ones. Do not add a reviewer to trivial work.
 - Respect cost tiers. Use tier 3 agents only where depth actually changes the
-  outcome. Media generation is expensive; say so in your estimate.
+  outcome. A studio render costs one planning call and one narration — cents,
+  not dollars.
 
 WHAT YOU WEIGH
 - Skill fit against the specific brief, not general impressiveness.
@@ -62,6 +65,24 @@ WHAT YOU WEIGH
   channels it holds, and each connected channel says what it can and cannot
   supply: give data work only to an agent holding a channel that supplies that
   data. Web search is not a data feed.
+
+HOW YOU STAFF PRODUCTION
+- When a department produces for media accounts (YouTube channels, social
+  pages), each account is listed with its preferences and the formats it
+  makes. Plan ONE production chain per active account: the research may be
+  shared, but the script and the production step for one account are never
+  reused for another.
+- A production step is a task whose deliverable is a format the account
+  makes: 'short' (vertical video), 'landscape' (horizontal video), 'post'
+  (one image) or 'carousel' (several images). Videos go to the video editor,
+  images to the motion designer, with the account's id in accountId. The
+  studio renders it — stock visuals, narration, captions, thumbnail — from
+  the agent's plan. Production steps need no channel; the studio is built in.
+- An account that makes several formats may get a step for each, or for the
+  ones the brief calls for — at least one.
+- A production step consumes a finished script or post copy, so the step
+  before it writes exactly that, for that account, in that account's voice.
+- Never plan a production step for a paused account.
 
 Be concrete and decisive. Your rationale is read by the CHO before they approve
 the hire, so it must say what this agent will actually contribute.
@@ -113,6 +134,17 @@ const PLAN_SCHEMA: Schema = {
                         description: 'Slug of a roster agent. Omit if newAgent is supplied.',
                     },
                     newAgent: INVENTED_AGENT_SCHEMA,
+                    deliverable: {
+                        type: Type.STRING,
+                        enum: ['text', ...FORMATS],
+                        description:
+                            "'text' for anything written. 'short', 'landscape', 'post' or 'carousel' ONLY for a production step the studio renders, in a format its account makes.",
+                    },
+                    accountId: {
+                        type: Type.STRING,
+                        description:
+                            'The id of the media account this task is for, copied from the ACCOUNTS list. Omit for shared work that serves every account.',
+                    },
                     rationale: { type: Type.STRING, description: 'Why this agent for this task.' },
                     fit: {
                         type: Type.NUMBER,
@@ -302,8 +334,13 @@ export function validateInventedAgent(value: unknown, seq = 0): InventedAgentSpe
  * the invariants the runtime depends on: at least one task, contiguous ordering,
  * and every task actually assigned to somebody.
  */
-export function validateStaffingPlan(value: unknown, knownSlugs: Set<string>): StaffingPlan {
+export function validateStaffingPlan(
+    value: unknown,
+    knownSlugs: Set<string>,
+    accounts: MediaAccount[] = []
+): StaffingPlan {
     const o = asRecord(value, 'plan');
+    const accountIds = new Set(accounts.map((a) => a.id));
 
     if (!Array.isArray(o.tasks) || o.tasks.length === 0) {
         throw new Error('plan.tasks must be a non-empty array');
@@ -333,11 +370,38 @@ export function validateStaffingPlan(value: unknown, knownSlugs: Set<string>): S
             );
         }
 
+        const deliverable: Deliverable = isFormat(t.deliverable) ? t.deliverable : 'text';
+
+        // An account id has to be one that exists. A made-up one would render
+        // a video for nobody, with the defaults, and call it done.
+        const rawAccount = typeof t.accountId === 'string' ? t.accountId.trim() : '';
+        const account = rawAccount ? accounts.find((a) => a.id === rawAccount) : undefined;
+        if (rawAccount && !account) {
+            throw new Error(
+                `tasks[${i}].accountId "${rawAccount}" is not an account of this department; ` +
+                    `use one of the listed ids${accountIds.size ? `: ${[...accountIds].join(', ')}` : ''}`
+            );
+        }
+        if (deliverable !== 'text' && accountIds.size > 0 && !rawAccount) {
+            throw new Error(`tasks[${i}] is a ${deliverable} production step and must name the account it is for in accountId`);
+        }
+        if (account && account.status === 'paused') {
+            throw new Error(`tasks[${i}] is for ${account.name}, which is paused; drop it`);
+        }
+        if (account && deliverable !== 'text' && !account.preferences.formats.includes(deliverable)) {
+            throw new Error(
+                `tasks[${i}] makes a ${deliverable}, which ${account.name} does not make; ` +
+                    `it makes ${account.preferences.formats.join(', ')}`
+            );
+        }
+
         const rawFit = Number(t.fit);
         return {
             seq: Number.isFinite(Number(t.seq)) ? Number(t.seq) : i + 1,
             title: String(t.title ?? objective.slice(0, 60)).trim(),
             objective,
+            deliverable,
+            accountId: rawAccount || null,
             assignedSlug: newAgent ? undefined : assignedSlug,
             newAgent,
             rationale: String(t.rationale ?? '').trim(),
@@ -352,6 +416,21 @@ export function validateStaffingPlan(value: unknown, knownSlugs: Set<string>): S
     tasks.forEach((t, i) => {
         t.seq = i + 1;
     });
+
+    // Every active account gets its piece. A media department whose plan
+    // produces nothing for one of its channels has not staffed that channel.
+    for (const a of accounts) {
+        if (a.status !== 'active') continue;
+        const has = tasks.some((t) => t.accountId === a.id && t.deliverable !== 'text');
+        if (!has) {
+            const f = a.preferences.formats[0];
+            throw new Error(
+                `no production step for account ${a.id} (${a.name}); every active account needs at least one. ` +
+                    `It makes ${a.preferences.formats.join(', ')}: e.g. deliverable "${f}", accountId "${a.id}", ` +
+                    `assigned to the ${isVideoFormat(f) ? 'video editor' : 'motion designer'} (${producerFor(f)})`
+            );
+        }
+    }
 
     return {
         departmentName: String(o.departmentName ?? '').trim() || 'Untitled Department',
@@ -406,6 +485,8 @@ export interface ProposePlanInput {
     /** Organizational memory retrieved for this brief. */
     memories?: Memory[];
     departmentName?: string;
+    /** The media accounts this department produces for, each with its preferences. */
+    accounts?: MediaAccount[];
 }
 
 export function buildPlanPrompt(input: ProposePlanInput): string {
@@ -433,6 +514,18 @@ export function buildPlanPrompt(input: ProposePlanInput): string {
                   .join('\n')
             : '- (none connected yet)'
     );
+
+    if (input.accounts?.length) {
+        sections.push(
+            '',
+            'ACCOUNTS THIS DEPARTMENT PRODUCES FOR (one production chain each; copy ids exactly):',
+            input.accounts.map(describeAccount).join('\n\n'),
+            '',
+            'Each active account above needs at least one production step: deliverable set to a format it makes',
+            '(short, landscape, post, carousel), accountId set to its id. The step before it writes the script or',
+            'the post copy for that same account. Shared research may come first with no accountId.'
+        );
+    }
 
     if (input.memories?.length) {
         sections.push(
@@ -470,7 +563,7 @@ export async function proposePlan(
     return generateStructured<StaffingPlan>(
         buildPlanPrompt(input),
         PLAN_SCHEMA,
-        (value) => validateStaffingPlan(value, knownSlugs),
+        (value) => validateStaffingPlan(value, knownSlugs, input.accounts ?? []),
         {
             system: `${DELPHI_SYSTEM_PROMPT}\n\n${AGENT_PROTOCOL}`,
             temperature: 0.4,

@@ -81,6 +81,10 @@ export const MODEL_FALLBACKS: Record<string, string[]> = {
     // Escalated work degrades sideways into Flash rather than giving up: a
     // stronger model was preferred, not required, and no answer helps nobody.
     'gemini-3.1-pro-preview': ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
+    // Narration. Each TTS model has its own daily bucket too, and the oldest
+    // one is the one verified first — it answers raw PCM where the newer ones
+    // answer a WAV, and the studio reads either.
+    'gemini-3.8-flash-tts': ['gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'],
 };
 
 function fallbackChain(model: string): string[] {

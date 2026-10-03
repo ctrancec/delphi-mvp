@@ -11,7 +11,7 @@ import { FolderOpen, Inbox, Trash2 } from 'lucide-react';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent } from '@/components/ui/card';
 import { OutputCard, KIND_META } from '@/components/delphi/output-card';
-import { facetsFrom, listOutputs, type OutputRecord } from '@/lib/delphi/outputs';
+import { accountOf, facetsFrom, listOutputs, previewPathOf, signedUrlsFor, type OutputRecord } from '@/lib/delphi/outputs';
 import type { ArtifactKind } from '@/lib/delphi/types';
 import { cn } from '@/lib/utils';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
@@ -21,7 +21,7 @@ import { SelectableItem, SelectionProvider } from '@/components/delphi/output-se
 
 export const dynamic = 'force-dynamic';
 
-type Params = { kind?: string; department?: string; project?: string; view?: string };
+type Params = { kind?: string; department?: string; project?: string; account?: string; view?: string };
 
 /** Build an href that changes one filter and leaves the rest alone. */
 function filterHref(current: Params, patch: Partial<Params>): string {
@@ -140,10 +140,18 @@ export default async function OutputsPage({
         if (params.kind && r.artifact.kind !== params.kind) return false;
         if (params.department && r.department?.id !== params.department) return false;
         if (params.project && r.project?.id !== params.project) return false;
+        if (params.account && accountOf(r)?.id !== params.account) return false;
         return true;
     });
 
-    const isFiltered = !!(params.kind || params.department || params.project);
+    const isFiltered = !!(params.kind || params.department || params.project || params.account);
+
+    // Renders show their picture on the card: one signing request for the
+    // whole page, not one per card.
+    const previews = await signedUrlsFor(
+        supabase,
+        visible.map(previewPathOf).filter((p): p is string => Boolean(p))
+    );
 
     return (
         <div className="space-y-6">
@@ -188,6 +196,19 @@ export default async function OutputsPage({
                             </Pill>
                         )}
                     </div>
+
+                    {facets.accounts.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                            <Pill href={filterHref(params, { account: undefined })} active={!params.account}>
+                                All accounts
+                            </Pill>
+                            {facets.accounts.map((a) => (
+                                <Pill key={a.id} href={filterHref(params, { account: a.id })} active={params.account === a.id}>
+                                    {a.title} {a.count}
+                                </Pill>
+                            ))}
+                        </div>
+                    )}
 
                     {facets.departments.length > 1 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -271,7 +292,14 @@ export default async function OutputsPage({
                         <div className="grid grid-cols-1 gap-3 inner:grid-cols-2 desk:grid-cols-3">
                             {visible.map((r) => (
                                 <SelectableItem key={r.artifact.id} id={r.artifact.id} label={r.artifact.title} intercept>
-                                    <OutputCard record={r} selectable />
+                                    <OutputCard
+                                        record={r}
+                                        selectable
+                                        picture={(() => {
+                                            const p = previewPathOf(r);
+                                            return p ? (previews.get(p) ?? null) : null;
+                                        })()}
+                                    />
                                 </SelectableItem>
                             ))}
                         </div>
