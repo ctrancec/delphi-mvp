@@ -214,3 +214,33 @@ async function setupProblem(db: Db, workspaceId: string, dept: Record<string, un
     const accounts = kind === 'studio' ? await listAccounts(db, workspaceId, String(dept.id)) : [];
     return setupBlocker(kind, String(dept.charter ?? ''), accounts);
 }
+
+// ---------------------------------------------------------------------------
+// The time zone: the CHO's own, found on their device
+// ---------------------------------------------------------------------------
+
+/**
+ * The dashboard reports the device's zone once a session. It becomes the
+ * workspace's only while the workspace has none, so travelling moves nothing;
+ * departments still on the default are brought in line either way.
+ */
+export async function syncDeviceZoneAction(deviceZone: string): Promise<SetupResult<{ zone: string | null; adopted: boolean }>> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error };
+    const { adoptDeviceZone } = await import('./zone');
+    const res = await adoptDeviceZone(c.db, c.workspaceId, deviceZone);
+    if (res.adopted || res.departments) revalidatePath('/dashboard', 'layout');
+    return { ok: true, data: { zone: res.zone, adopted: res.adopted } };
+}
+
+/** The CHO sets the workspace's zone themselves; every department that follows it moves with it. */
+export async function setWorkspaceZoneAction(zone: string): Promise<SetupResult<{ departments: number }>> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error };
+    const { setWorkspaceZone } = await import('./zone');
+    const res = await setWorkspaceZone(c.db, c.workspaceId, zone);
+    if (!res.ok) return { ok: false, error: res.error };
+    revalidatePath('/dashboard', 'layout');
+    return { ok: true, data: { departments: res.departments ?? 0 } };
+}
+

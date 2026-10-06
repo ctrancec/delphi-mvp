@@ -290,9 +290,12 @@ async function runTool(
             };
             // Its setup is left for the CHO to finish in the wizard: the
             // channels, the rules for the team, the schedule are theirs to set.
+            // Its clock is the workspace's from the start.
+            const { workspaceZone } = await import('./zone');
+            const zone = await workspaceZone(db, workspaceId);
             let { data, error } = await db
                 .from('delphi_departments')
-                .insert({ ...row, kind, settings: { setup: { step: 3, complete: false } } })
+                .insert({ ...row, kind, settings: { setup: { step: 3, complete: false }, ...(zone ? { timezone: zone } : {}) } })
                 .select('id')
                 .single();
             if (error && isMissingColumn(error)) {

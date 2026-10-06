@@ -94,12 +94,14 @@ function AccountForm({
     onCancel,
     pending,
     error,
+    timezone,
 }: {
     initial: Draft;
     onSave: (d: Draft) => void;
     onCancel: () => void;
     pending: boolean;
     error: string | null;
+    timezone: string;
 }) {
     const [d, setD] = useState<Draft>(initial);
     const setP = (patch: Partial<AccountPreferences>) => setD({ ...d, p: { ...d.p, ...patch } });
@@ -203,7 +205,7 @@ function AccountForm({
                         onChange={(days) => setP({ schedule: days.length ? { days, time: d.p.schedule?.time ?? '09:00' } : null })}
                     />
                 </Field>
-                <Field label="At" hint="In the studio's timezone.">
+                <Field label="At" hint={`In ${timezone}.`}>
                     <Input type="time" disabled={!d.p.schedule} value={d.p.schedule?.time ?? '09:00'} onChange={(e) => d.p.schedule && setP({ schedule: { ...d.p.schedule, time: e.target.value || '09:00' } })} className="border-white/10 bg-white/5 text-sm" />
                 </Field>
                 <Field label="Topics">
@@ -352,7 +354,7 @@ export function AccountsCard({
     canEdit: boolean;
     /** A team already proposed: a changed account only shapes the next plan. */
     hasTeam: boolean;
-    /** The studio's timezone, which every channel's schedule is in. */
+    /** The studio's time zone — the CHO's own, unless set apart — which every channel's schedule is in. */
     timezone?: string;
     /** One channel's own settings, on its tab: no adding, no re-staffing. */
     single?: boolean;
@@ -466,6 +468,7 @@ export function AccountsCard({
                 {adding && (
                     <AccountForm
                         initial={draftFrom(null)}
+                        timezone={timezone}
                         pending={pending}
                         error={error}
                         onCancel={() => { setAdding(false); setError(null); }}
@@ -478,6 +481,7 @@ export function AccountsCard({
                         <AccountForm
                             key={a.id}
                             initial={draftFrom(a)}
+                            timezone={timezone}
                             pending={pending}
                             error={error}
                             onCancel={() => { setEditing(null); setError(null); }}

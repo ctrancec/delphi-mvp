@@ -15,6 +15,7 @@ import { getSystemMode, type SystemMode } from '@/lib/delphi/db'
 import { countNewOutputs } from '@/lib/delphi/unread'
 import { choNameOf } from '@/lib/delphi/cho'
 import { roleOf, type Role } from '@/lib/delphi/members'
+import { ZoneSync } from '@/components/delphi/zone-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -136,6 +137,8 @@ export default async function DashboardLayout({
             cho={choNameOf(user)}
             role={role}
         >
+            {/* The workspace's time zone comes from the owner's device; nobody is asked for it. */}
+            {supabase && role === 'owner' && <ZoneSync />}
             {children}
         </DashboardChrome>
     )

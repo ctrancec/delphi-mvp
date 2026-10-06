@@ -131,8 +131,14 @@ export interface DepartmentSettings {
     pinned: Partial<Record<RoleKey, string>>;
     /** ask: every run waits for the CHO's go. scheduled: runs start on their own. */
     autonomy: Autonomy;
-    /** An IANA zone. Schedules mean nothing without one. */
+    /**
+     * An IANA zone. Schedules mean nothing without one. It is the CHO's own,
+     * found on their device and kept for the whole workspace, unless this
+     * department was deliberately given another (`timezonePinned`).
+     */
     timezone: string;
+    /** True when the CHO chose this department's zone themselves. */
+    timezonePinned: boolean;
     /** When a research department delivers. A studio schedules per channel. */
     schedule: DeliverySchedule | null;
     research: ResearchSetup;
@@ -148,6 +154,7 @@ export const DEFAULT_SETTINGS: DepartmentSettings = {
     pinned: {},
     autonomy: 'scheduled',
     timezone: 'UTC',
+    timezonePinned: false,
     schedule: null,
     research: { topics: [], sources: [], report: { length: 'standard', sections: '', tone: '' } },
 };
@@ -233,6 +240,7 @@ export function withSettings(raw: unknown, base: DepartmentSettings = DEFAULT_SE
         pinned,
         autonomy: r.autonomy === 'ask' || r.autonomy === 'scheduled' ? r.autonomy : base.autonomy,
         timezone: isTimezone(r.timezone) ? (r.timezone as string).trim() : base.timezone,
+        timezonePinned: typeof r.timezonePinned === 'boolean' ? r.timezonePinned : base.timezonePinned,
         schedule: r.schedule === undefined ? base.schedule : withSchedule(r.schedule),
         research: {
             topics: research.topics === undefined ? base.research.topics : list(research.topics, 20, 200),

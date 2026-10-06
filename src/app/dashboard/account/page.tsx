@@ -8,7 +8,7 @@
  */
 
 import { redirect } from 'next/navigation';
-import { Bell, KeyRound, ShieldCheck, Smartphone, UserCircle, Users } from 'lucide-react';
+import { Bell, Clock, KeyRound, ShieldCheck, Smartphone, UserCircle, Users } from 'lucide-react';
 import { createClient, currentUser } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +17,8 @@ import { NameForm } from '@/components/delphi/name-form';
 import { InstallCard } from '@/components/delphi/install-card';
 import { NotificationsCard } from '@/components/delphi/notifications-card';
 import { TeamCard } from '@/components/delphi/team-card';
+import { TimeZoneCard } from '@/components/delphi/time-zone-card';
+import { workspaceZone } from '@/lib/delphi/zone';
 import { listInvites, listMembers, roleOf, roleWords, type Invite, type Member, type Role } from '@/lib/delphi/members';
 import { headers } from 'next/headers';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
@@ -82,6 +84,8 @@ export default async function AccountPage() {
     } catch {
         teamReady = false;
     }
+    // The workspace's time zone, when known; the card shows this device's until then.
+    const zone = workspaceId ? await workspaceZone(supabase, workspaceId).catch(() => null) : null;
     const host = (await headers()).get('host') ?? 'localhost:3000';
     const origin = `${host.startsWith('localhost') ? 'http' : 'https'}://${host}`;
 
@@ -142,6 +146,21 @@ export default async function AccountPage() {
                 </CardHeader>
                 <CardContent>
                     <NameForm initial={hasOwnName(user) ? cho : ''} />
+                </CardContent>
+            </Card>
+
+            <Card className="border-white/10 bg-black/40">
+                <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Clock className="h-4 w-4" /> Time zone
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                        Yours, found on your device. Every schedule is in it — each department&rsquo;s and each channel&rsquo;s — and
+                        so is the month a budget belongs to. Travelling does not move it.
+                    </p>
+                </CardHeader>
+                <CardContent>
+                    <TimeZoneCard zone={zone} canEdit={role === 'owner'} />
                 </CardContent>
             </Card>
 

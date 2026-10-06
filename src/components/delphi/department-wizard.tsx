@@ -118,13 +118,11 @@ function ScheduleFields({
     schedule,
     onChange,
     timezone,
-    onTimezone,
     optionalLabel,
 }: {
     schedule: DeliverySchedule | null;
     onChange: (s: DeliverySchedule | null) => void;
     timezone: string;
-    onTimezone: (tz: string) => void;
     optionalLabel: string;
 }) {
     const days = schedule?.days ?? [];
@@ -138,15 +136,53 @@ function ScheduleFields({
                 <Field label="At" htmlFor="wiz-time">
                     <Input id="wiz-time" type="time" value={time} disabled={!days.length} onChange={(e) => onChange({ days, time: e.target.value || '09:00' })} className={fieldClass} />
                 </Field>
-                <Field label="Timezone" htmlFor="wiz-tz">
-                    <select id="wiz-tz" className={selectClass} value={timezone} onChange={(e) => onTimezone(e.target.value)}>
-                        {[...new Set([timezone, ...zones()])].map((z) => (
-                            <option key={z} value={z}>{z}</option>
-                        ))}
-                    </select>
-                </Field>
             </div>
             <p className="text-[11px] text-muted-foreground/70">{scheduleWords(schedule, timezone)}</p>
+        </div>
+    );
+}
+
+/**
+ * The time zone, said rather than asked: the CHO's own, found on their device.
+ * A department can be given another — rarely wanted — and set back.
+ */
+function ZoneNote({
+    zone,
+    fromDevice,
+    pinned,
+    onPin,
+    onUnpin,
+}: {
+    zone: string;
+    /** True while the workspace has no zone of its own yet, so this device's is shown. */
+    fromDevice: boolean;
+    pinned: boolean;
+    onPin: (tz: string) => void;
+    onUnpin: () => void;
+}) {
+    if (!pinned) {
+        return (
+            <p className="text-[11px] text-muted-foreground">
+                Times are in your time zone, <span className="text-zinc-300">{zone}</span>
+                {fromDevice ? ', found on this device' : ''}.{' '}
+                <button type="button" onClick={() => onPin(zone)} className="text-sky-400 hover:underline">
+                    Use a different one for this department
+                </button>
+            </p>
+        );
+    }
+    return (
+        <div className="space-y-1.5">
+            <Field label="This department's time zone" htmlFor="wiz-tz">
+                <select id="wiz-tz" className={selectClass} value={zone} onChange={(e) => onPin(e.target.value)}>
+                    {[...new Set([zone, ...zones()])].map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                    ))}
+                </select>
+            </Field>
+            <button type="button" onClick={onUnpin} className="text-[11px] text-sky-400 hover:underline">
+                Use my time zone instead
+            </button>
         </div>
     );
 }
@@ -154,12 +190,15 @@ function ScheduleFields({
 export function DepartmentWizard({
     draft,
     convertTo,
+    workspaceZone = null,
     startStep,
     sources,
     roster,
 }: {
     draft: WizardDraft | null;
     convertTo: DepartmentKind | null;
+    /** The workspace's time zone, when it is known; otherwise this device's is used. */
+    workspaceZone?: string | null;
     startStep: number | null;
     sources: string[];
     roster: RosterEntry[];
@@ -184,12 +223,11 @@ export function DepartmentWizard({
         budgetUsd: String(draft?.budgetUsd ?? '5'),
     });
     const [settings, setSettings] = useState<DepartmentSettings>(draft?.settings ?? withSettings({ setup: { step: 1, complete: false } }));
-    const [zoneTouched, setZoneTouched] = useState(Boolean(draft));
-    const timezone = zoneTouched ? settings.timezone : browserZone;
-    const setTimezone = (tz: string) => {
-        setZoneTouched(true);
-        setSettings((s) => ({ ...s, timezone: tz }));
-    };
+    // The CHO's own zone — the workspace's, else this device's — unless this
+    // department was deliberately given another.
+    const autoZone = workspaceZone ?? browserZone;
+    const [pinnedZone, setPinnedZone] = useState<string | null>(draft?.settings.timezonePinned ? draft.settings.timezone : null);
+    const timezone = pinnedZone ?? autoZone;
 
     const accounts = draft?.accounts ?? [];
     const k = kind ?? 'research';
@@ -223,7 +261,7 @@ export function DepartmentWizard({
         if (!id) return setError('Save the basics first.');
         setError(null);
         startTransition(async () => {
-            const res = await saveDepartmentSettingsAction(id, { ...patch, timezone }, next, convertTo ?? undefined);
+            const res = await saveDepartmentSettingsAction(id, { ...patch, timezone, timezonePinned: pinnedZone !== null }, next, convertTo ?? undefined);
             if (!res.ok || !res.data) return setError(res.error ?? 'Could not save.');
             setSettings(res.data.settings);
             go(next);
@@ -419,9 +457,9 @@ export function DepartmentWizard({
                                     schedule={settings.schedule}
                                     onChange={(sch) => setSettings({ ...settings, schedule: sch })}
                                     timezone={timezone}
-                                    onTimezone={setTimezone}
                                     optionalLabel="Deliver on"
                                 />
+                                <ZoneNote zone={timezone} fromDevice={!workspaceZone} pinned={pinnedZone !== null} onPin={setPinnedZone} onUnpin={() => setPinnedZone(null)} />
                             </CardContent>
                         </Card>
                     )}
@@ -435,13 +473,7 @@ export function DepartmentWizard({
                                         separate: its own settings, schedule, conversations and history. In a channel&rsquo;s
                                         settings you choose what it makes, when, and whether you approve its topics.
                                     </p>
-                                    <Field label="The studio's timezone, for every channel's schedule" htmlFor="wiz-tz-studio">
-                                        <select id="wiz-tz-studio" className={selectClass} value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                                            {[...new Set([timezone, ...zones()])].map((z) => (
-                                                <option key={z} value={z}>{z}</option>
-                                            ))}
-                                        </select>
-                                    </Field>
+                                    <ZoneNote zone={timezone} fromDevice={!workspaceZone} pinned={pinnedZone !== null} onPin={setPinnedZone} onUnpin={() => setPinnedZone(null)} />
                                 </CardContent>
                             </Card>
                             <AccountsCard departmentId={id} accounts={accounts} canEdit hasTeam={false} timezone={timezone} />
@@ -461,9 +493,9 @@ export function DepartmentWizard({
                                     schedule={settings.schedule}
                                     onChange={(sch) => setSettings({ ...settings, schedule: sch })}
                                     timezone={timezone}
-                                    onTimezone={setTimezone}
                                     optionalLabel="Run on"
                                 />
+                                <ZoneNote zone={timezone} fromDevice={!workspaceZone} pinned={pinnedZone !== null} onPin={setPinnedZone} onUnpin={() => setPinnedZone(null)} />
                             </CardContent>
                         </Card>
                     )}

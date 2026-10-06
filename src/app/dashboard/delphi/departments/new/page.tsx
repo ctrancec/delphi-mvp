@@ -20,6 +20,7 @@ import { listAccounts } from '@/lib/studio/accounts';
 import { isDepartmentKind, roleOfAgent, withSettings, type DepartmentKind } from '@/lib/delphi/kinds';
 import { Card, CardContent } from '@/components/ui/card';
 import { DepartmentWizard, type WizardDraft } from '@/components/delphi/department-wizard';
+import { workspaceZone } from '@/lib/delphi/zone';
 import { APP_NAME } from '@/lib/pixel/cast/names';
 
 export const dynamic = 'force-dynamic';
@@ -85,7 +86,11 @@ export default async function NewDepartmentPage({ searchParams }: { searchParams
         }
     }
 
-    const [channels, agents] = await Promise.all([listChannels(db, workspaceId, true), listAgents(db, workspaceId)]);
+    const [channels, agents, zone] = await Promise.all([
+        listChannels(db, workspaceId, true),
+        listAgents(db, workspaceId),
+        workspaceZone(db, workspaceId),
+    ]);
 
     const convert = params.convert && isDepartmentKind(params.convert) ? params.convert : null;
     const step = Number(params.step);
@@ -96,6 +101,7 @@ export default async function NewDepartmentPage({ searchParams }: { searchParams
             <DepartmentWizard
                 draft={draft}
                 convertTo={convert}
+                workspaceZone={zone}
                 startStep={Number.isInteger(step) && step >= 1 && step <= 5 ? step : null}
                 sources={[...new Set(channels.map((c) => c.kind))]}
                 roster={agents

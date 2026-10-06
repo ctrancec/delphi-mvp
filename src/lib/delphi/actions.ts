@@ -878,6 +878,11 @@ export async function setWorkScheduleAction(
 
         const now = effectiveState(await getSystemState(db, workspaceId));
 
+        // One time zone for everything: departments that follow the
+        // workspace's move with it.
+        const { followZone } = await import('./zone');
+        await followZone(db, workspaceId, schedule.timezone);
+
         await emitEvent(db, {
             workspaceId,
             type: 'system_mode_changed',
