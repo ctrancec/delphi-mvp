@@ -10,7 +10,8 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { syncDeviceZoneAction } from '@/lib/delphi/setup';
 
-const KEY = 'tempest-zone-synced';
+// Set once the workspace has a zone (renamed from an earlier key set even when it had none).
+const KEY = 'tempest-zone-known';
 
 export function ZoneSync() {
     const router = useRouter();
