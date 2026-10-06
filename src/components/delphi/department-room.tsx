@@ -81,6 +81,7 @@ export async function DepartmentRoom({
             blurb={blurb}
             messages={view.messages}
             work={view.work}
+            ideas={view.ideas}
             team={team.map((t) => ({ name: t.name, title: t.title, slug: t.slug, avatarSeed: t.avatarSeed }))}
             decisions={decisions}
             canPost={can(role, 'post')}

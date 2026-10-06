@@ -242,13 +242,18 @@ function scripted(calls: { name: string; args: Record<string, unknown> }[], repl
 
 function effects() {
     const calls: { artifactId: string; note: string }[] = [];
+    const started: string[] = [];
     const e: CardEffects = {
         sendBack: async (artifactId, note) => {
             calls.push({ artifactId, note });
             return { ok: true };
         },
+        startNow: async (ideaId) => {
+            started.push(ideaId);
+            return { ok: true };
+        },
     };
-    return { e, calls };
+    return { e, calls, started };
 }
 
 const cardsIn = (tables: Record<string, Row[]>, roomId: string) => (tables.delphi_messages ?? []).filter((m) => m.thread_id === roomId && m.card);

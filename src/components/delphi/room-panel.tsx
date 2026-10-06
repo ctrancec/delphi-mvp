@@ -62,6 +62,8 @@ export interface RoomPanelProps {
     blurb: string;
     messages: RoomMessage[];
     work: Record<string, WorkPreview>;
+    /** The topics cards name, as this channel has them. */
+    ideas: Record<string, { title: string; status: string }>;
     team: RoomMember[];
     decisions: Decision[];
     /** The owner and reviewers post; a viewer reads. */
@@ -203,13 +205,30 @@ const CARD_TONE: Record<string, string> = {
     failed: 'border-red-400/30 bg-red-400/5',
 };
 
-function CardView({ m, work, isOwner, timezone }: { m: RoomMessage; work: Record<string, WorkPreview>; isOwner: boolean; timezone: string }) {
+function CardView({
+    m,
+    work,
+    ideas,
+    isOwner,
+    timezone,
+}: {
+    m: RoomMessage;
+    work: Record<string, WorkPreview>;
+    ideas: Record<string, { title: string; status: string }>;
+    isOwner: boolean;
+    timezone: string;
+}) {
     const router = useRouter();
     const [pending, start] = useTransition();
     const [error, setError] = useState<string | null>(null);
     const card = m.card!;
     const artifactId = typeof card.args.artifactId === 'string' ? card.args.artifactId : null;
-    const { what, detail } = describeCard(card, { workTitle: artifactId ? work[artifactId]?.title ?? null : null, timezone });
+    const ideaId = typeof card.args.ideaId === 'string' ? card.args.ideaId : null;
+    const { what, detail } = describeCard(card, {
+        workTitle: artifactId ? work[artifactId]?.title ?? null : null,
+        ideaTitle: ideaId ? ideas[ideaId]?.title ?? null : null,
+        timezone,
+    });
 
     const act = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
         setError(null);
@@ -365,7 +384,7 @@ function Decisions({ roomId, decisions, isOwner, scopeWord }: { roomId: string; 
 }
 
 export function RoomPanel(props: RoomPanelProps) {
-    const { roomId, title, blurb, messages, work, team, decisions, canPost, isOwner, meId, timezone, scopeWord } = props;
+    const { roomId, title, blurb, messages, work, ideas, team, decisions, canPost, isOwner, meId, timezone, scopeWord } = props;
     const router = useRouter();
     const [draft, setDraft] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -509,7 +528,7 @@ export function RoomPanel(props: RoomPanelProps) {
                                         <When iso={m.createdAt} />
                                     </div>
                                     {m.card ? (
-                                        <CardView m={m} work={work} isOwner={isOwner} timezone={timezone} />
+                                        <CardView m={m} work={work} ideas={ideas} isOwner={isOwner} timezone={timezone} />
                                     ) : (
                                         m.content && <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200 [overflow-wrap:anywhere]">{m.content}</p>
                                     )}

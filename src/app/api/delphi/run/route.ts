@@ -31,6 +31,7 @@ import type { Deliverable } from '@/lib/delphi/board';
 import { runRetrospective } from '@/lib/delphi/retrospective';
 import { gradeTask, REPLACEMENT_FLOOR } from '@/lib/delphi/grading';
 import { replaceAgentOnTask, shouldReplace } from '@/lib/delphi/replacement';
+import { scheduledWorkspaces, startDueWork, type TickReport } from '@/lib/delphi/scheduler';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,20 @@ export const maxDuration = 300;
 
 /** Stop with time to spare, so the response is always written. */
 const TIME_BUDGET_MS = 45_000;
+
+/**
+ * The cron has no one watching and, on the free tier, comes once a day — so
+ * it takes new steps for longer: long enough for an episode's research,
+ * script and render in the one visit. Still well inside the hard stop.
+ */
+const CRON_TIME_BUDGET_MS = 200_000;
+
+/**
+ * The CHO's own pokes come every few seconds while work runs. Due work is
+ * looked for on the first of them, then not again for this long.
+ */
+const SCHEDULE_EVERY_MS = 10 * 60_000;
+const lastScheduled = new Map<string, number>();
 
 /**
  * The hard stop: maxDuration, less a margin. The loop above stops taking new
@@ -260,12 +275,17 @@ async function assessTask(
     return outcome.replaced;
 }
 
+/** What the scheduler did, in counts: enough for a log line, nothing a stranger could use. */
+function scheduleSummary(r: TickReport) {
+    return { started: r.started.length, skipped: r.skipped.map((x) => x.reason), proposed: r.proposed };
+}
+
 export async function POST(req: NextRequest) {
     const startedAt = Date.now();
-    const deadline = startedAt + TIME_BUDGET_MS;
     const hardDeadline = startedAt + HARD_LIMIT_MS;
     const secret = process.env.CRON_SECRET;
     const isCron = !!secret && req.headers.get('authorization') === `Bearer ${secret}`;
+    const deadline = startedAt + (isCron ? CRON_TIME_BUDGET_MS : TIME_BUDGET_MS);
 
     if (isCron) {
         const db = createServiceClient();
@@ -281,8 +301,11 @@ export async function POST(req: NextRequest) {
             .select('workspace_id')
             .eq('status', 'running');
 
-        const ids = [...new Set((workspaces ?? []).map((w) => w.workspace_id as string))];
+        // And every workspace with a playbook to keep to, running or not:
+        // this is where scheduled episodes start.
+        const ids = [...new Set([...(workspaces ?? []).map((w) => w.workspace_id as string), ...(await scheduledWorkspaces(db))])];
         const results: Record<string, StepOutcome[]> = {};
+        const scheduled: Record<string, ReturnType<typeof scheduleSummary>> = {};
         let more = false;
 
         for (const id of ids) {
@@ -290,12 +313,13 @@ export async function POST(req: NextRequest) {
                 more = true;
                 break;
             }
+            scheduled[id] = scheduleSummary(await startDueWork(db, id));
             const r = await drive(db, id, deadline, hardDeadline);
             results[id] = r.outcomes;
             more = more || r.more;
         }
 
-        return NextResponse.json({ ok: true, via: 'cron', workspaces: ids.length, more, results });
+        return NextResponse.json({ ok: true, via: 'cron', workspaces: ids.length, more, scheduled, results });
     }
 
     // Otherwise it must be the CHO. Their own client means RLS decides what can
@@ -321,8 +345,15 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+        // Anything due starts here too, so opening the app is enough to get
+        // the day's episodes going — once every few minutes, not every poke.
+        let scheduled: ReturnType<typeof scheduleSummary> | null = null;
+        if (Date.now() - (lastScheduled.get(workspaceId) ?? 0) > SCHEDULE_EVERY_MS) {
+            lastScheduled.set(workspaceId, Date.now());
+            scheduled = scheduleSummary(await startDueWork(db, workspaceId));
+        }
         const { outcomes, more } = await drive(db, workspaceId, deadline, hardDeadline);
-        return NextResponse.json({ ok: true, via: 'user', more, outcomes });
+        return NextResponse.json({ ok: true, via: 'user', more, scheduled, outcomes });
     } catch (err) {
         // runNextTask records ordinary failures rather than throwing, so
         // reaching here means something structural. Report it rather than

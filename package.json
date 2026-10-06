@@ -30,6 +30,7 @@
     "delphi:context": "tsx scripts/check_context.ts",
     "delphi:wizard": "tsx scripts/check_wizard.ts",
     "delphi:rooms": "tsx scripts/check_rooms.ts",
+    "delphi:scheduler": "tsx scripts/check_scheduler.ts",
     "delphi:vapid": "tsx scripts/make_vapid.ts",
     "delphi:cast": "tsx scripts/check_cast.ts",
     "delphi:floor": "tsx scripts/check_floor.ts",

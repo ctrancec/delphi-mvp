@@ -30,7 +30,7 @@ import {
 } from './db';
 import { hiringScore, shortlistCandidates, withPinned } from './delphi';
 import { contextFor, renderContext } from './context';
-import { kindInfo, withSettings } from './kinds';
+import { isDepartmentKind, kindInfo, withSettings } from './kinds';
 import type { CostTier } from './types';
 import type { SystemMode } from './db';
 import type { WorkSchedule } from './schedule';
@@ -386,6 +386,18 @@ export async function approvePlanAction(departmentId: string): Promise<ActionRes
 
     await db.from('delphi_projects').update({ status: 'running', started_at: new Date().toISOString() }).eq('id', project.id);
     await db.from('delphi_departments').update({ status: 'active' }).eq('id', departmentId);
+
+    // The approved plan is also how the department works from now on: kept
+    // as its playbooks — one per channel in a studio — which the scheduler
+    // runs again for every slot. This first run starts now.
+    const { data: dept } = await db.from('delphi_departments').select('kind').eq('id', departmentId).maybeSingle();
+    const { writePlaybooks } = await import('./playbooks');
+    await writePlaybooks(db, {
+        workspaceId,
+        departmentId,
+        kind: isDepartmentKind(dept?.kind) ? dept.kind : 'research',
+        projectId: project.id as string,
+    });
 
     await emitEvent(db, {
         workspaceId,

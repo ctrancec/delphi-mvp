@@ -21,6 +21,9 @@ import { ActivityLine, type ActivityEvent } from '@/components/delphi/activity-l
 import { OutputReview } from '@/components/delphi/output-review';
 import { formatBytes, getOutput, isBinaryKind, readingTime, signedUrlFor, signedUrlsFor } from '@/lib/delphi/outputs';
 import { StudioPanel, studioOf } from '@/components/delphi/studio-panel';
+import { MarkPublished } from '@/components/delphi/mark-published';
+import { findWorkspace } from '@/lib/delphi/bootstrap';
+import { roleOf } from '@/lib/delphi/members';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +79,13 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
     if (!record) notFound();
 
     const { artifact, review, department, project, task, agent } = record;
+
+    // Only the owner says where a piece went live; everyone sees that it did.
+    const workspaceId = await findWorkspace(supabase);
+    const viewer = await currentUser();
+    const isOwner = Boolean(workspaceId && viewer && (await roleOf(supabase, workspaceId, viewer.id)) === 'owner');
+    const published = (artifact.data as { studio?: { published?: { url?: unknown } } }).studio?.published;
+    const publishedUrl = typeof published?.url === 'string' ? published.url : null;
     const meta = KIND_META[artifact.kind] ?? KIND_META.other;
     const Icon = meta.icon;
 
@@ -183,6 +193,18 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
             )}
 
             {studio && <StudioPanel artifactId={artifact.id} studio={studio} />}
+
+            {/* A channel's piece, once it is up: where it went live, for the channel's history. */}
+            {studio?.account && (isOwner || publishedUrl) && (
+                <Card className="bg-black/40 border-white/10">
+                    <CardContent className="flex flex-wrap items-center gap-3 py-4">
+                        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                            {publishedUrl ? 'Live on the channel.' : 'Published it? Say where, and the channel remembers it so it is not made again.'}
+                        </p>
+                        <MarkPublished artifactId={artifact.id} publishedUrl={publishedUrl} canEdit={isOwner} />
+                    </CardContent>
+                </Card>
+            )}
 
             <Card className="bg-black/40 border-white/10">
                 <CardContent className="pt-6">

@@ -300,7 +300,11 @@ export type DelphiEventType =
     /** The CHO added, changed or removed a media account. */
     | 'account_changed'
     /** The CHO confirmed an action card in a department or channel room. */
-    | 'card_confirmed';
+    | 'card_confirmed'
+    /** The team proposed, or picked, topics for a channel. */
+    | 'ideas_proposed'
+    /** The CHO published a channel's piece by hand and recorded where. */
+    | 'output_published';
 
 export interface DelphiEvent {
     id: number;

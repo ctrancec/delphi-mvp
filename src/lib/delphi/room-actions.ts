@@ -106,6 +106,13 @@ export async function confirmCardAction(messageId: string): Promise<RoomResult> 
                 const r = await reviewOutputAction(artifactId, 'declined', note);
                 return { ok: r.ok, error: r.error };
             },
+            // The scheduler's own path, so a piece made from a card keeps to
+            // the same caps and the same once-only start as a scheduled one.
+            startNow: async (ideaId) => {
+                const { startEpisodeNow } = await import('./scheduler');
+                const r = await startEpisodeNow(c.db, c.workspaceId, ideaId);
+                return r.ok ? { ok: true } : { ok: false, error: r.error };
+            },
         },
         c.people.cho
     );

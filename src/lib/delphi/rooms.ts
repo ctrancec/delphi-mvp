@@ -26,6 +26,7 @@ import { roleOfAgent } from './kinds';
 import { choNameOf, hasOwnName } from './cho';
 import { can, OWNER_ONLY, type Role } from './members';
 import { signedUrlsFor } from './outputs';
+import { addIdea, getIdea, IDEA_STATUS_WORDS, listIdeas, moveIdea, normalTitle, type Idea } from './ideas';
 import {
     CARD_STATUS_WORDS,
     isPreferenceField,
@@ -224,6 +225,8 @@ export interface RoomView {
     messages: RoomMessage[];
     /** The work the messages carry or name, keyed by id — this room's only. */
     work: Record<string, WorkPreview>;
+    /** The topics cards name, keyed by id — this channel's only. */
+    ideas: Record<string, { title: string; status: string }>;
 }
 
 /**
@@ -233,11 +236,17 @@ export interface RoomView {
 export async function roomView(db: Db, room: Room, people: People = DEFAULT_PEOPLE, limit = 60): Promise<RoomView> {
     const messages = await loadRoom(db, room.id, people, limit);
     const ids = new Set<string>();
+    const ideaIds = new Set<string>();
     for (const m of messages) {
         for (const id of m.artifactIds) ids.add(id);
         if (m.card?.type === 'send_back' && typeof m.card.args.artifactId === 'string') ids.add(m.card.args.artifactId);
+        if ((m.card?.type === 'approve_idea' || m.card?.type === 'start_episode') && typeof m.card.args.ideaId === 'string') ideaIds.add(m.card.args.ideaId);
     }
-    if (ids.size === 0) return { messages, work: {} };
+    const ideas: RoomView['ideas'] = {};
+    if (ideaIds.size && room.accountId) {
+        for (const i of await listIdeas(db, room.accountId)) if (ideaIds.has(i.id)) ideas[i.id] = { title: i.title, status: i.status };
+    }
+    if (ids.size === 0) return { messages, work: {}, ideas };
 
     const rows = await scoped(db, room, 'id, title, kind, review_status, storage_path, data, account_id', (q) => q.in('id', [...ids]));
     const pictureOf = (r: Row): string | null => {
@@ -261,7 +270,7 @@ export async function roomView(db: Db, room: Room, people: People = DEFAULT_PEOP
             trashed: Boolean(r.deleted_at),
         };
     }
-    return { messages, work };
+    return { messages, work, ideas };
 }
 
 /**
@@ -423,6 +432,28 @@ export const CHANNEL_CARD_TOOLS: FunctionDeclaration[] = [
             required: ['pause'],
         },
     },
+    {
+        name: 'propose_topic',
+        description: "Propose adding a topic to this channel's queue, approved, so it takes the next free slot. Use it when the CHO wants something made, or agrees to one you suggested.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING, description: 'A working title, one line.' },
+                angle: { type: Type.STRING, description: 'The angle or hook, in one sentence.' },
+            },
+            required: ['title'],
+        },
+    },
+    {
+        name: 'propose_approve_topic',
+        description: 'Propose approving one of the topics the team proposed for this channel, by its title.',
+        parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING } }, required: ['title'] },
+    },
+    {
+        name: 'propose_make_now',
+        description: "Propose making one of this channel's waiting topics now, outside the schedule. It spends from the month's budget.",
+        parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING } }, required: ['title'] },
+    },
 ];
 
 /** What this room's tools may read: its department's work, or only its channel's. */
@@ -452,14 +483,33 @@ async function channelStandings(db: Db, room: Room): Promise<string | null> {
     if (!accounts.length) return null;
     const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
     const recent = await scoped(db, room, 'id, title, account_id, review_status, created_at', (q) => q.gte('created_at', since));
+    const queued = new Map<string, number>();
+    for (const a of accounts) queued.set(a.id, (await listIdeas(db, a.id, ['approved'])).length);
     const lines = accounts.map((a) => {
         const mine = recent.filter((r) => r.account_id === a.id && !r.deleted_at);
         const latest = mine[0];
         return `- ${accountLabel(a)}: ${a.status}; ${mine.length} piece${mine.length === 1 ? '' : 's'} in the last 30 days${
             latest ? `; latest "${latest.title}" (${latest.review_status ?? 'pending'})` : ''
-        }`;
+        }; ${queued.get(a.id) ?? 0} approved topic${queued.get(a.id) === 1 ? '' : 's'} waiting`;
     });
     return ['--- THE CHANNELS (their standing only; each has its own room) ---', ...lines].join('\n');
+}
+
+/** For a channel's room: its topics, waiting, in production and lately made. Its own only. */
+async function channelTopics(db: Db, room: Room): Promise<string | null> {
+    if (!room.accountId) return null;
+    const ideas = await listIdeas(db, room.accountId);
+    const group = (status: Idea['status'], max: number) =>
+        ideas
+            .filter((i) => i.status === status)
+            .slice(-max)
+            .map((i) => `- ${i.title}${i.angle ? ` — ${i.angle}` : ''}`);
+    const lines: string[] = [];
+    for (const [status, max] of [['proposed', 8], ['approved', 8], ['scheduled', 4], ['made', 4], ['published', 4]] as const) {
+        const g = group(status, max);
+        if (g.length) lines.push(`${IDEA_STATUS_WORDS[status]}:`, ...g);
+    }
+    return lines.length ? ['--- THIS CHANNEL\'S TOPICS ---', ...lines].join('\n') : null;
 }
 
 export interface Speaker {
@@ -508,11 +558,12 @@ export async function roomPrompt(
         )
         .join('\n');
     const who = speaker.isOwner ? `${people.cho} (the CHO)` : `${speaker.name} (a reviewer)`;
-    const standings = await channelStandings(db, room);
+    const [standings, topics] = await Promise.all([channelStandings(db, room), channelTopics(db, room)]);
 
     const prompt = [
         renderContext(ctx),
         ...(standings ? ['', standings] : []),
+        ...(topics ? ['', topics] : []),
         '',
         `--- ${where.toUpperCase()} ---`,
         transcript || '(The conversation starts here.)',
@@ -540,6 +591,7 @@ export async function roomPrompt(
               `You are in ${where}, with the team. ${speaking}`,
               "Keep to this room's work: everything you know about it is above, and nothing from any other department or channel belongs here.",
               'Reading and discussing are free. To change anything, use a propose_ tool: it posts a card that does nothing until the CHO confirms it. Never say a change is made until it is confirmed.',
+              ...(room.accountId ? ["In this channel's room you can also propose a topic, approving one the team proposed, or making a waiting one now."] : []),
               `The team here: ${team.map((t) => `${t.name} (${t.title})`).join(', ') || 'not staffed yet'}. Anyone can ask one of them directly with @name.`,
           ].join('\n');
 
@@ -662,6 +714,29 @@ export async function runRoomTool(
             cards.push({ type: pause ? 'pause_account' : 'resume_account', title: pause ? 'Pause this channel: nothing new is made for it' : 'Resume this channel', args: {}, status: 'pending' });
             return { content: 'Card posted. It takes effect only when the CHO confirms it.' };
         }
+        case 'propose_topic': {
+            if (!room.accountId) return { content: "Topics belong to a channel; propose one in that channel's room. No card was posted." };
+            const title = String(args.title ?? '').replace(/\s+/g, ' ').trim();
+            const angle = String(args.angle ?? '').replace(/\s+/g, ' ').trim().slice(0, 400);
+            if (title.length < 3 || title.length > 160) return { content: 'A topic needs a working title of a line. No card was posted.' };
+            const existing = await listIdeas(db, room.accountId);
+            if (existing.some((i) => normalTitle(i.title) === normalTitle(title))) return { content: `This channel already has "${title}". No card was posted.` };
+            cards.push({ type: 'add_idea', title: `Add the topic "${title}"`, args: { title, angle }, status: 'pending' });
+            return { content: 'Card posted. The topic is added only when the CHO confirms it.' };
+        }
+        case 'propose_approve_topic':
+        case 'propose_make_now': {
+            if (!room.accountId) return { content: "Topics belong to a channel; use that channel's room. No card was posted." };
+            const wanted = name === 'propose_approve_topic' ? ['proposed'] : ['proposed', 'approved'];
+            const found = findIdea(await listIdeas(db, room.accountId), String(args.title ?? ''), wanted);
+            if (!found) return { content: `No ${name === 'propose_approve_topic' ? 'proposed' : 'waiting'} topic in this channel matches "${String(args.title ?? '')}". No card was posted.` };
+            cards.push(
+                name === 'propose_approve_topic'
+                    ? { type: 'approve_idea', title: `Approve the topic "${found.title}"`, args: { ideaId: found.id }, status: 'pending' }
+                    : { type: 'start_episode', title: `Make "${found.title}" now`, args: { ideaId: found.id }, status: 'pending' }
+            );
+            return { content: 'Card posted. Nothing happens until the CHO confirms it.' };
+        }
         default:
             return { content: `No such capability: ${name}.` };
     }
@@ -685,6 +760,14 @@ async function findWork(db: Db, room: Room, title: string): Promise<Row | null> 
     if (!needle) return null;
     const rows = await workOf(db, room, 50);
     return rows.find((r) => String(r.title).toLowerCase() === needle) ?? rows.find((r) => String(r.title).toLowerCase().includes(needle)) ?? null;
+}
+
+/** A topic of this channel by its title, or a fragment of it, among the given states. */
+function findIdea(ideas: Idea[], title: string, statuses: string[]): Idea | null {
+    const needle = normalTitle(title);
+    if (!needle) return null;
+    const pool = ideas.filter((i) => statuses.includes(i.status));
+    return pool.find((i) => normalTitle(i.title) === needle) ?? pool.find((i) => normalTitle(i.title).includes(needle)) ?? null;
 }
 
 async function insertMessage(
@@ -731,6 +814,8 @@ export interface CardOutcome {
 /** What a confirmed card does. Injected so the tests can see it was (or was not) called. */
 export interface CardEffects {
     sendBack: (artifactId: string, note: string) => Promise<{ ok: boolean; error?: string }>;
+    /** Start an episode on a topic now, through the scheduler's own checks. */
+    startNow: (ideaId: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 /** A card, read back with its room — only if it is a pending card Diablo posted, in this workspace. */
@@ -799,6 +884,36 @@ async function applyCard(db: Db, room: Room, card: Card, effects: CardEffects): 
             if (!text) return { ok: false, error: 'The decision is empty.' };
             await recordDecision(db, room, text);
             return { ok: true, result: 'Recorded. Every future piece of work here follows it.' };
+        }
+        case 'add_idea':
+        case 'approve_idea':
+        case 'start_episode': {
+            if (!room.accountId) return { ok: false, error: 'Only a channel has topics.' };
+            const account = await getAccount(db, room.accountId);
+            if (!account || account.departmentId !== room.departmentId || account.workspaceId !== room.workspaceId) {
+                return { ok: false, error: "That channel is not this room's." };
+            }
+            if (card.type === 'add_idea') {
+                const res = await addIdea(db, {
+                    workspaceId: room.workspaceId,
+                    departmentId: room.departmentId,
+                    accountId: room.accountId,
+                    title: String(card.args.title ?? ''),
+                    angle: typeof card.args.angle === 'string' ? card.args.angle : null,
+                    source: 'chat',
+                    status: 'approved',
+                });
+                return res.ok ? { ok: true, result: 'Added to the queue. It takes the next free slot.' } : { ok: false, error: res.error };
+            }
+            // The topic must be this channel's: an id from elsewhere is not followed.
+            const idea = await getIdea(db, room.workspaceId, String(card.args.ideaId ?? ''));
+            if (!idea || idea.accountId !== room.accountId) return { ok: false, error: "That topic is not this channel's." };
+            if (card.type === 'approve_idea') {
+                const moved = await moveIdea(db, room.workspaceId, idea.id, 'approved');
+                return moved.ok ? { ok: true, result: 'Approved. It takes the next free slot.' } : { ok: false, error: moved.error };
+            }
+            const started = await effects.startNow(idea.id);
+            return started.ok ? { ok: true, result: 'Started. It posts here when it is made.' } : { ok: false, error: started.error ?? 'It could not be started.' };
         }
         case 'set_preference':
         case 'pause_account':
@@ -928,6 +1043,40 @@ export async function postWorkToRoom(
         await insertMessage(db, room, { role: 'worker', authorAgentId: input.agentId, content: input.text, artifactIds: [input.artifactId] });
     } catch (err) {
         console.warn('[delphi] could not post the work into its room:', (err as Error).message);
+    }
+}
+
+/**
+ * Diablo says something in a room on the schedule's behalf: an episode
+ * started, a slot with no topic, a channel at its cap. Said once — the same
+ * words within `dedupeDays` are not repeated — and never throws.
+ */
+export async function postNote(
+    db: Db,
+    input: { workspaceId: string; departmentId: string; accountId: string | null; text: string; dedupeDays?: number }
+): Promise<boolean> {
+    try {
+        const [room, ceo] = await Promise.all([
+            roomFor(db, input.workspaceId, input.departmentId, input.accountId, { create: true, title: 'Room' }),
+            db.from('delphi_agents').select('id').eq('workspace_id', input.workspaceId).eq('slug', DELPHI_SLUG).maybeSingle(),
+        ]);
+        const ceoId = (ceo.data?.id as string | undefined) ?? null;
+        if (!room || !ceoId) return false;
+        if (input.dedupeDays) {
+            const since = new Date(Date.now() - input.dedupeDays * 86_400_000).toISOString();
+            const { data: said } = await db
+                .from('delphi_messages')
+                .select('id')
+                .eq('thread_id', room.id)
+                .eq('content', input.text)
+                .gte('created_at', since)
+                .limit(1);
+            if ((said ?? []).length) return false;
+        }
+        return Boolean(await insertMessage(db, room, { role: 'ceo', authorAgentId: ceoId, content: input.text }));
+    } catch (err) {
+        console.warn('[delphi] could not post a note into the room:', (err as Error).message);
+        return false;
     }
 }
 

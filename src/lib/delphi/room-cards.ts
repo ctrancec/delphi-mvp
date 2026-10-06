@@ -9,9 +9,26 @@
 
 import { scheduleWords, type DeliverySchedule } from './kinds/settings';
 
-export type CardType = 'send_back' | 'set_preference' | 'pause_account' | 'resume_account' | 'decision';
+export type CardType =
+    | 'send_back'
+    | 'set_preference'
+    | 'pause_account'
+    | 'resume_account'
+    | 'decision'
+    | 'add_idea'
+    | 'approve_idea'
+    | 'start_episode';
 
-export const CARD_TYPES: readonly CardType[] = ['send_back', 'set_preference', 'pause_account', 'resume_account', 'decision'];
+export const CARD_TYPES: readonly CardType[] = [
+    'send_back',
+    'set_preference',
+    'pause_account',
+    'resume_account',
+    'decision',
+    'add_idea',
+    'approve_idea',
+    'start_episode',
+];
 
 export type CardStatus = 'pending' | 'done' | 'dismissed' | 'failed';
 
@@ -126,7 +143,10 @@ export function validCard(raw: unknown): Card | null {
  * the deliverable a send-back is for, as the room knows it; without it the
  * card says so rather than trusting a title it was handed.
  */
-export function describeCard(card: Card, opts: { workTitle?: string | null; timezone?: string } = {}): { what: string; detail: string | null } {
+export function describeCard(
+    card: Card,
+    opts: { workTitle?: string | null; ideaTitle?: string | null; timezone?: string } = {}
+): { what: string; detail: string | null } {
     const a = card.args;
     switch (card.type) {
         case 'send_back':
@@ -144,6 +164,21 @@ export function describeCard(card: Card, opts: { workTitle?: string | null; time
             return { what: 'Pause this channel', detail: 'Nothing new is made for it until it is resumed.' };
         case 'resume_account':
             return { what: 'Resume this channel', detail: null };
+        case 'add_idea': {
+            const title = typeof a.title === 'string' ? a.title : '';
+            const angle = typeof a.angle === 'string' && a.angle ? ` — ${a.angle}` : '';
+            return { what: 'Add a topic to the queue, approved', detail: `“${title}”${angle}` };
+        }
+        case 'approve_idea':
+            return {
+                what: opts.ideaTitle ? `Approve the topic “${opts.ideaTitle}”` : 'Approve a topic that is no longer in this channel',
+                detail: 'It joins the queue and takes the next free slot.',
+            };
+        case 'start_episode':
+            return {
+                what: opts.ideaTitle ? `Make “${opts.ideaTitle}” now` : 'Make a topic that is no longer in this channel',
+                detail: "Starts an episode now, outside the schedule. It spends from this month's budget.",
+            };
     }
 }
 

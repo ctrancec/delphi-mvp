@@ -21,6 +21,9 @@ import { OutputCard } from '@/components/delphi/output-card'
 import { listOutputs, previewPathOf, signedUrlsFor } from '@/lib/delphi/outputs'
 import { PLATFORM_LABEL } from '@/lib/studio/accounts'
 import Link from 'next/link'
+import { studioView } from '@/lib/delphi/studio-view'
+import { StudioBoard } from '@/components/delphi/studio-board'
+import { ChannelQueue } from '@/components/delphi/channel-queue'
 
 import { CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
@@ -151,6 +154,26 @@ export default async function DepartmentPage({
     ]
     const show = (...keys: string[]) => tab === 'all' || keys.includes(tab)
 
+    // The production loop: the week across channels on the overview, the
+    // channel's queue on its tab, and whether a slot is due right now.
+    const loop =
+        studio && workspaceId && (tab === 'overview' || channel)
+            ? await studioView(supabase, {
+                  departmentId: id,
+                  budgetUsd: Number(dept.budget_usd ?? 0),
+                  timezone: settings.timezone,
+                  accounts,
+                  channel,
+                  agentNames: new Map(
+                      (hires ?? [])
+                          .map((h) => h.agent as unknown as { id?: string; name?: string } | null)
+                          .filter((a): a is { id: string; name: string } => Boolean(a?.id && a?.name))
+                          .map((a) => [a.id, a.name])
+                  ),
+                  canEdit,
+              })
+            : null
+
     // The channel's own work, on its tab: newest first, with its pictures.
     let channelWork: { records: Awaited<ReturnType<typeof listOutputs>>; pictures: Map<string, string> } | null = null
     if (channel) {
@@ -237,7 +260,11 @@ export default async function DepartmentPage({
                 />
             )}
 
+            {studio && tab === 'overview' && loop?.board && <StudioBoard {...loop.board} />}
+
             {(show('overview') || channel) && room}
+
+            {channel && loop?.queue && <ChannelQueue {...loop.queue} />}
 
             {channel && channelWork && (
                 <Card className="border-white/10 bg-black/40">
@@ -277,7 +304,7 @@ export default async function DepartmentPage({
             {/* Running means work is outstanding; the runner keeps poking the
                 engine so the pipeline advances while the CHO watches — on
                 whichever tab they are looking at. */}
-            <PipelineRunner active={project?.status === 'running'} />
+            <PipelineRunner active={project?.status === 'running' || Boolean(loop?.dueNow)} />
 
             {show('team') && (tasks ?? []).length > 0 && (
                 <Card className="border-white/10 bg-black/40">

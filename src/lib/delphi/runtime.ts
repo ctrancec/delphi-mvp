@@ -24,6 +24,7 @@ import { FORMAT_WORD, isFormat, type Format } from '@/lib/studio/accounts';
 import { allowedSources, contextFor, renderContext } from './context';
 import { roleOfAgent } from './kinds';
 import { postWorkToRoom } from './rooms';
+import { markIdeaMade } from './ideas';
 import { emitEvent, getSystemState, listChannels, type Db } from './db';
 import { effectiveState } from './schedule';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
@@ -1271,6 +1272,9 @@ export async function runNextTask(
         // themselves into their room — the channel's for a channel's piece —
         // where the CHO can watch it, accept it or send it back. Steps in the
         // middle of a chain stay out of the conversation.
+        // An episode's piece is its topic, made.
+        if (artifact?.id && format && project.idea_id) await markIdeaMade(db, project.idea_id as string, artifact.id);
+
         if (artifact?.id) {
             const { count: downstream } = await db
                 .from('delphi_tasks')
