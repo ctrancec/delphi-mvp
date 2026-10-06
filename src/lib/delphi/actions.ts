@@ -25,11 +25,12 @@ import {
     isMissingColumn,
     listAgents,
     listChannels,
-    recallMemories,
     syncChannels,
     type Db,
 } from './db';
-import { hiringScore, shortlistCandidates } from './delphi';
+import { hiringScore, shortlistCandidates, withPinned } from './delphi';
+import { contextFor, renderContext } from './context';
+import { kindInfo, withSettings } from './kinds';
 import type { CostTier } from './types';
 import type { SystemMode } from './db';
 import type { WorkSchedule } from './schedule';
@@ -180,23 +181,45 @@ export async function proposeHiringAction(
 
         const stats = await getAgentStats(db, workspaceId);
         const connected = await listChannels(db, workspaceId, true);
-        const memories = await recallMemories(db, workspaceId, dept.charter);
+
+        // The department's compartment: its kind, the CHO's settings and rules,
+        // what has been decided and learned here — and nothing from any other
+        // department. This replaced a keyword search over the whole workspace's
+        // memory, which handed every department every other's lessons.
+        const compartment = await contextFor(db, { workspaceId, departmentId });
+        const settings = compartment?.department.settings ?? withSettings(dept.settings);
+        const kind = compartment?.department.kind ?? 'research';
+
         // The channels and pages this department produces for. Delphi plans
         // one production chain per account, and the studio renders to each
         // account's own preferences — so whoever produces those formats is
-        // on the shortlist whatever the charter's words.
+        // on the shortlist whatever the charter's words, as is anyone the CHO
+        // pinned to a role.
         const accounts = await listAccounts(db, workspaceId, departmentId);
-        const shortlist = withProducers(shortlistCandidates(agents, stats, dept.charter), agents, stats, accounts);
+        const shortlist = withPinned(
+            withProducers(shortlistCandidates(agents, stats, dept.charter), agents, stats, accounts),
+            agents,
+            stats,
+            settings.pinned
+        );
+
+        // A research department works from the sources the CHO chose for it.
+        const sources = kind === 'research' ? settings.research.sources : [];
+        const usable = connected.filter((c) => sources.length === 0 || sources.includes(c.kind));
 
         const result = await proposePlan({
             brief: dept.charter,
             candidates: shortlist,
-            availableChannels: [...new Set(connected.map((c) => c.kind))],
+            availableChannels: [...new Set(usable.map((c) => c.kind))],
             // So each candidate is shown with the channels it actually holds.
-            channelKindsById: Object.fromEntries(connected.map((c) => [c.id, c.kind])),
-            memories,
+            channelKindsById: Object.fromEntries(usable.map((c) => [c.id, c.kind])),
             departmentName: dept.name,
             accounts,
+            departmentContext: compartment ? renderContext(compartment, { allRoleNotes: true }) : undefined,
+            kindRules: kindInfo(kind).planningRules,
+            pinned: settings.pinned,
+            titles: new Map(agents.map((a) => [a.slug, a.title])),
+            timezone: settings.timezone,
         });
         const plan = result.data;
 

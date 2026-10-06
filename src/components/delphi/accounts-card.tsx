@@ -40,6 +40,8 @@ import {
 } from '@/lib/studio/accounts';
 import { createAccountAction, deleteAccountAction, updateAccountAction } from '@/lib/studio/actions';
 import { restaffDepartmentAction } from '@/lib/delphi/actions';
+import { DayPicker } from '@/components/delphi/day-picker';
+import { scheduleWords } from '@/lib/delphi/kinds/settings';
 
 import { CEO_NAME } from '@/lib/pixel/cast/names';
 
@@ -195,6 +197,24 @@ function AccountForm({
             </div>
 
             <div className="grid grid-cols-1 gap-3 inner:grid-cols-3">
+                <Field label="New piece on" hint="Leave every day off to make one only when you ask.">
+                    <DayPicker
+                        days={d.p.schedule?.days ?? []}
+                        onChange={(days) => setP({ schedule: days.length ? { days, time: d.p.schedule?.time ?? '09:00' } : null })}
+                    />
+                </Field>
+                <Field label="At" hint="In the studio's timezone.">
+                    <Input type="time" disabled={!d.p.schedule} value={d.p.schedule?.time ?? '09:00'} onChange={(e) => d.p.schedule && setP({ schedule: { ...d.p.schedule, time: e.target.value || '09:00' } })} className="border-white/10 bg-white/5 text-sm" />
+                </Field>
+                <Field label="Topics">
+                    <select className={selectClass} value={d.p.topics} onChange={(e) => setP({ topics: e.target.value as 'cho' | 'team' })}>
+                        <option value="cho">I approve each topic</option>
+                        <option value="team">The team picks from the pillars</option>
+                    </select>
+                </Field>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 inner:grid-cols-3">
                 <Field label="Narration">
                     <select className={selectClass} disabled={!makesVideo} value={d.p.narration ? 'on' : 'off'} onChange={(e) => setP({ narration: e.target.value === 'on' })}>
                         <option value="on">Narrated (text-to-speech)</option>
@@ -267,6 +287,10 @@ function AccountForm({
                 </Field>
             </div>
 
+            <Field label="Monthly cap for this channel (USD)" hint="Optional. Without one, the channel shares the department's budget evenly with the others.">
+                <Input type="number" min="0" step="0.5" value={d.p.monthlyCapUsd ?? ''} onChange={(e) => setP({ monthlyCapUsd: e.target.value === '' ? null : Number(e.target.value) })} className="max-w-40 border-white/10 bg-white/5 text-sm" />
+            </Field>
+
             <Field label="Notes for the agents">
                 <Textarea rows={2} value={d.p.notes} onChange={(e) => setP({ notes: e.target.value })} placeholder="Anything else that shapes what gets made for this account." className="border-white/10 bg-white/5 text-sm" />
             </Field>
@@ -290,14 +314,15 @@ function AccountForm({
     );
 }
 
-function Summary({ a }: { a: MediaAccount }) {
+function Summary({ a, timezone }: { a: MediaAccount; timezone: string }) {
     const p = a.preferences;
     const video = p.formats.some(isVideoFormat);
     const bits = [
         formatsLine(p),
         video ? `${p.durationSec.min}–${p.durationSec.max}s` : null,
         video ? (p.narration ? `voice ${p.voice}` : 'silent') : null,
-        p.cadence || null,
+        p.schedule ? scheduleWords(p.schedule, timezone).replace(/ \(.*\)$/, '') : p.cadence || null,
+        p.topics === 'cho' ? 'you approve topics' : 'team picks topics',
     ].filter(Boolean);
     return (
         <div className="space-y-1">
@@ -319,12 +344,15 @@ export function AccountsCard({
     accounts,
     canEdit,
     hasTeam,
+    timezone = 'UTC',
 }: {
     departmentId: string;
     accounts: MediaAccount[];
     canEdit: boolean;
     /** A team already proposed: a changed account only shapes the next plan. */
     hasTeam: boolean;
+    /** The studio's timezone, which every channel's schedule is in. */
+    timezone?: string;
 }) {
     const router = useRouter();
     const [pending, startTransition] = useTransition();
@@ -456,7 +484,7 @@ export function AccountsCard({
                                             <Badge variant="outline" className="border-amber-400/30 text-[10px] text-amber-400">paused</Badge>
                                         )}
                                     </div>
-                                    <Summary a={a} />
+                                    <Summary a={a} timezone={timezone} />
                                 </div>
                                 {canEdit && (
                                     <div className="flex items-center gap-1">

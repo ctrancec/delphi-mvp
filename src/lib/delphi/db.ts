@@ -688,6 +688,12 @@ export async function recallMemories(
     db: Db,
     workspaceId: string,
     query: string,
+    /**
+     * The department whose memories these are. Required: an unscoped search
+     * hands one department another's lessons, which is the leak compartments
+     * exist to stop. Planning and tasks read through context.ts instead.
+     */
+    departmentId: string,
     limit = 8
 ): Promise<Memory[]> {
     // websearch_to_tsquery tolerates arbitrary user prose, where plainto_ can
@@ -696,6 +702,7 @@ export async function recallMemories(
         .from('delphi_memories')
         .select('*')
         .eq('workspace_id', workspaceId)
+        .eq('department_id', departmentId)
         .textSearch('ts', query, { type: 'websearch', config: 'english' })
         .order('importance', { ascending: false })
         .order('created_at', { ascending: false })
@@ -704,6 +711,27 @@ export async function recallMemories(
     if (error) {
         // A malformed query should degrade to "no memories", never fail hiring.
         console.warn('[delphi] memory recall failed, continuing without:', error.message);
+        return [];
+    }
+    return (data ?? []).map(toMemory);
+}
+
+/**
+ * Search every memory in the workspace — for the CHO browsing their own
+ * memory, never for a prompt. Prompts read through context.ts, one
+ * compartment at a time.
+ */
+export async function searchMemories(db: Db, workspaceId: string, query: string, limit = 50): Promise<Memory[]> {
+    const { data, error } = await db
+        .from('delphi_memories')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .textSearch('ts', query, { type: 'websearch', config: 'english' })
+        .order('importance', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    if (error) {
+        console.warn('[delphi] memory search failed:', error.message);
         return [];
     }
     return (data ?? []).map(toMemory);
@@ -722,6 +750,8 @@ export async function writeMemory(
         departmentId?: string | null;
         agentId?: string | null;
         projectId?: string | null;
+        /** A channel's own memory (migration 0012). */
+        accountId?: string | null;
     }
 ): Promise<void> {
     const { error } = await db.from('delphi_memories').insert({
@@ -735,6 +765,9 @@ export async function writeMemory(
         department_id: input.departmentId ?? null,
         agent_id: input.agentId ?? null,
         project_id: input.projectId ?? null,
+        // Only named when set, so writing a department's memory keeps working
+        // on a database that has not had 0012.
+        ...(input.accountId ? { account_id: input.accountId } : {}),
     });
     if (error) throw new DelphiDbError('writeMemory', error);
 }

@@ -232,8 +232,8 @@ export interface Approval {
     createdAt: string;
 }
 
-export type MemoryScope = 'org' | 'department' | 'agent' | 'project';
-export type MemoryKind = 'fact' | 'preference' | 'lesson' | 'outcome';
+export type MemoryScope = 'org' | 'department' | 'agent' | 'project' | 'account';
+export type MemoryKind = 'fact' | 'preference' | 'lesson' | 'outcome' | 'decision';
 
 export interface Memory {
     id: string;

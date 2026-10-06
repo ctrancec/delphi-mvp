@@ -74,6 +74,10 @@ export interface StudioContext {
     agent: { name: string; systemPrompt: string };
     model: string;
     upstream: Upstream | null;
+    /** The compartment's context (context.ts): department rules, channel decisions, history. */
+    context?: string | null;
+    /** The channel, already checked to belong to this department. Wins over accountId. */
+    account?: MediaAccount | null;
     /** One line at a time, as the activity log wants it. */
     log?: (line: string) => void | Promise<void>;
     /** How long the render may take, all in. */
@@ -116,6 +120,7 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
 
 /** The account a task is for, or a stand-in with the defaults. */
 export async function resolveAccount(ctx: StudioContext): Promise<MediaAccount> {
+    if (ctx.account) return ctx.account;
     if (ctx.task.accountId) {
         const a = await getAccount(ctx.db, ctx.task.accountId);
         if (a) return a;
@@ -161,6 +166,7 @@ export async function produceDeliverable(ctx: StudioContext): Promise<StudioResu
         choNote: ctx.task.choNote,
         revision: ctx.task.revision,
         stock,
+        context: ctx.context ?? null,
     });
 
     const workdir = ctx.workdir ?? (await mkdtemp(path.join(os.tmpdir(), 'studio-')));

@@ -124,7 +124,9 @@ export async function runRetrospective(
     try {
         const { data: project } = await db
             .from('delphi_projects')
-            .select('id, title, brief, status, spent_usd, department_id')
+            // `*`, so a run for one channel brings its account_id, and a
+            // database without 0012 simply has none.
+            .select('*')
             .eq('id', projectId)
             .maybeSingle();
         if (!project) return 0;
@@ -188,8 +190,13 @@ export async function runRetrospective(
 
         for (const lesson of lessons) {
             if (!lesson.title?.trim() || !lesson.body?.trim()) continue;
+            // Filed where it was learned: the channel, for a channel's run;
+            // otherwise the department. Never organisation-wide — that is how
+            // one department used to read another's lessons.
+            const accountId = (project.account_id as string | null) ?? null;
             await writeMemory(db, workspaceId, {
-                scope: 'org',
+                scope: accountId ? 'account' : 'department',
+                accountId,
                 departmentId: project.department_id ?? null,
                 projectId,
                 kind: lesson.kind,

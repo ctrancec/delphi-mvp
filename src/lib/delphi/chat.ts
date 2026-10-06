@@ -20,7 +20,7 @@
 import { Type, type FunctionDeclaration, type Schema } from '@google/genai';
 import { generateWithTools } from '@/lib/llm/gemini';
 import { DELPHI_SYSTEM_PROMPT } from './delphi';
-import { emitEvent, getSystemMode, setSystemMode, type Db } from './db';
+import { emitEvent, getSystemMode, isMissingColumn, setSystemMode, type Db } from './db';
 import { formatUsd } from '@/lib/llm/cost';
 
 import { CEO_NAME, CHO_NAME } from '@/lib/pixel/cast/names';
@@ -94,6 +94,12 @@ const TOOLS: FunctionDeclaration[] = [
                 cadenceCron: {
                     type: Type.STRING,
                     description: 'Optional 5-field cron, e.g. "0 7 * * 1-5" for weekday mornings.',
+                },
+                kind: {
+                    type: Type.STRING,
+                    enum: ['research', 'studio', 'general'],
+                    description:
+                        "research: reports on a schedule. studio: videos and images for the CHO's YouTube channels or social pages. general: anything else.",
                 },
             },
             required: ['name', 'charter'],
@@ -273,20 +279,27 @@ async function runTool(
                 return { content: 'Rejected: a department needs a name and a charter of at least a sentence or two.' };
             }
 
-            const { data, error } = await db
+            const kind = args.kind === 'studio' || args.kind === 'general' ? args.kind : 'research';
+            const row = {
+                workspace_id: workspaceId,
+                name,
+                charter,
+                budget_usd: Number(args.budgetUsd ?? 5) || 5,
+                cadence_cron: args.cadenceCron ? String(args.cadenceCron) : null,
+                status: 'draft',
+            };
+            // Its setup is left for the CHO to finish in the wizard: the
+            // channels, the rules for the team, the schedule are theirs to set.
+            let { data, error } = await db
                 .from('delphi_departments')
-                .insert({
-                    workspace_id: workspaceId,
-                    name,
-                    charter,
-                    budget_usd: Number(args.budgetUsd ?? 5) || 5,
-                    cadence_cron: args.cadenceCron ? String(args.cadenceCron) : null,
-                    status: 'draft',
-                })
+                .insert({ ...row, kind, settings: { setup: { step: 3, complete: false } } })
                 .select('id')
                 .single();
+            if (error && isMissingColumn(error)) {
+                ({ data, error } = await db.from('delphi_departments').insert(row).select('id').single());
+            }
 
-            if (error) return { content: `Could not create it: ${error.message}` };
+            if (error || !data) return { content: `Could not create it: ${error?.message ?? 'no row came back'}` };
 
             await emitEvent(db, {
                 workspaceId,
@@ -299,7 +312,7 @@ async function runTool(
 
             ctx.actions.push(`Created the ${name} department`);
             return {
-                content: `Created "${name}" as a draft. Nothing is staffed and nothing is spending. The CHO opens it and asks you to staff it when they are ready.`,
+                content: `Created "${name}" as a draft ${kind} department. Nothing is staffed and nothing is spending. The CHO finishes its setup — ${kind === 'studio' ? 'its channels, ' : ''}the rules for the team, the schedule — from the department's page, and it is staffed from that.`,
             };
         }
 

@@ -20,6 +20,7 @@ import { generateStructured, type GenerateResult } from '@/lib/llm/gemini';
 import { CHANNEL_CAPABILITIES } from '@/lib/channels/registry';
 import { AGENT_PROTOCOL } from './roster';
 import { describeAccount, FORMATS, isFormat, isVideoFormat, producerFor, type MediaAccount } from '@/lib/studio/accounts';
+import { roleInfo, roleOfAgent, type RoleKey } from './kinds/settings';
 import type {
     Agent,
     AgentStats,
@@ -247,6 +248,25 @@ export function shortlistCandidates(
     return scored.slice(0, limit);
 }
 
+/**
+ * The shortlist, with every agent the CHO pinned to a role. A pin the
+ * keyword prefilter happened to leave out would otherwise be unassignable.
+ */
+export function withPinned(
+    shortlist: Candidate[],
+    agents: Agent[],
+    statsByAgent: Map<string, AgentStats>,
+    pinned: Partial<Record<RoleKey, string>>
+): Candidate[] {
+    const out = [...shortlist];
+    for (const slug of Object.values(pinned)) {
+        if (!slug || out.some((c) => c.agent.slug === slug)) continue;
+        const agent = agents.find((a) => a.slug === slug && !a.archivedAt);
+        if (agent) out.push({ agent, stats: statsByAgent.get(agent.id) ?? null, skillMatch: 0 });
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Scoring
 // ---------------------------------------------------------------------------
@@ -334,13 +354,22 @@ export function validateInventedAgent(value: unknown, seq = 0): InventedAgentSpe
  * the invariants the runtime depends on: at least one task, contiguous ordering,
  * and every task actually assigned to somebody.
  */
+export interface PlanRules {
+    /** Agents the CHO pinned to roles, by slug. */
+    pinned?: Partial<Record<RoleKey, string>>;
+    /** Roster titles by slug, to tell which role an assigned agent fills. */
+    titles?: Map<string, string>;
+}
+
 export function validateStaffingPlan(
     value: unknown,
     knownSlugs: Set<string>,
-    accounts: MediaAccount[] = []
+    accounts: MediaAccount[] = [],
+    rules: PlanRules = {}
 ): StaffingPlan {
     const o = asRecord(value, 'plan');
     const accountIds = new Set(accounts.map((a) => a.id));
+    const pinned = rules.pinned ?? {};
 
     if (!Array.isArray(o.tasks) || o.tasks.length === 0) {
         throw new Error('plan.tasks must be a non-empty array');
@@ -392,6 +421,17 @@ export function validateStaffingPlan(
             throw new Error(
                 `tasks[${i}] makes a ${deliverable}, which ${account.name} does not make; ` +
                     `it makes ${account.preferences.formats.join(', ')}`
+            );
+        }
+
+        // A role the CHO pinned is filled by the agent they named, whoever
+        // else could do it.
+        const who = newAgent ? { slug: newAgent.slug, title: newAgent.title } : { slug: assignedSlug!, title: rules.titles?.get(assignedSlug!) ?? null };
+        const role = roleOfAgent(who);
+        if (role && pinned[role] && pinned[role] !== who.slug) {
+            const label = roleInfo(role).label.toLowerCase();
+            throw new Error(
+                `tasks[${i}] gives ${label} work to "${who.slug}", but the CHO pinned "${pinned[role]}" as this department's ${label}; assign it to "${pinned[role]}"`
             );
         }
 
@@ -487,6 +527,16 @@ export interface ProposePlanInput {
     departmentName?: string;
     /** The media accounts this department produces for, each with its preferences. */
     accounts?: MediaAccount[];
+    /** The department's compartment, rendered by context.ts: purpose, house rules, role notes, decisions, lessons. */
+    departmentContext?: string;
+    /** What the department's kind adds to the staffing rules. */
+    kindRules?: string;
+    /** Agents the CHO pinned to roles. */
+    pinned?: Partial<Record<RoleKey, string>>;
+    /** Roster titles by slug, for checking the pins. */
+    titles?: Map<string, string>;
+    /** The department's timezone, which channel schedules are in. */
+    timezone?: string;
 }
 
 export function buildPlanPrompt(input: ProposePlanInput): string {
@@ -496,6 +546,21 @@ export function buildPlanPrompt(input: ProposePlanInput): string {
 
     if (input.departmentName) {
         sections.push('', `This staffs the department: ${input.departmentName}`);
+    }
+
+    if (input.kindRules) sections.push('', input.kindRules);
+
+    // The CHO's standing brief for this department: its rules, the notes for
+    // each role, what they have decided, what was learned here before.
+    if (input.departmentContext) sections.push('', input.departmentContext);
+
+    const pins = Object.entries(input.pinned ?? {}).filter(([, slug]) => slug);
+    if (pins.length) {
+        sections.push(
+            '',
+            'PINNED BY THE CHO — these agents fill these roles, whatever else could:',
+            ...pins.map(([role, slug]) => `- ${roleInfo(role as RoleKey).label}: ${slug}`)
+        );
     }
 
     sections.push(
@@ -519,7 +584,7 @@ export function buildPlanPrompt(input: ProposePlanInput): string {
         sections.push(
             '',
             'ACCOUNTS THIS DEPARTMENT PRODUCES FOR (one production chain each; copy ids exactly):',
-            input.accounts.map(describeAccount).join('\n\n'),
+            input.accounts.map((a) => describeAccount(a, input.timezone)).join('\n\n'),
             '',
             'Each active account above needs at least one production step: deliverable set to a format it makes',
             '(short, landscape, post, carousel), accountId set to its id. The step before it writes the script or',
@@ -563,7 +628,7 @@ export async function proposePlan(
     return generateStructured<StaffingPlan>(
         buildPlanPrompt(input),
         PLAN_SCHEMA,
-        (value) => validateStaffingPlan(value, knownSlugs, input.accounts ?? []),
+        (value) => validateStaffingPlan(value, knownSlugs, input.accounts ?? [], { pinned: input.pinned, titles: input.titles }),
         {
             system: `${DELPHI_SYSTEM_PROMPT}\n\n${AGENT_PROTOCOL}`,
             temperature: 0.4,

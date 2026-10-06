@@ -281,6 +281,12 @@ export interface StudioPromptInput {
     choNote?: string | null;
     revision?: number;
     stock: boolean;
+    /**
+     * The compartment's context from context.ts. When given it carries the
+     * channel's description, its decisions and what it has already made, and
+     * replaces the bare description below.
+     */
+    context?: string | null;
 }
 
 /** What the agent is told, in place of the ordinary task prompt. */
@@ -309,7 +315,8 @@ export function buildStudioPrompt(input: StudioPromptInput): string {
         parts.push('You are first in the pipeline. There is no upstream input.', '');
     }
 
-    parts.push('--- THE ACCOUNT THIS IS FOR ---', describeAccount(input.account), '');
+    if (input.context) parts.push(input.context, '');
+    else parts.push('--- THE ACCOUNT THIS IS FOR ---', describeAccount(input.account), '');
 
     const visuals = input.stock
         ? 'a stock photo found with your `visual` query'

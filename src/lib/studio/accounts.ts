@@ -16,6 +16,7 @@
  */
 
 import type { Db } from '@/lib/delphi/db';
+import { scheduleWords, withSchedule, type DeliverySchedule } from '@/lib/delphi/kinds/settings';
 
 export type Platform =
     | 'youtube'
@@ -158,6 +159,12 @@ export interface AccountPreferences {
     brand: Brand;
     /** Anything else the agents should know. */
     notes: string;
+    /** When this channel gets a new piece, in the department's timezone. Null: only when asked. */
+    schedule: DeliverySchedule | null;
+    /** Who picks topics: the CHO approves each one, or the team picks from the pillars. */
+    topics: 'cho' | 'team';
+    /** This channel's share of the department's monthly budget, when it has its own. */
+    monthlyCapUsd: number | null;
 }
 
 export const DEFAULT_PREFERENCES: AccountPreferences = {
@@ -180,6 +187,9 @@ export const DEFAULT_PREFERENCES: AccountPreferences = {
     quality: 'fhd',
     brand: { primary: '#1a2340', accent: '#d98f3c', watermark: '' },
     notes: '',
+    schedule: null,
+    topics: 'cho',
+    monthlyCapUsd: null,
 };
 
 /** What a platform usually wants, applied when an account is created. */
@@ -278,6 +288,16 @@ export function withDefaults(raw: unknown, base: AccountPreferences = DEFAULT_PR
             watermark: str(b.watermark, base.brand.watermark, 40),
         },
         notes: str(r.notes, base.notes, 1500),
+        schedule: r.schedule === undefined ? base.schedule : withSchedule(r.schedule),
+        topics: r.topics === 'cho' || r.topics === 'team' ? r.topics : base.topics,
+        monthlyCapUsd:
+            r.monthlyCapUsd === undefined
+                ? base.monthlyCapUsd
+                : r.monthlyCapUsd === null || r.monthlyCapUsd === ''
+                  ? null
+                  : Number.isFinite(Number(r.monthlyCapUsd)) && Number(r.monthlyCapUsd) >= 0
+                    ? Math.round(Number(r.monthlyCapUsd) * 100) / 100
+                    : base.monthlyCapUsd,
     };
 }
 
@@ -352,7 +372,7 @@ export function formatsLine(prefs: Pick<AccountPreferences, 'formats' | 'imageAs
  * Everything that should change what gets made is here; nothing that should
  * not (ids aside, timestamps and settings the studio applies on its own) is.
  */
-export function describeAccount(a: MediaAccount): string {
+export function describeAccount(a: MediaAccount, timezone = 'UTC'): string {
     const p = a.preferences;
     const video = p.formats.some(isVideoFormat);
     const lines = [
@@ -364,6 +384,7 @@ export function describeAccount(a: MediaAccount): string {
     if (p.niche) lines.push(`  niche: ${p.niche}`);
     if (p.audience) lines.push(`  audience: ${p.audience}`);
     lines.push(`  tone: ${p.tone}`, `  language: ${p.language}`);
+    if (p.schedule) lines.push(`  schedule: ${scheduleWords(p.schedule, timezone)}`);
     if (p.cadence) lines.push(`  cadence: ${p.cadence}`);
     if (p.pillars.length) lines.push(`  content pillars: ${p.pillars.join('; ')}`);
     if (p.avoid.length) lines.push(`  never: ${p.avoid.join('; ')}`);

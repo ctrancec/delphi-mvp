@@ -21,6 +21,8 @@ import { notify } from './notify';
 import { toolsForChannels } from '@/lib/channels/registry';
 import { produceDeliverable, type StoredFile } from '@/lib/studio/produce';
 import { FORMAT_WORD, isFormat, type Format } from '@/lib/studio/accounts';
+import { allowedSources, contextFor, renderContext } from './context';
+import { roleOfAgent } from './kinds';
 import { emitEvent, getSystemState, listChannels, type Db } from './db';
 import { effectiveState } from './schedule';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
@@ -687,6 +689,11 @@ export function buildPrompt(opts: {
     choNote?: string | null;
     revision?: number;
     toolNames?: string[];
+    /**
+     * The compartment this work belongs to — its department, and its channel
+     * when it has one — rendered by context.ts. Nothing outside it is given.
+     */
+    context?: string | null;
 }): string {
     const parts: string[] = [];
 
@@ -708,6 +715,8 @@ export function buildPrompt(opts: {
             ''
         );
     }
+
+    if (opts.context) parts.push(opts.context, '');
 
     parts.push('PROJECT BRIEF (context, not your task):', opts.projectBrief, '');
 
@@ -893,7 +902,7 @@ export async function runNextTask(
     }
 
     const agent = task.agent as unknown as {
-        id: string; name: string; title: string; system_prompt: string; model: string;
+        id: string; slug: string; name: string; title: string; system_prompt: string; model: string;
     };
 
     // A step the studio renders, and whether there is time to render it. Asked
@@ -1000,13 +1009,29 @@ export async function runNextTask(
     const startedAt = Date.now();
 
     try {
-        // The agent's tool surface is exactly the channels it was hired with.
+        // What this work may know: its department, and its channel when it has
+        // one. Built here, once, and handed to whichever way the step runs.
+        const accountId = (task.account_id as string | null) ?? (project.account_id as string | null) ?? null;
+        const compartment = await contextFor(
+            db,
+            { workspaceId, departmentId: project.department_id as string, accountId },
+            { role: roleOfAgent({ slug: agent.slug, title: agent.title }) }
+        );
+        if (accountId && compartment && !compartment.account) {
+            throw new Error('This step is for a channel that is not part of this department, so it was not run.');
+        }
+        const context = compartment ? renderContext(compartment) : null;
+
+        // The agent's tool surface is exactly the channels it was hired with —
+        // narrowed, for a research department, to the sources the CHO chose.
         const allChannels = await listChannels(db, workspaceId, true);
         const agentChannelIds: string[] = (task.agent as unknown as { channel_ids?: string[] })
             .channel_ids ?? [];
+        const sources = allowedSources(compartment);
         const kinds = allChannels
             .filter((c) => agentChannelIds.includes(c.id))
-            .map((c) => c.kind as ChannelKind);
+            .map((c) => c.kind as ChannelKind)
+            .filter((k) => sources.length === 0 || sources.includes(k));
         const tools = toolsForChannels(kinds);
 
         // Every locator a channel hands back this run, keyed for comparison and
@@ -1040,6 +1065,8 @@ export async function runNextTask(
                 agent: { name: agent.name, systemPrompt: agent.system_prompt },
                 model,
                 upstream,
+                context,
+                account: compartment?.account ?? null,
                 budgetMs:
                     opts.deadline !== undefined
                         ? Math.max(60_000, Math.min(240_000, opts.deadline - Date.now() - RENDER_MARGIN_MS))
@@ -1080,6 +1107,7 @@ export async function runNextTask(
                           ].join('\n')
                         : null,
                     toolNames: tools.map((t) => t.declaration.name ?? ''),
+                    context,
                 }),
                 tools.map((t) => t.declaration),
                 async (name, args) => {

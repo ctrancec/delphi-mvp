@@ -13,6 +13,8 @@ import { AccountsCard } from '@/components/delphi/accounts-card'
 import { accountLabel, listAccounts } from '@/lib/studio/accounts'
 import { findWorkspace } from '@/lib/delphi/bootstrap'
 import { roleOf } from '@/lib/delphi/members'
+import { isDepartmentKind, KINDS, withSettings, type DepartmentKind } from '@/lib/delphi/kinds'
+import { DepartmentSetupCard } from '@/components/delphi/department-setup-card'
 
 import { CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
@@ -109,6 +111,8 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
     })
 
     const approved = project?.status === 'running' || project?.status === 'done'
+    const kind: DepartmentKind = isDepartmentKind(dept.kind) ? (dept.kind as DepartmentKind) : 'research'
+    const settings = withSettings(dept.settings)
 
     return (
         <div className="space-y-6 max-w-4xl">
@@ -117,9 +121,10 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                     <h1 className="text-2xl font-bold tracking-tight">{dept.name}</h1>
                     <p className="text-sm text-muted-foreground mt-2 max-w-2xl">{dept.charter}</p>
                 </div>
-                <Badge variant="outline" className="shrink-0">
-                    {String(dept.status).replace('_', ' ')}
-                </Badge>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                    <Badge variant="outline">{String(dept.status).replace('_', ' ')}</Badge>
+                    <Badge variant="outline" className="border-sky-400/30 text-sky-300">{KINDS[kind].label}</Badge>
+                </div>
             </div>
 
             <div className="flex flex-wrap gap-4 text-sm">
@@ -140,7 +145,18 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                 </span>
             </div>
 
-            <AccountsCard departmentId={id} accounts={accounts} canEdit={role === 'owner'} hasTeam={team.length > 0} />
+            <DepartmentSetupCard
+                departmentId={id}
+                kind={kind}
+                name={dept.name as string}
+                charter={dept.charter as string}
+                settings={settings}
+                canEdit={role === 'owner'}
+            />
+
+            {(kind === 'studio' || accounts.length > 0) && (
+                <AccountsCard departmentId={id} accounts={accounts} canEdit={role === 'owner'} hasTeam={team.length > 0} timezone={settings.timezone} />
+            )}
 
             <HiringPanel departmentId={id} team={team} status={dept.status} approved={approved} />
 

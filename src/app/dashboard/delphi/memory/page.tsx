@@ -16,7 +16,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { recallMemories, type Db } from '@/lib/delphi/db';
+import { searchMemories, type Db } from '@/lib/delphi/db';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
 import type { Memory } from '@/lib/delphi/types';
 import { formatDistanceToNow } from 'date-fns';
@@ -87,7 +87,7 @@ export default async function MemoryPage({
     let memories: Memory[] = [];
     if (workspaceId) {
         memories = query
-            ? await recallMemories(supabase, workspaceId, query, 50)
+            ? await searchMemories(supabase, workspaceId, query, 50)
             : await loadAll(supabase, workspaceId);
     }
 
