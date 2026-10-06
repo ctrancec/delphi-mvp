@@ -106,7 +106,7 @@ export async function playbooksOf(db: Db, departmentId: string): Promise<Playboo
  */
 export async function writePlaybooks(
     db: Db,
-    input: { workspaceId: string; departmentId: string; kind: DepartmentKind; projectId: string }
+    input: { workspaceId: string; departmentId: string; kind: DepartmentKind; projectId: string; approvedAt?: Date }
 ): Promise<{ written: number }> {
     try {
         const { data: tasks } = await db.from('delphi_tasks').select('*').eq('project_id', input.projectId);
@@ -136,7 +136,7 @@ export async function writePlaybooks(
 
         let written = 0;
         for (const row of rows) {
-            const { error } = await db.from('delphi_playbooks').insert({ ...row, status: 'approved' });
+            const { error } = await db.from('delphi_playbooks').insert({ ...row, status: 'approved', approved_at: (input.approvedAt ?? new Date()).toISOString() });
             if (error) console.warn('[delphi] could not write a playbook:', error.message);
             else written++;
         }

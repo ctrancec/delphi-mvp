@@ -22,13 +22,18 @@
  *
  * It also keeps a short queue of proposed topics in front of the CHO, at
  * most one proposal a day per channel.
+ *
+ * Research and general departments run their own playbook on their own
+ * schedule: the latest slot owed, once — or, where the CHO asked to be asked,
+ * a card in the department's room that starts it when confirmed.
  */
 
-import { dueSlots, monthStart, slotsBetween, slotWords } from './slots';
-import { playbooksOf, startRun, type Playbook } from './playbooks';
+import { dueSlots, monthStart, slotsBetween, slotWords, STALE_AFTER_MS } from './slots';
+import { cronSlotsBetween } from './cron';
+import { playbooksOf, startRun, writePlaybooks, type Playbook } from './playbooks';
 import { listIdeas, moveIdea, proposeIdeas, type Idea, type ProposeIdeas } from './ideas';
-import { postNote } from './rooms';
-import { withSettings } from './kinds';
+import { postCardToRoom, postNote } from './rooms';
+import { scheduleWords, withSettings, type DeliverySchedule, type DepartmentKind } from './kinds';
 import { getSystemState, type Db } from './db';
 import { effectiveState } from './schedule';
 import { accountLabel, listAccounts, type MediaAccount } from '@/lib/studio/accounts';
@@ -46,7 +51,7 @@ export const QUEUE_TARGET = 3;
 /** The least time between two proposals for one channel. */
 export const PROPOSE_EVERY_MS = 20 * 3_600_000;
 
-export type SkipReason = 'no_topic' | 'channel_cap' | 'department_cap' | 'taken' | 'no_playbook' | 'system_off' | 'error';
+export type SkipReason = 'no_topic' | 'channel_cap' | 'department_cap' | 'taken' | 'no_playbook' | 'system_off' | 'awaiting_cho' | 'error';
 
 export interface TickReport {
     started: { departmentId: string; accountId: string | null; slot: string; projectId: string; ideaId: string | null }[];
@@ -401,6 +406,189 @@ export async function startEpisodeNow(db: Db, workspaceId: string, ideaId: strin
     return { ok: true, projectId: r.projectId };
 }
 
+// ---------------------------------------------------------------------------
+// Departments that run on a schedule: research, and anything else
+// ---------------------------------------------------------------------------
+
+/** The least a department's run is given to spend, however often it runs. */
+export const RUN_FLOOR_USD = 0.5;
+
+/**
+ * A department's slots between two moments: its schedule, in its own zone —
+ * or, for one made before the setup wizard, the cron it was given, in UTC.
+ */
+export function departmentSlots(settings: { schedule: DeliverySchedule | null; timezone: string }, cadenceCron: string | null, from: Date, to: Date): Date[] {
+    if (settings.schedule) return slotsBetween(settings.schedule, settings.timezone, from, to);
+    return cronSlotsBetween(cadenceCron, from, to, 5000);
+}
+
+/**
+ * The slot a department owes now: the latest one whose time has come, from
+ * the last three days. A report is about now, so older ones it missed are
+ * not made late: they are superseded.
+ */
+export function departmentDue(settings: { schedule: DeliverySchedule | null; timezone: string }, cadenceCron: string | null, now: Date): Date | null {
+    const slots = departmentSlots(settings, cadenceCron, new Date(now.getTime() - STALE_AFTER_MS), new Date(now.getTime() + 1));
+    return slots.length ? slots[slots.length - 1] : null;
+}
+
+/** What one run may spend: the month's budget shared across its slots, at least the floor, never more than is left. */
+export function runBudget(budget: number, left: number, slotsInMonth: number): number {
+    const share = Math.max(RUN_FLOOR_USD, budget / Math.max(1, slotsInMonth));
+    return Math.round(Math.min(share, left) * 100) / 100;
+}
+
+/**
+ * The department's own playbook. One approved before playbooks existed gets
+ * it now, from the last plan it ran — which is what makes a cadence set long
+ * ago start meaning something — and the room is told so, once.
+ */
+export async function ensurePlaybook(db: Db, dept: Row, now: Date = new Date()): Promise<Playbook | null> {
+    const own = (await playbooksOf(db, dept.id as string)).find((b) => !b.accountId) ?? null;
+    if (own || dept.kind === 'studio') return own;
+    const { data: last } = await db
+        .from('delphi_projects')
+        .select('id')
+        .eq('department_id', dept.id)
+        .in('status', ['running', 'done', 'halted_budget', 'failed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    if (!last) return null;
+    const { written } = await writePlaybooks(db, {
+        workspaceId: dept.workspace_id as string,
+        departmentId: dept.id as string,
+        kind: (dept.kind as DepartmentKind) ?? 'research',
+        projectId: last.id as string,
+        approvedAt: now,
+    });
+    if (!written) return null;
+    const made = (await playbooksOf(db, dept.id as string)).find((b) => !b.accountId) ?? null;
+    const settings = withSettings(dept.settings);
+    const cadence = settings.schedule ? scheduleWords(settings.schedule, settings.timezone) : dept.cadence_cron ? `cron ${dept.cadence_cron}, UTC` : null;
+    if (made && cadence) {
+        await postNote(db, {
+            workspaceId: dept.workspace_id as string,
+            departmentId: dept.id as string,
+            accountId: null,
+            text: `From now on this department runs on its schedule (${cadence}), from the plan you approved. Change the schedule in its setup, or have it ask you before each run.`,
+            dedupeDays: 365,
+        });
+    }
+    return made;
+}
+
+/** The department's last finished deliverable, so a new run covers what changed since. */
+async function lastDeliverable(db: Db, dept: Row): Promise<{ title: string; at: string } | null> {
+    const { data } = await db
+        .from('delphi_artifacts')
+        .select('title, created_at, project:delphi_projects!inner(department_id)')
+        .eq('workspace_id', dept.workspace_id)
+        .eq('project.department_id', dept.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+    const r = ((data ?? []) as Row[])[0];
+    return r ? { title: String(r.title), at: String(r.created_at) } : null;
+}
+
+type RunStartResult = { ok: true; projectId: string } | { ok: false; reason: SkipReason; error: string };
+
+/** Start one run of a department's playbook for a slot, if the month's money allows. */
+async function startDepartmentRun(db: Db, dept: Row, playbook: Playbook, slot: Date, why: 'schedule' | 'request', now: Date): Promise<RunStartResult> {
+    const settings = withSettings(dept.settings);
+    const tz = settings.schedule ? settings.timezone : dept.cadence_cron ? 'UTC' : settings.timezone;
+    const budget = Number(dept.budget_usd ?? 0) || 0;
+    const from = monthStart(now, tz);
+    const next = monthStart(new Date(from.getTime() + 32 * 86_400_000), tz);
+    const spend = await spendSince(db, dept.id as string, from);
+    const left = budget - spend.total - spend.held;
+    const month = new Intl.DateTimeFormat('en-GB', { timeZone: tz, month: 'long', year: 'numeric' }).format(now);
+    if (left < MIN_RUN_USD) {
+        if (why === 'schedule') {
+            await postNote(db, {
+                workspaceId: dept.workspace_id as string,
+                departmentId: dept.id as string,
+                accountId: null,
+                text: `This department's budget for ${month} is spent or held by work still running, so no new run starts until it frees up or the month turns, unless you raise it.`,
+                dedupeDays: 31,
+            });
+        }
+        return { ok: false, reason: 'department_cap', error: `This department's budget for ${month} is spent or held by work still running.` };
+    }
+
+    const when = slotWords(slot, tz);
+    const last = await lastDeliverable(db, dept);
+    const since = last ? ` — “${last.title}”, ${slotWords(new Date(last.at), tz)}` : '';
+    const run = await startRun(db, {
+        workspaceId: dept.workspace_id as string,
+        departmentId: dept.id as string,
+        playbook,
+        title: `${dept.name} — ${when}`,
+        brief: `${String(dept.charter ?? '')}\n\nTHIS RUN: ${why === 'schedule' ? `the one due ${when} (${tz})` : `asked for now by the CHO (${when}, ${tz})`}.`,
+        budgetUsd: runBudget(budget, left, departmentSlots(settings, dept.cadence_cron ?? null, from, next).length),
+        scheduledFor: slot,
+        accountId: null,
+        ideaId: null,
+        topicLine: `THIS RUN: ${why === 'schedule' ? `due ${when}` : 'asked for now'}. Cover what has changed since the last one${since}, and do not repeat it.`,
+    });
+    if (!run.ok) return { ok: false, reason: run.taken ? 'taken' : 'error', error: run.error };
+    return { ok: true, projectId: run.projectId };
+}
+
+/** One research or general department's tick. */
+export async function tickDepartment(db: Db, dept: Row, opts: TickOptions = {}): Promise<TickReport> {
+    const report = emptyReport();
+    const now = opts.now ?? new Date();
+    const departmentId = dept.id as string;
+    const settings = withSettings(dept.settings);
+    if (!settings.schedule && !dept.cadence_cron) return report;
+
+    const playbook = await ensurePlaybook(db, dept, now);
+    if (!playbook) return report;
+    const slot = departmentDue(settings, dept.cadence_cron ?? null, now);
+    if (!slot || slot.getTime() < Date.parse(playbook.approvedAt)) return report;
+    if ((await startedSlots(db, playbook.id, [slot])).has(slot.getTime())) return report;
+    const at = slot.toISOString();
+
+    // Asked to ask first: a card in the department's room, once per slot.
+    if (settings.autonomy === 'ask') {
+        const tz = settings.schedule ? settings.timezone : 'UTC';
+        await postCardToRoom(db, {
+            workspaceId: dept.workspace_id as string,
+            departmentId,
+            accountId: null,
+            card: { type: 'start_run', title: `Start the run due ${slotWords(slot, tz)}`, args: { slot: at }, status: 'pending' },
+            alreadyThere: (c) => c.type === 'start_run' && c.args.slot === at,
+        });
+        report.skipped.push({ departmentId, accountId: null, slot: at, reason: 'awaiting_cho' });
+        return report;
+    }
+
+    const r = await startDepartmentRun(db, dept, playbook, slot, 'schedule', now);
+    if (r.ok) report.started.push({ departmentId, accountId: null, slot: at, projectId: r.projectId, ideaId: null });
+    else report.skipped.push({ departmentId, accountId: null, slot: at, reason: r.reason, detail: r.error });
+    return report;
+}
+
+/**
+ * A department's run started on request — "Run it now", or a card the CHO
+ * confirmed. With a slot, it is that slot's run, claimed once; without, it is
+ * this minute's. The same checks as the schedule's.
+ */
+export async function startRunNow(db: Db, workspaceId: string, departmentId: string, slot: Date | null, now: Date = new Date()): Promise<{ ok: true; projectId: string } | { ok: false; error: string }> {
+    const { data: dept } = await db.from('delphi_departments').select('*').eq('id', departmentId).eq('workspace_id', workspaceId).maybeSingle();
+    if (!dept) return { ok: false, error: 'That department is not here.' };
+    if (dept.kind === 'studio') return { ok: false, error: 'A studio runs per channel: make a topic now from its channel.' };
+    if (dept.status !== 'active') return { ok: false, error: 'This department is not running: approve its team first.' };
+    if (await systemOff(db, workspaceId, now)) return { ok: false, error: 'The system is switched off. Switch it on, then try again.' };
+    const playbook = await ensurePlaybook(db, dept, now);
+    if (!playbook) return { ok: false, error: 'This department has no playbook yet. Approve a team for it first.' };
+    const at = slot ?? new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    const r = await startDepartmentRun(db, dept, playbook, at, slot ? 'schedule' : 'request', now);
+    if (!r.ok) return { ok: false, error: r.reason === 'taken' ? 'That run has already started.' : r.error };
+    return { ok: true, projectId: r.projectId };
+}
+
 /** True when the CHO has switched the system off or is holding it: nothing new is started. */
 async function systemOff(db: Db, workspaceId: string, now: Date): Promise<boolean> {
     const state = await getSystemState(db, workspaceId);
@@ -416,13 +604,7 @@ export async function startDueWork(db: Db, workspaceId: string, opts: TickOption
     const report = emptyReport();
     const now = opts.now ?? new Date();
     try {
-        const { data: depts, error } = await db
-            .from('delphi_departments')
-            .select('*')
-            .eq('workspace_id', workspaceId)
-            .eq('status', 'active')
-            .eq('kind', 'studio');
-        // Before migration 0012 there are no kinds, and nothing to schedule.
+        const { data: depts, error } = await db.from('delphi_departments').select('*').eq('workspace_id', workspaceId).eq('status', 'active');
         if (error || !depts?.length) return report;
         if (await systemOff(db, workspaceId, now)) {
             report.skipped.push({ departmentId: '', accountId: null, slot: null, reason: 'system_off' });
@@ -430,7 +612,9 @@ export async function startDueWork(db: Db, workspaceId: string, opts: TickOption
         }
         for (const dept of depts as Row[]) {
             try {
-                merge(report, await tickStudio(db, dept, { ...opts, now }));
+                // Before migration 0012 there are no kinds and no playbooks:
+                // a department then reads as research and has nothing to run.
+                merge(report, dept.kind === 'studio' ? await tickStudio(db, dept, { ...opts, now }) : await tickDepartment(db, dept, { ...opts, now }));
             } catch (err) {
                 report.skipped.push({ departmentId: dept.id, accountId: null, slot: null, reason: 'error', detail: (err as Error).message });
             }
@@ -441,9 +625,13 @@ export async function startDueWork(db: Db, workspaceId: string, opts: TickOption
     return report;
 }
 
-/** Workspaces with a playbook to keep to: the ones the cron visits even with nothing running. */
+/**
+ * Workspaces with something that may come due: an active department. The
+ * cron visits these even with nothing running — that is where scheduled
+ * work starts, and where a department approved before playbooks gets one.
+ */
 export async function scheduledWorkspaces(db: Db): Promise<string[]> {
-    const { data, error } = await db.from('delphi_playbooks').select('workspace_id').eq('status', 'approved');
+    const { data, error } = await db.from('delphi_departments').select('workspace_id').eq('status', 'active');
     if (error) return [];
     return [...new Set(((data ?? []) as Row[]).map((r) => r.workspace_id as string))];
 }

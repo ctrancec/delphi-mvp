@@ -456,6 +456,15 @@ export const CHANNEL_CARD_TOOLS: FunctionDeclaration[] = [
     },
 ];
 
+/** For the room of a department that runs on a schedule: starting a run outside it. */
+export const RUN_CARD_TOOLS: FunctionDeclaration[] = [
+    {
+        name: 'propose_run_now',
+        description: "Propose running this department's playbook once now, outside its schedule. It spends from the month's budget.",
+        parameters: { type: Type.OBJECT, properties: {} },
+    },
+];
+
 /** What this room's tools may read: its department's work, or only its channel's. */
 async function workOf(db: Db, room: Room, limit: number): Promise<Row[]> {
     const rows = await scoped(
@@ -540,7 +549,7 @@ export interface ReplyResult {
 export async function roomPrompt(
     db: Db,
     input: { room: Room; speaker: Speaker; message: string; people: People; agent: TeamMember | null; history: RoomMessage[]; team: TeamMember[] }
-): Promise<{ system: string; prompt: string } | null> {
+): Promise<{ system: string; prompt: string; kind: string } | null> {
     const { room, speaker, people, agent, team } = input;
     const compartment: Compartment = { workspaceId: room.workspaceId, departmentId: room.departmentId, accountId: room.accountId };
     const ctx = await contextFor(db, compartment, { role: agent ? roleOfAgent(agent) : null });
@@ -595,7 +604,7 @@ export async function roomPrompt(
               `The team here: ${team.map((t) => `${t.name} (${t.title})`).join(', ') || 'not staffed yet'}. Anyone can ask one of them directly with @name.`,
           ].join('\n');
 
-    return { system, prompt };
+    return { system, prompt, kind: ctx.department.kind };
 }
 
 /**
@@ -629,7 +638,9 @@ export async function replyInRoom(db: Db, input: ReplyInput): Promise<ReplyResul
         if (!built) throw new Error("This room's department is not here.");
 
         const cards: Card[] = [];
-        const tools = agent ? READ_TOOLS : [...READ_TOOLS, ...CARD_TOOLS, ...(room.accountId ? CHANNEL_CARD_TOOLS : [])];
+        const tools = agent
+            ? READ_TOOLS
+            : [...READ_TOOLS, ...CARD_TOOLS, ...(room.accountId ? CHANNEL_CARD_TOOLS : built.kind === 'studio' ? [] : RUN_CARD_TOOLS)];
         const execute = (name: string, args: Record<string, unknown>) =>
             runRoomTool(db, room, name, args, cards, { canPropose: !agent });
 
@@ -713,6 +724,11 @@ export async function runRoomTool(
             const pause = Boolean(args.pause);
             cards.push({ type: pause ? 'pause_account' : 'resume_account', title: pause ? 'Pause this channel: nothing new is made for it' : 'Resume this channel', args: {}, status: 'pending' });
             return { content: 'Card posted. It takes effect only when the CHO confirms it.' };
+        }
+        case 'propose_run_now': {
+            if (room.accountId) return { content: "Runs belong to the department; propose one in the department's room. No card was posted." };
+            cards.push({ type: 'start_run', title: 'Start a run now', args: { slot: null }, status: 'pending' });
+            return { content: 'Card posted. The run starts only when the CHO confirms it.' };
         }
         case 'propose_topic': {
             if (!room.accountId) return { content: "Topics belong to a channel; propose one in that channel's room. No card was posted." };
@@ -816,6 +832,8 @@ export interface CardEffects {
     sendBack: (artifactId: string, note: string) => Promise<{ ok: boolean; error?: string }>;
     /** Start an episode on a topic now, through the scheduler's own checks. */
     startNow: (ideaId: string) => Promise<{ ok: boolean; error?: string }>;
+    /** Start a department's run — for a slot it owes, or now — through the scheduler's own checks. */
+    startRun: (departmentId: string, slot: string | null) => Promise<{ ok: boolean; error?: string }>;
 }
 
 /** A card, read back with its room — only if it is a pending card Diablo posted, in this workspace. */
@@ -884,6 +902,12 @@ async function applyCard(db: Db, room: Room, card: Card, effects: CardEffects): 
             if (!text) return { ok: false, error: 'The decision is empty.' };
             await recordDecision(db, room, text);
             return { ok: true, result: 'Recorded. Every future piece of work here follows it.' };
+        }
+        case 'start_run': {
+            if (room.accountId) return { ok: false, error: "Runs belong to the department, not a channel." };
+            const slot = typeof card.args.slot === 'string' && Number.isFinite(Date.parse(card.args.slot)) ? card.args.slot : null;
+            const r = await effects.startRun(room.departmentId, slot);
+            return r.ok ? { ok: true, result: 'Started. It posts here when it is done.' } : { ok: false, error: r.error ?? 'It could not be started.' };
         }
         case 'add_idea':
         case 'approve_idea':
@@ -1076,6 +1100,31 @@ export async function postNote(
         return Boolean(await insertMessage(db, room, { role: 'ceo', authorAgentId: ceoId, content: input.text }));
     } catch (err) {
         console.warn('[delphi] could not post a note into the room:', (err as Error).message);
+        return false;
+    }
+}
+
+/**
+ * Diablo puts a card in front of the CHO on the schedule's behalf — "start
+ * this week's report?" — unless one like it is already there, whatever
+ * became of it. Never throws.
+ */
+export async function postCardToRoom(
+    db: Db,
+    input: { workspaceId: string; departmentId: string; accountId: string | null; card: Card; alreadyThere: (card: Card) => boolean }
+): Promise<boolean> {
+    try {
+        const [room, ceo] = await Promise.all([
+            roomFor(db, input.workspaceId, input.departmentId, input.accountId, { create: true, title: 'Room' }),
+            db.from('delphi_agents').select('id').eq('workspace_id', input.workspaceId).eq('slug', DELPHI_SLUG).maybeSingle(),
+        ]);
+        const ceoId = (ceo.data?.id as string | undefined) ?? null;
+        if (!room || !ceoId) return false;
+        const recent = await loadRoom(db, room.id, DEFAULT_PEOPLE, 200);
+        if (recent.some((m) => m.card && input.alreadyThere(m.card))) return false;
+        return Boolean(await insertMessage(db, room, { role: 'ceo', authorAgentId: ceoId, content: input.card.title, card: input.card }));
+    } catch (err) {
+        console.warn('[delphi] could not post a card into the room:', (err as Error).message);
         return false;
     }
 }

@@ -21,7 +21,8 @@ import { OutputCard } from '@/components/delphi/output-card'
 import { listOutputs, previewPathOf, signedUrlsFor } from '@/lib/delphi/outputs'
 import { PLATFORM_LABEL } from '@/lib/studio/accounts'
 import Link from 'next/link'
-import { studioView } from '@/lib/delphi/studio-view'
+import { departmentRunView, studioView } from '@/lib/delphi/studio-view'
+import { RunSchedule } from '@/components/delphi/run-schedule'
 import { StudioBoard } from '@/components/delphi/studio-board'
 import { ChannelQueue } from '@/components/delphi/channel-queue'
 
@@ -174,6 +175,19 @@ export default async function DepartmentPage({
               })
             : null
 
+    // A research or general department: when it runs, and whether a run is owed now.
+    const runs =
+        !studio && workspaceId
+            ? await departmentRunView(supabase, {
+                  departmentId: id,
+                  status: String(dept.status),
+                  budgetUsd: Number(dept.budget_usd ?? 0),
+                  settings,
+                  cadenceCron: (dept.cadence_cron as string | null) ?? null,
+                  canEdit,
+              })
+            : null
+
     // The channel's own work, on its tab: newest first, with its pictures.
     let channelWork: { records: Awaited<ReturnType<typeof listOutputs>>; pictures: Map<string, string> } | null = null
     if (channel) {
@@ -264,6 +278,8 @@ export default async function DepartmentPage({
 
             {(show('overview') || channel) && room}
 
+            {runs && <RunSchedule {...runs.props} />}
+
             {channel && loop?.queue && <ChannelQueue {...loop.queue} />}
 
             {channel && channelWork && (
@@ -304,7 +320,7 @@ export default async function DepartmentPage({
             {/* Running means work is outstanding; the runner keeps poking the
                 engine so the pipeline advances while the CHO watches — on
                 whichever tab they are looking at. */}
-            <PipelineRunner active={project?.status === 'running' || Boolean(loop?.dueNow)} />
+            <PipelineRunner active={project?.status === 'running' || Boolean(loop?.dueNow) || Boolean(runs?.dueNow)} />
 
             {show('team') && (tasks ?? []).length > 0 && (
                 <Card className="border-white/10 bg-black/40">

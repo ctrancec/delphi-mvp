@@ -15,7 +15,9 @@
 
 import { fakeDb, type Row } from './fake_db';
 import { channelSteps, playbooksOf, startRun, stepsFromTasks, writePlaybooks, type PlaybookStep } from '../src/lib/delphi/playbooks';
-import { channelCaps, spendSince, startDueWork, startEpisodeNow, tickStudio, type TickReport } from '../src/lib/delphi/scheduler';
+import { channelCaps, departmentDue, ensurePlaybook, runBudget, scheduledWorkspaces, spendSince, startDueWork, startEpisodeNow, startRunNow, tickDepartment, tickStudio, type TickReport } from '../src/lib/delphi/scheduler';
+import { cronSlotsBetween, parseCron } from '../src/lib/delphi/cron';
+import { TIMING_JOB, timingSql, VAULT_NAME } from '../src/lib/delphi/timing';
 import { addIdea, listIdeas, markIdeaMade, markPublished, moveIdea, normalTitle, proposeIdeas, validPublishedUrl, type ProposeIdeas } from '../src/lib/delphi/ideas';
 import { dueSlots, monthStart, nextSlots, slotsBetween, zonedToUtc } from '../src/lib/delphi/slots';
 import { contextFor, renderContext } from '../src/lib/delphi/context';
@@ -47,7 +49,9 @@ function seed(): Record<string, Row[]> {
     return {
         delphi_departments: [
             { id: 'D1', workspace_id: W, name: 'Studio One', kind: 'studio', status: 'active', charter: 'PURPOSE-D1 short videos for my channels', budget_usd: 9, settings: { timezone: TZ, houseRules: 'HOUSE-D1' } },
-            { id: 'D2', workspace_id: W, name: 'Morning Brief', kind: 'research', status: 'active', charter: 'PURPOSE-D2', budget_usd: 5, settings: { timezone: 'UTC' } },
+            { id: 'D2', workspace_id: W, name: 'Morning Brief', kind: 'research', status: 'active', charter: 'PURPOSE-D2', budget_usd: 5, settings: { timezone: 'UTC', schedule: { days: [1, 2, 3, 4, 5], time: '07:00' }, autonomy: 'scheduled' } },
+            // Made before the wizard: a cron cadence and no settings.
+            { id: 'D3', workspace_id: W, name: 'Global News', kind: 'research', status: 'active', charter: 'PURPOSE-D3', budget_usd: 5, settings: {}, cadence_cron: '0 */6 * * *' },
         ],
         delphi_media_accounts: [
             account('A1', 'Markets Minute', { niche: 'NICHE-A1', formats: ['short'], schedule: { days: [1, 3, 5], time: '09:00' }, topics: 'cho' }),
@@ -67,13 +71,20 @@ function seed(): Record<string, Row[]> {
             { id: 'h3', department_id: 'D1', agent_id: 'ag-ed' },
         ],
         // The plan the CHO approved: research for everyone, then a chain per channel.
-        delphi_projects: [{ id: 'P0', workspace_id: W, department_id: 'D1', title: 'Pilot', status: 'done', spent_usd: 0, budget_usd: 9, created_at: '2026-09-15T00:00:00Z' }],
+        delphi_projects: [
+            { id: 'P0', workspace_id: W, department_id: 'D1', title: 'Pilot', status: 'done', spent_usd: 0, budget_usd: 9, created_at: '2026-09-15T00:00:00Z' },
+            { id: 'P2', workspace_id: W, department_id: 'D2', title: 'First brief', status: 'done', spent_usd: 0, budget_usd: 5, created_at: '2026-09-20T00:00:00Z' },
+            { id: 'P3', workspace_id: W, department_id: 'D3', title: 'First news run', status: 'done', spent_usd: 0, budget_usd: 5, created_at: '2026-09-20T00:00:00Z' },
+        ],
         delphi_tasks: [
             { id: 'T1', project_id: 'P0', seq: 1, title: 'Research the week', objective: 'Find what matters this week.', agent_id: 'ag-res', deliverable: 'text', account_id: null, depends_on: null, status: 'done' },
             { id: 'T2', project_id: 'P0', seq: 2, title: 'Script for Markets Minute', objective: 'Write a 40-second script.', agent_id: 'ag-str', deliverable: 'text', account_id: 'A1', depends_on: 'T1', status: 'done' },
             { id: 'T3', project_id: 'P0', seq: 3, title: 'Render the short', objective: 'Render it.', agent_id: 'ag-ed', deliverable: 'short', account_id: 'A1', depends_on: 'T2', status: 'done' },
             { id: 'T4', project_id: 'P0', seq: 4, title: 'Carousel copy for Crypto Daily', objective: 'Write five slides.', agent_id: 'ag-str', deliverable: 'text', account_id: 'A2', depends_on: 'T1', status: 'done' },
             { id: 'T5', project_id: 'P0', seq: 5, title: 'Render the carousel', objective: 'Render it.', agent_id: 'ag-ed', deliverable: 'carousel', account_id: 'A2', depends_on: 'T4', status: 'done' },
+            { id: 'T21', project_id: 'P2', seq: 1, title: 'Gather the overnight news', objective: 'Read the sources.', agent_id: 'ag-res', deliverable: 'text', account_id: null, depends_on: null, status: 'done' },
+            { id: 'T22', project_id: 'P2', seq: 2, title: 'Write the brief', objective: 'Write it up.', agent_id: 'ag-str', deliverable: 'text', account_id: null, depends_on: 'T21', status: 'done' },
+            { id: 'T31', project_id: 'P3', seq: 1, title: 'Scan the wires', objective: 'Scan.', agent_id: 'ag-res', deliverable: 'text', account_id: null, depends_on: null, status: 'done' },
         ],
         delphi_ideas: [],
         delphi_playbooks: [],
@@ -206,7 +217,7 @@ async function main() {
         const input = { workspaceId: W, departmentId: 'D1', playbook: book, title: 'x', brief: 'b', budgetUsd: 1, scheduledFor: slot, accountId: 'A1', ideaId: null, topicLine: null };
         const [a, b] = await Promise.all([startRun(db, input), startRun(db, input)]);
         ok([a, b].filter((r) => r.ok).length === 1 && [a, b].some((r) => !r.ok && r.taken), 'two starts of the same slot at once: one runs, one is told it is taken');
-        ok(tables.delphi_tasks.filter((t) => t.project_id !== 'P0').length === 3, '…and the one that lost wrote no tasks');
+        ok(tables.delphi_tasks.filter((t) => !['P0', 'P2', 'P3'].includes(String(t.project_id))).length === 3, '…and the one that lost wrote no tasks');
     }
 
     console.log('\nThe month\'s money');
@@ -262,6 +273,120 @@ async function main() {
         ok(roomMessages(tables, 'A1').some((m) => m.startsWith('Started the episode for Wed 7 Oct, 09:00')), "the channel's room hears it has started");
     }
 
+    console.log('\nA cadence written as cron');
+    {
+        const six = cronSlotsBetween('0 */6 * * *', new Date('2026-10-06T00:00:00Z'), new Date('2026-10-07T00:00:00Z')).map((d) => d.toISOString().slice(11, 16));
+        ok(six.join() === '00:00,06:00,12:00,18:00', 'every six hours is four slots a day, in UTC');
+        ok(cronSlotsBetween('30 7 * * 1-5', new Date('2026-10-03T00:00:00Z'), new Date('2026-10-10T00:00:00Z')).length === 5, 'weekdays at 07:30 is five a week');
+        ok(cronSlotsBetween('0 0 1 * 0', new Date('2026-10-01T00:00:00Z'), new Date('2026-10-12T00:00:00Z')).length === 3, 'a day of the month and a weekday together mean either, as cron has it');
+        ok(parseCron('* * * *') === null && parseCron('61 * * * *') === null && parseCron('0 9 * * mon') === null && parseCron('') === null, 'anything it cannot read is no cadence at all, never every minute');
+    }
+
+    console.log('\nThe SQL for exact times');
+    {
+        const before = process.env.CRON_SECRET;
+        process.env.CRON_SECRET = 'REAL-SECRET-VALUE-123';
+        const sql = timingSql('https://example.vercel.app/api/delphi/run');
+        const all = Object.values(sql).join('\n');
+        ok(!all.includes('REAL-SECRET-VALUE-123') && sql.vault.includes('PASTE-YOUR-CRON_SECRET-HERE'), 'the real secret never appears in it: only a placeholder for the CHO to replace');
+        ok(sql.schedule.includes(`from vault.decrypted_secrets where name = '${VAULT_NAME}'`) && sql.vault.includes(`'${VAULT_NAME}'`), 'the job reads the secret from Vault, under the name it was stored as');
+        ok(sql.schedule.includes("url := 'https://example.vercel.app/api/delphi/run'") && sql.schedule.includes("'*/15 * * * *'"), 'it calls the engine every fifteen minutes');
+        ok(sql.schedule.includes(`'${TIMING_JOB}'`) && sql.undo.includes(`'${TIMING_JOB}'`), 'and is undone by the same name it was scheduled under');
+        if (before === undefined) delete process.env.CRON_SECRET;
+        else process.env.CRON_SECRET = before;
+    }
+
+    console.log('\nDepartments that run on a schedule');
+    {
+        const tables = seed();
+        const db = fakeDb(tables, { unique: UNIQUE, defaults: DEFAULTS });
+        tables.delphi_artifacts.push({ id: 'last-brief', workspace_id: W, project_id: 'P2', account_id: null, title: 'BRIEF-TUESDAY', kind: 'report', created_at: '2026-10-06T08:00:00Z', data: {} });
+        const d2 = dept(tables, 'D2');
+        const runs = () => tables.delphi_projects.filter((p) => p.department_id === 'D2' && p.playbook_id);
+
+        const first = await tickDepartment(db, d2, { now: new Date('2026-10-07T07:05:00Z') });
+        const book = (await playbooksOf(db, 'D2')).find((b) => !b.accountId);
+        ok(Boolean(book) && book!.steps.length === 2, 'a department approved before playbooks gets one, from the plan it last ran');
+        ok(first.started.length === 0, '…owing nothing for the slot that passed before it existed');
+        const room = tables.delphi_threads.find((t) => t.department_id === 'D2' && t.kind === 'room' && !t.account_id);
+        ok(Boolean(room) && tables.delphi_messages.some((m) => m.thread_id === room!.id && String(m.content).startsWith('From now on this department runs on its schedule (Weekdays at 07:00')), '…and its room is told, once, that it now keeps to its schedule');
+
+        await tickDepartment(db, d2, { now: new Date('2026-10-08T07:10:00Z') });
+        ok(runs().length === 1 && runs()[0].scheduled_for === '2026-10-08T07:00:00.000Z' && runs()[0].status === 'running', "the next day's slot starts a new run: the dead cadence, alive");
+        const tasks = tables.delphi_tasks.filter((t) => t.project_id === runs()[0].id);
+        ok(tasks.length === 2 && String(tasks[0].objective).startsWith('THIS RUN: due Thu 8 Oct, 07:00') && String(tasks[0].objective).includes('BRIEF-TUESDAY'), 'each step is told which run this is, and what the last one covered');
+        ok(Number(runs()[0].budget_usd) === 0.5, "a run may spend its share of the month's $5 — at least $0.50", String(runs()[0].budget_usd));
+        await tickDepartment(db, d2, { now: new Date('2026-10-08T09:00:00Z') });
+        ok(runs().length === 1, 'and only once');
+
+        // Down for days: the latest slot is made, the ones it missed are not made late.
+        const t2 = seed();
+        const db2 = fakeDb(t2, { unique: UNIQUE, defaults: DEFAULTS });
+        await ensurePlaybook(db2, dept(t2, 'D2'), new Date('2026-10-01T00:00:00Z'));
+        await tickDepartment(db2, dept(t2, 'D2'), { now: new Date('2026-10-09T08:00:00Z') });
+        const made = t2.delphi_projects.filter((p) => p.department_id === 'D2' && p.playbook_id);
+        ok(made.length === 1 && made[0].scheduled_for === '2026-10-09T07:00:00.000Z', 'after days away, only the latest run is made — a report is about now');
+        ok(departmentDue({ schedule: { days: [1, 2, 3, 4, 5], time: '07:00' }, timezone: 'UTC' }, null, new Date('2026-10-10T08:00:00Z'))!.toISOString() === '2026-10-09T07:00:00.000Z', 'on a weekend the last weekday is owed, if it was missed');
+
+        const legacy = await tickDepartment(db, dept(tables, 'D3'), { now: new Date('2026-10-07T13:10:00Z') });
+        ok(legacy.started.length === 0 && Boolean((await playbooksOf(db, 'D3')).find((b) => !b.accountId)), 'a cron cadence works the same way: a playbook first');
+        await tickDepartment(db, dept(tables, 'D3'), { now: new Date('2026-10-07T18:20:00Z') });
+        const news = tables.delphi_projects.filter((p) => p.department_id === 'D3' && p.playbook_id);
+        ok(news.length === 1 && news[0].scheduled_for === '2026-10-07T18:00:00.000Z', '…then every six hours, from the cron it was given');
+
+        tables.delphi_departments.push({ id: 'D4', workspace_id: W, name: 'On request', kind: 'general', status: 'active', charter: 'x', budget_usd: 5, settings: {} });
+        ok((await tickDepartment(db, dept(tables, 'D4'), { now: new Date('2026-10-07T13:10:00Z') })).started.length === 0, 'a department with no schedule runs only when asked');
+        ok((await scheduledWorkspaces(fakeDb(seed()))).includes(W), 'the cron visits every workspace with an active department, even before it has a playbook');
+        ok(runBudget(5, 4, 22) === 0.5 && runBudget(100, 4, 10) === 4 && runBudget(100, 50, 10) === 10, "a run's budget: the month shared across its slots, at least the floor, never more than is left");
+    }
+
+    console.log('\nAsked to ask first');
+    {
+        const tables = seed();
+        const db = fakeDb(tables, { unique: UNIQUE, defaults: DEFAULTS });
+        const d2 = dept(tables, 'D2');
+        d2.settings = { ...(d2.settings as Row), autonomy: 'ask' };
+        await ensurePlaybook(db, d2, new Date('2026-10-01T00:00:00Z'));
+        const r = await tickDepartment(db, d2, { now: new Date('2026-10-07T07:10:00Z') });
+        const cards = tables.delphi_messages.filter((m) => (m.card as Card | undefined)?.type === 'start_run');
+        ok(r.started.length === 0 && r.skipped[0]?.reason === 'awaiting_cho' && cards.length === 1, 'nothing starts: a card asks the CHO in the department room');
+        ok(describeCard(cards[0].card as Card, { timezone: 'UTC' }).what === 'Start the run due Wed 7 Oct, 07:00', 'the card says which run it would start');
+        await tickDepartment(db, d2, { now: new Date('2026-10-07T09:00:00Z') });
+        ok(tables.delphi_messages.filter((m) => (m.card as Card | undefined)?.type === 'start_run').length === 1, 'asked once per run, not every tick');
+        const effects: CardEffects = {
+            sendBack: async () => ({ ok: true }),
+            startNow: async () => ({ ok: true }),
+            startRun: async (departmentId, slot) => {
+                const res = await startRunNow(db, W, departmentId, slot ? new Date(slot) : null, new Date('2026-10-07T09:30:00Z'));
+                return res.ok ? { ok: true } : { ok: false, error: res.error };
+            },
+        };
+        const confirmed = await confirmCard(db, W, cards[0].id as string, effects);
+        const runs = tables.delphi_projects.filter((p) => p.department_id === 'D2' && p.playbook_id);
+        ok(confirmed.ok && runs.length === 1 && runs[0].scheduled_for === '2026-10-07T07:00:00.000Z', 'confirmed, it starts that run — claiming its slot', confirmed.error ?? '');
+        await tickDepartment(db, d2, { now: new Date('2026-10-07T10:00:00Z') });
+        ok(tables.delphi_projects.filter((p) => p.department_id === 'D2' && p.playbook_id).length === 1, 'and the schedule does not start it again');
+    }
+
+    console.log('\nRun it now');
+    {
+        const tables = seed();
+        const db = fakeDb(tables, { unique: UNIQUE, defaults: DEFAULTS });
+        const now = new Date('2026-10-07T15:04:31Z');
+        const a = await startRunNow(db, W, 'D2', null, now);
+        ok(a.ok && tables.delphi_projects.some((p) => p.department_id === 'D2' && p.scheduled_for === '2026-10-07T15:04:00.000Z'), "a department's playbook runs now, on this minute");
+        const b = await startRunNow(db, W, 'D2', null, now);
+        ok(!b.ok && /already/.test(b.error), 'twice in the same minute starts it once', b.ok ? '' : b.error);
+        ok(!(await startRunNow(db, W, 'D1', null, now)).ok, 'a studio is run per channel, not as a whole');
+        ok(!(await startRunNow(db, 'ws-2', 'D2', null, now)).ok, 'not from another workspace');
+        tables.delphi_system_state.push({ workspace_id: W, mode: 'paused' });
+        ok(!(await startRunNow(db, W, 'D2', null, new Date('2026-10-07T16:00:00Z'))).ok, 'not while the system is switched off');
+        tables.delphi_system_state.length = 0;
+        tables.delphi_projects.push({ id: 'spent-d2', workspace_id: W, department_id: 'D2', account_id: null, status: 'done', spent_usd: 5, budget_usd: 5, created_at: '2026-10-02T00:00:00Z' });
+        const capped = await startRunNow(db, W, 'D2', null, new Date('2026-10-07T17:00:00Z'));
+        ok(!capped.ok && /budget/.test(capped.error), "and not past the month's budget", capped.ok ? '' : capped.error);
+    }
+
     console.log('\nAn episode that came to nothing');
     {
         const { tables, db } = await world();
@@ -288,7 +413,7 @@ async function main() {
         ok(r.started.length === 0 && r.skipped.some((s) => s.reason === 'system_off') && episodes(tables, 'A2').length === 0, 'a stopped system starts nothing, and says why');
         tables.delphi_system_state[0].mode = 'running';
         const on = await startDueWork(db, W, { now: WED_0700Z, propose: strategist(['Topic one', 'Topic two', 'Topic three', 'Topic four']).propose });
-        ok(on.started.length === 1, 'switched back on, the slot owed starts');
+        ok(on.started.filter((x) => x.accountId === 'A2').length === 1, 'switched back on, the slot owed starts');
     }
 
     console.log('\nMake it now');
@@ -372,7 +497,7 @@ async function main() {
         ok((await listIdeas(db, 'A1')).length === 1 && (await listIdeas(db, 'A1'))[0].status === 'proposed', 'and nothing has happened yet');
 
         const started: string[] = [];
-        const effects: CardEffects = { sendBack: async () => ({ ok: true }), startNow: async (ideaId) => (started.push(ideaId), { ok: true }) };
+        const effects: CardEffects = { sendBack: async () => ({ ok: true }), startNow: async (ideaId) => (started.push(ideaId), { ok: true }), startRun: async () => ({ ok: true }) };
         const post = (card: Card) => {
             const id = `m-${tables.delphi_messages.length}`;
             tables.delphi_messages.push({ id, workspace_id: W, thread_id: 'R-A1', role: 'ceo', author_agent_id: 'ceo', author_user_id: null, content: card.title, card, created_at: '2026-10-07T10:00:00Z', artifact_ids: [] });

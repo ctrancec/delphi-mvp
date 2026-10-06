@@ -252,6 +252,10 @@ function effects() {
             started.push(ideaId);
             return { ok: true };
         },
+        startRun: async (departmentId) => {
+            started.push(`run:${departmentId}`);
+            return { ok: true };
+        },
     };
     return { e, calls, started };
 }

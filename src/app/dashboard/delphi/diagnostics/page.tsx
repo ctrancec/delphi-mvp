@@ -8,7 +8,8 @@
  * a source. That is the failure this page is built to make loud.
  */
 
-import { Activity, AlertTriangle, CheckCircle2, CircleSlash, PowerOff, Stethoscope, XCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Activity, AlertTriangle, CheckCircle2, CircleSlash, Clock, PowerOff, Stethoscope, XCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { findWorkspace } from '@/lib/delphi/bootstrap';
@@ -100,6 +101,17 @@ export default async function DiagnosticsPage() {
             </div>
 
             <WorkHours schedule={state.schedule} detail={now.detail} />
+
+            <Link
+                href="/dashboard/delphi/diagnostics/timing"
+                className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm hover:border-white/25"
+            >
+                <span className="flex items-center gap-2 text-zinc-200">
+                    <Clock className="h-4 w-4" /> Timing
+                    <span className="text-xs text-muted-foreground">scheduled work starts at the daily morning run — or on time, with Supabase&rsquo;s cron</span>
+                </span>
+                <span className="shrink-0 text-xs text-sky-400">Set up</span>
+            </Link>
 
             <Card
                 className={cn(

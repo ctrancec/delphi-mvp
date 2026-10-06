@@ -10,13 +10,15 @@
 import type { Db } from './db';
 import { listDepartmentIdeas, listIdeas } from './ideas';
 import { playbooksOf, type Playbook } from './playbooks';
-import { channelCaps, spendSince } from './scheduler';
+import { channelCaps, departmentDue, departmentSlots, spendSince } from './scheduler';
 import { dueSlots, monthStart, nextSlots, slotWords } from './slots';
 import { scheduleWords } from './kinds';
 import { accountOf, listOutputs } from './outputs';
 import { FORMAT_WORD, isFormat, PLATFORM_LABEL, type MediaAccount } from '@/lib/studio/accounts';
 import type { BoardItem, StudioBoardProps } from '@/components/delphi/studio-board';
 import type { ChannelQueueProps } from '@/components/delphi/channel-queue';
+import type { RunScheduleProps } from '@/components/delphi/run-schedule';
+import type { DepartmentSettings } from './kinds';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -165,4 +167,59 @@ async function board(db: Db, input: StudioViewInput, byId: Map<string, MediaAcco
         review,
         published,
     };
+}
+
+const RUN_STATUS: Record<string, string> = {
+    running: 'running',
+    done: 'done',
+    failed: 'failed',
+    cancelled: 'called off',
+    halted_budget: 'stopped at its budget',
+    paused: 'paused',
+};
+
+/** What a research or general department's page shows of its schedule: when it runs next, how its last runs went, the month's money. */
+export async function departmentRunView(
+    db: Db,
+    input: { departmentId: string; status: string; budgetUsd: number; settings: DepartmentSettings; cadenceCron: string | null; canEdit: boolean; now?: Date }
+): Promise<{ props: RunScheduleProps; dueNow: boolean }> {
+    const now = input.now ?? new Date();
+    const { settings } = input;
+    const tz = settings.schedule ? settings.timezone : input.cadenceCron ? 'UTC' : settings.timezone;
+    const [playbooks, spend, runs] = await Promise.all([
+        playbooksOf(db, input.departmentId),
+        spendSince(db, input.departmentId, monthStart(now, tz)),
+        db
+            .from('delphi_projects')
+            .select('id, title, status, created_at, scheduled_for, playbook_id')
+            .eq('department_id', input.departmentId)
+            .not('playbook_id', 'is', null)
+            .order('created_at', { ascending: false })
+            .limit(5)
+            .then(({ data, error }) => (error ? [] : ((data ?? []) as Row[]))),
+    ]);
+    const hasSchedule = Boolean(settings.schedule || input.cadenceCron);
+    // A run owed and not started, on its own: the page pokes the engine, which starts it.
+    const own = playbooks.find((p) => !p.accountId);
+    const slot = departmentDue(settings, input.cadenceCron, now);
+    const started = own && slot ? await startedSince(db, input.departmentId, slot) : new Set<string>();
+    const dueNow = Boolean(input.status === 'active' && own && slot && settings.autonomy !== 'ask' && slot.getTime() >= Date.parse(own.approvedAt) && !started.has(`${own.id}|${slot.getTime()}`));
+    const props: RunScheduleProps = {
+        departmentId: input.departmentId,
+        canEdit: input.canEdit,
+        active: input.status === 'active',
+        schedule: settings.schedule ? scheduleWords(settings.schedule, tz) : input.cadenceCron ? `cron ${input.cadenceCron} (UTC)` : 'On demand',
+        hasSchedule,
+        asks: settings.autonomy === 'ask',
+        hasPlaybook: playbooks.some((p) => !p.accountId),
+        next: hasSchedule ? departmentSlots(settings, input.cadenceCron, now, new Date(now.getTime() + 60 * DAY_MS)).slice(0, 3).map((d) => slotWords(d, tz)) : [],
+        runs: runs.map((r) => ({
+            id: String(r.id),
+            title: String(r.title ?? ''),
+            status: RUN_STATUS[String(r.status)] ?? String(r.status),
+            when: slotWords(new Date(String(r.scheduled_for ?? r.created_at)), tz),
+        })),
+        money: { spent: spend.total, held: spend.held, budget: input.budgetUsd },
+    };
+    return { props, dueNow };
 }

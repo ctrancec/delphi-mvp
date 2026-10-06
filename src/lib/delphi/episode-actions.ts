@@ -3,7 +3,8 @@
 /**
  * A channel's topics and episodes, from the browser: approve or reject what
  * the team proposed, add a topic, ask for more, make one now, and record
- * where a finished piece went live. All of it is the owner's.
+ * where a finished piece went live — and a department's run, started now.
+ * All of it is the owner's.
  */
 
 import { cache } from 'react';
@@ -13,7 +14,7 @@ import { findWorkspace } from './bootstrap';
 import { OWNER_ONLY, roleOf } from './members';
 import { choNameOf } from './cho';
 import { addIdea, getIdea, markPublished, moveIdea, proposeIdeas } from './ideas';
-import { startEpisodeNow } from './scheduler';
+import { startEpisodeNow, startRunNow } from './scheduler';
 import { getAccount } from '@/lib/studio/accounts';
 import type { Db } from './db';
 
@@ -114,4 +115,14 @@ export async function markPublishedAction(artifactId: string, url: string): Prom
         revalidatePath(`/dashboard/delphi/outputs/${artifactId}`);
     }
     return res;
+}
+
+/** Run a research or general department's playbook once, now, within the month's money. */
+export async function runNowAction(departmentId: string): Promise<EpisodeResult> {
+    const c = await ctx();
+    if ('error' in c) return { ok: false, error: c.error };
+    const res = await startRunNow(c.db, c.workspaceId, departmentId, null);
+    if (!res.ok) return { ok: false, error: res.error };
+    refresh(departmentId);
+    return { ok: true };
 }

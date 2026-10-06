@@ -8,6 +8,7 @@
  */
 
 import { scheduleWords, type DeliverySchedule } from './kinds/settings';
+import { slotWords } from './slots';
 
 export type CardType =
     | 'send_back'
@@ -17,7 +18,8 @@ export type CardType =
     | 'decision'
     | 'add_idea'
     | 'approve_idea'
-    | 'start_episode';
+    | 'start_episode'
+    | 'start_run';
 
 export const CARD_TYPES: readonly CardType[] = [
     'send_back',
@@ -28,6 +30,7 @@ export const CARD_TYPES: readonly CardType[] = [
     'add_idea',
     'approve_idea',
     'start_episode',
+    'start_run',
 ];
 
 export type CardStatus = 'pending' | 'done' | 'dismissed' | 'failed';
@@ -179,6 +182,13 @@ export function describeCard(
                 what: opts.ideaTitle ? `Make “${opts.ideaTitle}” now` : 'Make a topic that is no longer in this channel',
                 detail: "Starts an episode now, outside the schedule. It spends from this month's budget.",
             };
+        case 'start_run': {
+            const slot = typeof a.slot === 'string' && Number.isFinite(Date.parse(a.slot)) ? new Date(a.slot) : null;
+            return {
+                what: slot ? `Start the run due ${slotWords(slot, opts.timezone ?? 'UTC')}` : 'Start a run now',
+                detail: "This department's playbook, run once. It spends from this month's budget.",
+            };
+        }
     }
 }
 

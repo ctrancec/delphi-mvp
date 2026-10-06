@@ -113,6 +113,11 @@ export async function confirmCardAction(messageId: string): Promise<RoomResult> 
                 const r = await startEpisodeNow(c.db, c.workspaceId, ideaId);
                 return r.ok ? { ok: true } : { ok: false, error: r.error };
             },
+            startRun: async (departmentId, slot) => {
+                const { startRunNow } = await import('./scheduler');
+                const r = await startRunNow(c.db, c.workspaceId, departmentId, slot ? new Date(slot) : null);
+                return r.ok ? { ok: true } : { ok: false, error: r.error };
+            },
         },
         c.people.cho
     );
