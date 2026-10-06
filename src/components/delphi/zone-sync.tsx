@@ -26,12 +26,16 @@ export function ZoneSync() {
         if (!zone) return;
         void syncDeviceZoneAction(zone)
             .then((res) => {
+                // Remembered only once the workspace has a zone: until then (the
+                // save failed, or the database lacks migration 0005) the next
+                // page load tries again.
+                if (!res.ok || !res.data?.zone) return;
                 try {
                     sessionStorage.setItem(KEY, '1');
                 } catch {
                     // Nothing to keep it in; the next visit asks again, harmlessly.
                 }
-                if (res.ok && res.data?.adopted) router.refresh();
+                if (res.data.adopted) router.refresh();
             })
             .catch(() => {
                 // A missed report is retried on the next visit.
