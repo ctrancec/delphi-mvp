@@ -23,6 +23,7 @@ import { produceDeliverable, type StoredFile } from '@/lib/studio/produce';
 import { FORMAT_WORD, isFormat, type Format } from '@/lib/studio/accounts';
 import { allowedSources, contextFor, renderContext } from './context';
 import { roleOfAgent } from './kinds';
+import { postWorkToRoom } from './rooms';
 import { emitEvent, getSystemState, listChannels, type Db } from './db';
 import { effectiveState } from './schedule';
 import type { ArtifactKind, ChannelKind, SourceLocator } from './types';
@@ -1265,6 +1266,30 @@ export async function runNextTask(
             durationMs,
             payload: { costUsd: result.costUsd, claims: out.claims.length },
         });
+
+        // A rendered piece, and a department's finished deliverable, post
+        // themselves into their room — the channel's for a channel's piece —
+        // where the CHO can watch it, accept it or send it back. Steps in the
+        // middle of a chain stay out of the conversation.
+        if (artifact?.id) {
+            const { count: downstream } = await db
+                .from('delphi_tasks')
+                .select('id', { count: 'exact', head: true })
+                .eq('depends_on', task.id);
+            if (format || !downstream) {
+                const summary = out.summary.length > 280 ? `${out.summary.slice(0, 277)}…` : out.summary;
+                await postWorkToRoom(db, {
+                    workspaceId,
+                    departmentId: project.department_id as string,
+                    accountId: produced.accountId ?? accountId,
+                    agentId: agent.id,
+                    artifactId: artifact.id,
+                    text: format
+                        ? `Rendered a ${FORMAT_WORD[format]}: "${task.title}".`
+                        : `Finished "${task.title}".${summary ? ` ${summary}` : ''}`,
+                });
+            }
+        }
 
         // 4. Outward-facing work stops here and waits for the CHO.
         if (out.proposedAction) {

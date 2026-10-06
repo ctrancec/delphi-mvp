@@ -6,7 +6,7 @@
  * the board, and both should be searchable months later for the same reason.
  */
 
-import type { Db } from './db';
+import { isMissingColumn, type Db } from './db';
 import type { ChatTurn } from './chat';
 
 const THREAD_TITLE = 'Conversation with Delphi';
@@ -23,14 +23,23 @@ export async function getOrCreateChatThread(db: Db, workspaceId: string): Promis
 
     if (existing) return existing.id as string;
 
-    const { data, error } = await db
+    // Marked as the CEO conversation where the database knows the kinds
+    // (migration 0012), and written plainly where it does not yet.
+    let { data, error } = await db
         .from('delphi_threads')
-        .insert({ workspace_id: workspaceId, title: THREAD_TITLE, status: 'open' })
+        .insert({ workspace_id: workspaceId, title: THREAD_TITLE, status: 'open', kind: 'ceo' })
         .select('id')
         .single();
+    if (error && isMissingColumn(error)) {
+        ({ data, error } = await db
+            .from('delphi_threads')
+            .insert({ workspace_id: workspaceId, title: THREAD_TITLE, status: 'open' })
+            .select('id')
+            .single());
+    }
 
-    if (error) {
-        console.error('[delphi] could not open the chat thread:', error.message);
+    if (error || !data) {
+        console.error('[delphi] could not open the chat thread:', error?.message);
         return null;
     }
     return data.id as string;

@@ -345,6 +345,7 @@ export function AccountsCard({
     canEdit,
     hasTeam,
     timezone = 'UTC',
+    single = false,
 }: {
     departmentId: string;
     accounts: MediaAccount[];
@@ -353,6 +354,8 @@ export function AccountsCard({
     hasTeam: boolean;
     /** The studio's timezone, which every channel's schedule is in. */
     timezone?: string;
+    /** One channel's own settings, on its tab: no adding, no re-staffing. */
+    single?: boolean;
 }) {
     const router = useRouter();
     const [pending, startTransition] = useTransition();
@@ -395,10 +398,10 @@ export function AccountsCard({
             <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <CardTitle className="flex items-center gap-2 text-sm">
-                        <Clapperboard className="h-4 w-4" /> Accounts
-                        <span className="text-xs font-normal text-muted-foreground">{accounts.length || 'none yet'}</span>
+                        <Clapperboard className="h-4 w-4" /> {single ? 'Channel settings' : 'Accounts'}
+                        {!single && <span className="text-xs font-normal text-muted-foreground">{accounts.length || 'none yet'}</span>}
                     </CardTitle>
-                    {canEdit && !adding && (
+                    {canEdit && !adding && !single && (
                         <div className="flex flex-wrap gap-2">
                             <Button size="sm" variant="outline" className="border-white/10" onClick={() => testRender(accounts[0]?.id ?? null)} disabled={pending || test.running} title="Render a ten-second sample to prove the studio works here">
                                 {test.running ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Clapperboard className="mr-2 h-3.5 w-3.5" />}
@@ -411,9 +414,15 @@ export function AccountsCard({
                     )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    Each YouTube channel or social page this department produces for, with what it wants made.{' '}
-                    {CEO_NAME} plans one production chain per account, and the studio renders every piece to that
-                    account&rsquo;s preferences. Accounts share research, never scripts.
+                    {single ? (
+                        <>What this channel wants made. Every piece for it is planned and rendered to these, and they reach no other channel.</>
+                    ) : (
+                        <>
+                            Each YouTube channel or social page this department produces for, with what it wants made.{' '}
+                            {CEO_NAME} plans one production chain per account, and the studio renders every piece to that
+                            account&rsquo;s preferences. Accounts share research, never scripts.
+                        </>
+                    )}
                 </p>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -517,7 +526,7 @@ export function AccountsCard({
                     )
                 )}
 
-                {canEdit && hasTeam && accounts.length > 0 && !adding && !editing && (
+                {canEdit && !single && hasTeam && accounts.length > 0 && !adding && !editing && (
                     <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
                         <p className="text-xs text-muted-foreground">
                             This department was staffed before some of these accounts or preferences were set. Re-staff it

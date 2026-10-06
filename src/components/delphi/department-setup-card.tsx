@@ -18,6 +18,7 @@ export function DepartmentSetupCard({
     charter,
     settings,
     canEdit,
+    show = 'all',
 }: {
     departmentId: string;
     kind: DepartmentKind;
@@ -25,6 +26,8 @@ export function DepartmentSetupCard({
     charter: string;
     settings: DepartmentSettings;
     canEdit: boolean;
+    /** A studio splits these: the prompts on its overview, the summary under Settings. */
+    show?: 'all' | 'prompts' | 'summary';
 }) {
     const base = `/dashboard/delphi/departments/new?draft=${departmentId}`;
     const notes = Object.entries(settings.roleNotes).filter(([, v]) => v) as [RoleKey, string][];
@@ -32,7 +35,7 @@ export function DepartmentSetupCard({
 
     return (
         <div className="space-y-3">
-            {canEdit && !settings.setup.complete && (
+            {show !== 'summary' && canEdit && !settings.setup.complete && (
                 <Card className="border-amber-400/30 bg-amber-400/5">
                     <CardContent className="flex flex-col items-start gap-2 py-4 inner:flex-row inner:items-center inner:gap-3">
                         <TriangleAlert className="h-4 w-4 shrink-0 text-amber-300" />
@@ -44,7 +47,7 @@ export function DepartmentSetupCard({
                 </Card>
             )}
 
-            {canEdit && looksLikeStudio(kind, name, charter) && (
+            {show !== 'summary' && canEdit && looksLikeStudio(kind, name, charter) && (
                 <Card className="border-sky-400/30 bg-sky-400/5">
                     <CardContent className="flex flex-col items-start gap-2 py-4 inner:flex-row inner:items-center inner:gap-3">
                         <Clapperboard className="h-4 w-4 shrink-0 text-sky-300" />
@@ -59,6 +62,7 @@ export function DepartmentSetupCard({
                 </Card>
             )}
 
+            {show !== 'prompts' && (
             <Card className="border-white/10 bg-black/40">
                 <CardHeader className="pb-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -100,6 +104,7 @@ export function DepartmentSetupCard({
                     <p>{settings.autonomy === 'ask' ? 'Asks you before each run.' : 'Runs on its schedule; you review what it makes.'}</p>
                 </CardContent>
             </Card>
+            )}
         </div>
     );
 }

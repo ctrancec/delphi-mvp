@@ -298,7 +298,9 @@ export type DelphiEventType =
     /** A seeded role's job description was brought up to date. */
     | 'roles_updated'
     /** The CHO added, changed or removed a media account. */
-    | 'account_changed';
+    | 'account_changed'
+    /** The CHO confirmed an action card in a department or channel room. */
+    | 'card_confirmed';
 
 export interface DelphiEvent {
     id: number;

@@ -13,14 +13,26 @@ import { AccountsCard } from '@/components/delphi/accounts-card'
 import { accountLabel, listAccounts } from '@/lib/studio/accounts'
 import { findWorkspace } from '@/lib/delphi/bootstrap'
 import { roleOf } from '@/lib/delphi/members'
-import { isDepartmentKind, KINDS, withSettings, type DepartmentKind } from '@/lib/delphi/kinds'
+import { isDepartmentKind, KINDS, scheduleWords, withSettings, type DepartmentKind } from '@/lib/delphi/kinds'
 import { DepartmentSetupCard } from '@/components/delphi/department-setup-card'
+import { DepartmentRoom } from '@/components/delphi/department-room'
+import { DepartmentTabs, type DepartmentTab } from '@/components/delphi/department-tabs'
+import { OutputCard } from '@/components/delphi/output-card'
+import { listOutputs, previewPathOf, signedUrlsFor } from '@/lib/delphi/outputs'
+import { PLATFORM_LABEL } from '@/lib/studio/accounts'
+import Link from 'next/link'
 
 import { CEO_NAME } from '@/lib/pixel/cast/names'
 export const dynamic = 'force-dynamic'
 
-export default async function DepartmentPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = await params
+export default async function DepartmentPage({
+    params,
+    searchParams,
+}: {
+    params: Promise<{ id: string }>
+    searchParams: Promise<{ tab?: string }>
+}) {
+    const [{ id }, { tab: tabParam }] = await Promise.all([params, searchParams])
     const supabase = await createClient()
     if (!supabase) notFound()
 
@@ -55,9 +67,17 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
     // The accounts this department produces for, and whether the viewer may
     // change them. Both are cheap, and the card is on every department page.
     const [workspaceId, user] = await Promise.all([findWorkspace(supabase), currentUser()])
-    const [accounts, role] = await Promise.all([
+    const [accounts, role, ownerId] = await Promise.all([
         workspaceId ? listAccounts(supabase, workspaceId, id) : Promise.resolve([]),
         workspaceId && user ? roleOf(supabase, workspaceId, user.id) : Promise.resolve(null),
+        workspaceId
+            ? supabase
+                  .from('workspaces')
+                  .select('owner_id')
+                  .eq('id', workspaceId)
+                  .maybeSingle()
+                  .then(({ data }) => ((data as { owner_id?: string } | null)?.owner_id as string | undefined) ?? null)
+            : Promise.resolve(null),
     ])
     const accountById = new Map(accounts.map((a) => [a.id, a]))
 
@@ -113,12 +133,51 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
     const approved = project?.status === 'running' || project?.status === 'done'
     const kind: DepartmentKind = isDepartmentKind(dept.kind) ? (dept.kind as DepartmentKind) : 'research'
     const settings = withSettings(dept.settings)
+    const canEdit = role === 'owner'
+
+    // A studio has a tab per channel; anything else on the address is the overview.
+    const studio = kind === 'studio'
+    const channel = studio && tabParam ? accounts.find((a) => a.id === tabParam) ?? null : null
+    const tab = !studio ? 'all' : channel ? channel.id : tabParam === 'team' || tabParam === 'settings' ? tabParam : 'overview'
+    const tabs: DepartmentTab[] = [
+        { key: 'overview', label: 'Overview' },
+        ...accounts.map((a) => ({
+            key: a.id,
+            label: `${PLATFORM_LABEL[a.platform] ?? a.platform} · ${a.name}`,
+            note: a.status === 'paused' ? 'paused' : undefined,
+        })),
+        { key: 'team', label: 'Team' },
+        { key: 'settings', label: 'Settings' },
+    ]
+    const show = (...keys: string[]) => tab === 'all' || keys.includes(tab)
+
+    // The channel's own work, on its tab: newest first, with its pictures.
+    let channelWork: { records: Awaited<ReturnType<typeof listOutputs>>; pictures: Map<string, string> } | null = null
+    if (channel) {
+        const records = await listOutputs(supabase, { departmentId: id, accountId: channel.id, limit: 12 }).catch(() => [])
+        const paths = records.map(previewPathOf).filter((p): p is string => Boolean(p))
+        channelWork = { records, pictures: await signedUrlsFor(supabase, paths) }
+    }
+
+    const room =
+        workspaceId && user && role ? (
+            <DepartmentRoom
+                db={supabase}
+                workspaceId={workspaceId}
+                department={{ id, name: dept.name as string, kind }}
+                account={channel}
+                role={role}
+                user={user}
+                ownerId={ownerId}
+                timezone={settings.timezone}
+            />
+        ) : null
 
     return (
         <div className="space-y-6 max-w-4xl">
             <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">{dept.name}</h1>
+                <div className="min-w-0">
+                    <h1 className="text-2xl font-bold tracking-tight [overflow-wrap:anywhere]">{dept.name}</h1>
                     <p className="text-sm text-muted-foreground mt-2 max-w-2xl">{dept.charter}</p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
@@ -133,11 +192,18 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                     {formatUsd(Number(project?.spent_usd ?? dept.spent_usd ?? 0))} of{' '}
                     {formatUsd(Number(dept.budget_usd))}
                 </span>
-                {dept.cadence_cron && (
+                {settings.schedule ? (
                     <span className="inline-flex items-center gap-2 text-muted-foreground">
                         <Clock className="h-4 w-4" />
-                        <code className="font-mono text-xs">{dept.cadence_cron}</code>
+                        {scheduleWords(settings.schedule, settings.timezone)}
                     </span>
+                ) : (
+                    dept.cadence_cron && (
+                        <span className="inline-flex items-center gap-2 text-muted-foreground">
+                            <Clock className="h-4 w-4" />
+                            <code className="font-mono text-xs">{dept.cadence_cron}</code>
+                        </span>
+                    )
                 )}
                 <span className="inline-flex items-center gap-2 text-muted-foreground">
                     <ShieldCheck className="h-4 w-4" />
@@ -145,26 +211,75 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                 </span>
             </div>
 
-            <DepartmentSetupCard
-                departmentId={id}
-                kind={kind}
-                name={dept.name as string}
-                charter={dept.charter as string}
-                settings={settings}
-                canEdit={role === 'owner'}
-            />
+            {studio && <DepartmentTabs departmentId={id} tabs={tabs} current={tab} />}
 
-            {(kind === 'studio' || accounts.length > 0) && (
-                <AccountsCard departmentId={id} accounts={accounts} canEdit={role === 'owner'} hasTeam={team.length > 0} timezone={settings.timezone} />
+            {/* The team is on its own tab; a plan waiting on the CHO is not left there unseen. */}
+            {studio && tab !== 'team' && dept.status === 'awaiting_approval' && canEdit && (
+                <Link
+                    href={`/dashboard/delphi/departments/${id}?tab=team`}
+                    scroll={false}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-sm text-amber-200 hover:border-amber-400/50"
+                >
+                    <span>{CEO_NAME} has proposed a team for this studio. It does nothing until you approve it.</span>
+                    <span className="shrink-0 underline-offset-4 hover:underline">Review the team</span>
+                </Link>
             )}
 
-            <HiringPanel departmentId={id} team={team} status={dept.status} approved={approved} />
+            {show('overview') && (
+                <DepartmentSetupCard
+                    departmentId={id}
+                    kind={kind}
+                    name={dept.name as string}
+                    charter={dept.charter as string}
+                    settings={settings}
+                    canEdit={canEdit}
+                    show={studio ? 'prompts' : 'all'}
+                />
+            )}
+
+            {(show('overview') || channel) && room}
+
+            {channel && channelWork && (
+                <Card className="border-white/10 bg-black/40">
+                    <CardHeader className="pb-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <CardTitle className="text-sm">Made for {channel.name}</CardTitle>
+                            <Link href={`/dashboard/delphi/outputs?account=${channel.id}`} className="text-xs text-sky-400 hover:underline">
+                                All of it in Outputs
+                            </Link>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        {channelWork.records.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Nothing yet. Work for this channel shows here, and posts itself into its room.</p>
+                        ) : (
+                            <div className="grid gap-3 inner:grid-cols-2">
+                                {channelWork.records.map((r) => {
+                                    const path = previewPathOf(r)
+                                    return <OutputCard key={r.artifact.id} record={r} picture={path ? channelWork!.pictures.get(path) ?? null : null} />
+                                })}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
+            {channel && (
+                <AccountsCard departmentId={id} accounts={[channel]} canEdit={canEdit} hasTeam={team.length > 0} timezone={settings.timezone} single />
+            )}
+
+            {show('overview') && (studio || accounts.length > 0) && (
+                <AccountsCard departmentId={id} accounts={accounts} canEdit={canEdit} hasTeam={team.length > 0} timezone={settings.timezone} />
+            )}
+
+            {show('team') && <HiringPanel departmentId={id} team={team} status={dept.status} approved={approved} />}
 
             {/* Running means work is outstanding; the runner keeps poking the
-                engine so the pipeline advances while the CHO watches. */}
+                engine so the pipeline advances while the CHO watches — on
+                whichever tab they are looking at. */}
             <PipelineRunner active={project?.status === 'running'} />
 
-            {(tasks ?? []).length > 0 && (
+            {show('team') && (tasks ?? []).length > 0 && (
                 <Card className="border-white/10 bg-black/40">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-sm">The pipeline</CardTitle>
@@ -200,16 +315,30 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                 </Card>
             )}
 
-            <DepartmentSettings
-                departmentId={id}
-                name={dept.name as string}
-                charter={dept.charter as string}
-                budgetUsd={Number(dept.budget_usd ?? 0)}
-                cadenceCron={(dept.cadence_cron as string) ?? null}
-                archived={dept.status === 'archived'}
-            />
+            {studio && show('settings') && (
+                <DepartmentSetupCard
+                    departmentId={id}
+                    kind={kind}
+                    name={dept.name as string}
+                    charter={dept.charter as string}
+                    settings={settings}
+                    canEdit={canEdit}
+                    show="summary"
+                />
+            )}
 
-            {(grades ?? []).length > 0 && (
+            {show('settings') && (
+                <DepartmentSettings
+                    departmentId={id}
+                    name={dept.name as string}
+                    charter={dept.charter as string}
+                    budgetUsd={Number(dept.budget_usd ?? 0)}
+                    cadenceCron={(dept.cadence_cron as string) ?? null}
+                    archived={dept.status === 'archived'}
+                />
+            )}
+
+            {show('team') && (grades ?? []).length > 0 && (
                 <Card className="border-white/10 bg-black/40">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-sm">How the work was graded</CardTitle>
@@ -246,7 +375,7 @@ export default async function DepartmentPage({ params }: { params: Promise<{ id:
                 </Card>
             )}
 
-            {team.length > 0 && (
+            {show('team') && team.length > 0 && (
                 <Card className="bg-black/20 border-white/5">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-sm">How the work flows</CardTitle>

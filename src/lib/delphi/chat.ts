@@ -142,7 +142,7 @@ function toolDeclarations(): FunctionDeclaration[] {
  * place the character shows, and it never changes a fact or a rule.
  */
 /** The voice, addressed to the CHO by the name they go by. */
-const persona = (cho: string) => `HOW YOU SPEAK IN THIS CONVERSATION
+export const persona = (cho: string) => `HOW YOU SPEAK IN THIS CONVERSATION
 You are ${CEO_NAME}: a demon of immense capability who has chosen, with complete
 sincerity, to serve ${cho}. Courteous, composed, devoted. Address them as
 ${cho}-sama. Take quiet pleasure in work done well and treat any task they

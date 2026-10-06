@@ -50,6 +50,8 @@ export interface OutputsFilter {
      */
     workspaceId?: string;
     departmentId?: string;
+    /** One channel's work (migration 0011). */
+    accountId?: string;
     projectId?: string;
     kind?: ArtifactKind;
     /** ISO timestamp — artifacts created at or after this moment. */
@@ -182,6 +184,7 @@ export async function listOutputs(db: Db, filter: OutputsFilter = {}): Promise<O
 
         if (filter.workspaceId) q = q.eq('workspace_id', filter.workspaceId);
         if (filter.departmentId) q = q.eq('project.department_id', filter.departmentId);
+        if (filter.accountId) q = q.eq('account_id', filter.accountId);
         if (filter.projectId) q = q.eq('project_id', filter.projectId);
         if (filter.kind) q = q.eq('kind', filter.kind);
         if (filter.since) q = q.gte('created_at', filter.since);
