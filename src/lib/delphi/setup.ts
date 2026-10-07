@@ -145,12 +145,13 @@ export async function saveDepartmentSettingsAction(
     if (!dept) return { ok: false, error: 'That department is not here.' };
 
     const current = withSettings(dept.settings);
+    const converting = Boolean(kind) && kind !== dept.kind;
     const merged = withSettings(
         {
             ...current,
             ...patch,
             research: patch.research ? { ...current.research, ...patch.research } : current.research,
-            setup: nextSetup(current.setup, step),
+            setup: nextSetup(current.setup, step, converting),
         },
         current
     );

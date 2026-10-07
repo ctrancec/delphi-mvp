@@ -30,7 +30,10 @@ export function validateBasics(input: BasicsInput, ceoName = 'the CEO'): { ok: t
  * back to change step 3 does not make the draft forget step 4 was done — and a
  * finished setup stays finished.
  */
-export function nextSetup(current: DepartmentSettings['setup'], savedStep: number): DepartmentSettings['setup'] {
+export function nextSetup(current: DepartmentSettings['setup'], savedStep: number, reopen = false): DepartmentSettings['setup'] {
+    // A department converted to another kind is set up again from here, even
+    // one that was finished: its team was made for the old kind.
+    if (reopen) return { step: Math.min(5, Math.max(1, savedStep)), complete: false };
     if (current.complete) return current;
     return { step: Math.min(5, Math.max(current.step, savedStep)), complete: false };
 }
@@ -43,7 +46,7 @@ export function setupBlocker(
 ): string | null {
     if (charter.trim().length < 20) return 'Say what the department is for before it is staffed.';
     if (kind === 'studio' && !accounts.some((a) => a.status === 'active')) {
-        return 'A content studio needs at least one active channel or page before it can be staffed. Add one in step 3.';
+        return 'A content studio needs at least one active channel or page before it can be staffed. Add one in step 3 — a test channel will do.';
     }
     return null;
 }

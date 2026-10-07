@@ -1,9 +1,9 @@
 /**
  * How a department is set up, at a glance, with the way back into the wizard.
  *
- * Also carries the two prompts a department can need: a draft whose setup was
- * never finished, and a department that is really a content studio but was
- * made before kinds existed.
+ * Also carries the prompts a department can need: a draft whose setup was
+ * never finished (or a studio with no channel to make anything for), and a
+ * department that is really a content studio but was made before kinds existed.
  */
 
 import Link from 'next/link';
@@ -19,6 +19,7 @@ export function DepartmentSetupCard({
     settings,
     canEdit,
     show = 'all',
+    channelsMissing = false,
 }: {
     departmentId: string;
     kind: DepartmentKind;
@@ -28,6 +29,8 @@ export function DepartmentSetupCard({
     canEdit: boolean;
     /** A studio splits these: the prompts on its overview, the summary under Settings. */
     show?: 'all' | 'prompts' | 'summary';
+    /** A studio with no active channel: nothing can be made until one is added. */
+    channelsMissing?: boolean;
 }) {
     const base = `/dashboard/delphi/departments/new?draft=${departmentId}`;
     const notes = Object.entries(settings.roleNotes).filter(([, v]) => v) as [RoleKey, string][];
@@ -35,12 +38,18 @@ export function DepartmentSetupCard({
 
     return (
         <div className="space-y-3">
-            {show !== 'summary' && canEdit && !settings.setup.complete && (
+            {show !== 'summary' && canEdit && (!settings.setup.complete || channelsMissing) && (
                 <Card className="border-amber-400/30 bg-amber-400/5">
                     <CardContent className="flex flex-col items-start gap-2 py-4 inner:flex-row inner:items-center inner:gap-3">
                         <TriangleAlert className="h-4 w-4 shrink-0 text-amber-300" />
-                        <p className="min-w-0 text-sm text-amber-200 inner:flex-1">This department&rsquo;s setup isn&rsquo;t finished, so it hasn&rsquo;t been staffed.</p>
-                        <Link href={`${base}&step=${settings.setup.step}`} className="inline-flex shrink-0 items-center gap-1 text-sm text-amber-200 underline-offset-4 hover:underline">
+                        <p className="min-w-0 text-sm text-amber-200 inner:flex-1">
+                            {kind === 'studio'
+                                ? channelsMissing
+                                    ? 'This studio has no channels yet, so nothing gets made. Add one — your real channel, or a test channel to try the studio first — then approve its team.'
+                                    : 'This studio’s setup isn’t finished. Finish it, then approve the team proposed for its channels.'
+                                : 'This department’s setup isn’t finished, so it hasn’t been staffed.'}
+                        </p>
+                        <Link href={`${base}&step=${channelsMissing ? 3 : settings.setup.step}`} className="inline-flex shrink-0 items-center gap-1 text-sm text-amber-200 underline-offset-4 hover:underline">
                             Continue setup <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                     </CardContent>

@@ -148,7 +148,7 @@ export default async function DepartmentPage({
         ...accounts.map((a) => ({
             key: a.id,
             label: `${PLATFORM_LABEL[a.platform] ?? a.platform} · ${a.name}`,
-            note: a.status === 'paused' ? 'paused' : undefined,
+            note: a.status === 'paused' ? 'paused' : a.preferences.test ? 'test' : undefined,
         })),
         { key: 'team', label: 'Team' },
         { key: 'settings', label: 'Settings' },
@@ -271,6 +271,7 @@ export default async function DepartmentPage({
                     settings={settings}
                     canEdit={canEdit}
                     show={studio ? 'prompts' : 'all'}
+                    channelsMissing={studio && !accounts.some((a) => a.status === 'active')}
                 />
             )}
 

@@ -116,8 +116,24 @@ function AccountForm({
         setP({ formats: FORMATS.filter((x) => (x === f ? !on : d.p.formats.includes(x))) });
     };
 
+    const setTest = (test: boolean) => {
+        // A test channel needs only a name; give it one if there is none yet.
+        const name = test && !d.name.trim() ? 'Sample channel' : d.name;
+        setD({ ...d, name, p: { ...d.p, test } });
+    };
+
     return (
         <div className="space-y-4 rounded-lg border border-white/10 bg-black/30 p-3">
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-amber-400/25 bg-amber-400/5 p-2.5">
+                <input type="checkbox" checked={d.p.test} onChange={(e) => setTest(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-amber-400" />
+                <span className="text-xs">
+                    <span className="font-medium text-amber-200">Test channel</span>
+                    <span className="block text-muted-foreground">
+                        A placeholder for trying the studio before you connect a real account. The team makes real videos and
+                        images for it; nobody invents a handle or followers. Untick it later and add the real account&rsquo;s details.
+                    </span>
+                </span>
+            </label>
             <div className="grid grid-cols-1 gap-3 inner:grid-cols-2">
                 <Field label="Platform">
                     <select
@@ -137,12 +153,16 @@ function AccountForm({
                 <Field label="Channel or page name">
                     <Input value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} placeholder="Kitchen Science" className="border-white/10 bg-white/5 text-sm" />
                 </Field>
-                <Field label="Handle">
-                    <Input value={d.handle} onChange={(e) => setD({ ...d, handle: e.target.value })} placeholder="@kitchensci" className="border-white/10 bg-white/5 text-sm" />
-                </Field>
-                <Field label="URL">
-                    <Input value={d.url} onChange={(e) => setD({ ...d, url: e.target.value })} placeholder="https://youtube.com/@kitchensci" className="border-white/10 bg-white/5 text-sm" />
-                </Field>
+                {!d.p.test && (
+                    <>
+                        <Field label="Handle">
+                            <Input value={d.handle} onChange={(e) => setD({ ...d, handle: e.target.value })} placeholder="@kitchensci" className="border-white/10 bg-white/5 text-sm" />
+                        </Field>
+                        <Field label="URL">
+                            <Input value={d.url} onChange={(e) => setD({ ...d, url: e.target.value })} placeholder="https://youtube.com/@kitchensci" className="border-white/10 bg-white/5 text-sm" />
+                        </Field>
+                    </>
+                )}
             </div>
 
             <Field label="Makes" hint="Everything this account publishes. Each plan makes at least one of them for it.">

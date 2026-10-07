@@ -87,6 +87,19 @@ async function main() {
         const imagesOnly = describeAccount(account({}, { formats: ['post'] }));
         ok(!imagesOnly.includes('video length') && !imagesOnly.includes('narration') && imagesOnly.includes('Image post (4:5)'), 'an images-only account is not told about video length or narration');
         ok(describeAccount({ ...a, status: 'paused' }).includes('PAUSED'), 'a paused account says so to the planner');
+        // Test channels: a placeholder for trying the studio before a real account.
+        ok(withDefaults({}).test === false && withDefaults({ test: true }).test && withDefaults({ test: 'yes' }).test === false, 'a channel is real unless it says it is a test');
+        ok(withDefaults({ niche: 'x' }, withDefaults({ test: true })).test, 'editing a test channel keeps it a test');
+        const trial = validateAccountInput({ platform: 'youtube', name: 'Sample channel', handle: '@someone_real', url: 'youtube.com/@someone_real', preferences: { test: true } });
+        ok(trial.ok && trial.value.handle === null && trial.value.url === null && trial.value.preferences.test, 'a test channel keeps no handle or link: it belongs to nobody yet');
+        const connected = validateAccountInput({ platform: 'youtube', name: 'Kitchen Science', handle: '@kitchensci', preferences: { test: false } }, withDefaults({ test: true }));
+        ok(connected.ok && !connected.value.preferences.test && connected.value.handle === '@kitchensci', 'switched off, it becomes the real account, handle and all');
+        const t = account({ handle: null }, { test: true });
+        ok(accountLabel(t) === 'YouTube · Kitchen Science (test)', 'its label says it is a test', accountLabel(t));
+        ok(accountLabel({ platform: 'youtube', name: 'Kitchen Science', handle: '@kitchensci' }) === 'YouTube · Kitchen Science (@kitchensci)', 'a label from a channel without its settings reads as before');
+        const td = describeAccount(t);
+        ok(td.includes('TEST CHANNEL') && /never invent a handle/i.test(td), 'the team is told it is a placeholder, and not to invent the account');
+        ok(!describeAccount(a).includes('TEST CHANNEL'), 'a real channel is not');
         for (const [asp, q, w, h] of [['9:16', 'fhd', 1080, 1920], ['16:9', 'hd', 1280, 720], ['4:5', 'fhd', 1080, 1350], ['1:1', 'hd', 720, 720]] as const) {
             const f = frameSize(asp, q);
             ok(f.width === w && f.height === h && f.width % 2 === 0 && f.height % 2 === 0, `${asp} ${q} renders at ${w}×${h}`);

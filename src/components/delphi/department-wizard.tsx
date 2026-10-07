@@ -473,6 +473,10 @@ export function DepartmentWizard({
                                         separate: its own settings, schedule, conversations and history. In a channel&rsquo;s
                                         settings you choose what it makes, when, and whether you approve its topics.
                                     </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Not ready to connect a real account? Add a <span className="text-zinc-300">test channel</span>: the
+                                        team makes real videos and images for it, and you can switch it to your real account later.
+                                    </p>
                                     <ZoneNote zone={timezone} fromDevice={!workspaceZone} pinned={pinnedZone !== null} onPin={setPinnedZone} onUnpin={() => setPinnedZone(null)} />
                                 </CardContent>
                             </Card>

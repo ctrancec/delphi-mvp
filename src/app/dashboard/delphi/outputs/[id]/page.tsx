@@ -195,7 +195,7 @@ export default async function OutputDetailPage({ params }: { params: Promise<{ i
             {studio && <StudioPanel artifactId={artifact.id} studio={studio} />}
 
             {/* A channel's piece, once it is up: where it went live, for the channel's history. */}
-            {studio?.account && (isOwner || publishedUrl) && (
+            {studio?.account && !studio.account.test && (isOwner || publishedUrl) && (
                 <Card className="bg-black/40 border-white/10">
                     <CardContent className="flex flex-wrap items-center gap-3 py-4">
                         <p className="min-w-0 flex-1 text-xs text-muted-foreground">

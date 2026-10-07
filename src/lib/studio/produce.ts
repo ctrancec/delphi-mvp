@@ -129,7 +129,7 @@ export async function resolveAccount(ctx: StudioContext): Promise<MediaAccount> 
 }
 
 function accountRef(a: MediaAccount) {
-    return a.id ? { id: a.id, label: accountLabel(a), platform: a.platform, name: a.name, handle: a.handle } : null;
+    return a.id ? { id: a.id, label: accountLabel(a), platform: a.platform, name: a.name, handle: a.handle, test: a.preferences.test } : null;
 }
 
 export async function produceDeliverable(ctx: StudioContext): Promise<StudioResult> {

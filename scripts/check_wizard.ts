@@ -67,6 +67,7 @@ console.log('\nResuming a draft');
     ok(nextSetup({ step: 4, complete: false }, 3).step === 4, 'going back to change step 3 does not forget step 4 was done');
     ok(nextSetup({ step: 5, complete: true }, 3).complete, 'a finished setup stays finished when edited');
     ok(nextSetup({ step: 5, complete: false }, 9).step === 5, 'never past the last step');
+    ok(JSON.stringify(nextSetup({ step: 5, complete: true }, 4, true)) === '{"step":4,"complete":false}', 'converted to another kind, a finished setup is opened again, so the team is made for the new kind');
 }
 
 console.log('\nBasics and what blocks staffing');
@@ -80,6 +81,7 @@ console.log('\nBasics and what blocks staffing');
     ok(setupBlocker('studio', 'x'.repeat(30), []) !== null, 'a studio with no channel cannot be staffed');
     ok(setupBlocker('studio', 'x'.repeat(30), [{ status: 'paused' }]) !== null, 'nor one whose channels are all paused');
     ok(setupBlocker('studio', 'x'.repeat(30), [{ status: 'active' }]) === null, 'one active channel is enough');
+    ok(/test channel/.test(setupBlocker('studio', 'x'.repeat(30), []) ?? ''), 'and it says a test channel will do');
     ok(setupBlocker('research', 'x'.repeat(30), []) === null, 'research needs no channel');
 }
 

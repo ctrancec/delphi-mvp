@@ -165,6 +165,13 @@ export interface AccountPreferences {
     topics: 'cho' | 'team';
     /** This channel's share of the department's monthly budget, when it has its own. */
     monthlyCapUsd: number | null;
+    /**
+     * A test channel: a placeholder for trying the studio before a real
+     * account is connected. Everything is made exactly as for a real one; it
+     * just belongs to nobody yet, so it has no handle or link, and nobody
+     * invents them.
+     */
+    test: boolean;
 }
 
 export const DEFAULT_PREFERENCES: AccountPreferences = {
@@ -190,6 +197,7 @@ export const DEFAULT_PREFERENCES: AccountPreferences = {
     schedule: null,
     topics: 'cho',
     monthlyCapUsd: null,
+    test: false,
 };
 
 /** What a platform usually wants, applied when an account is created. */
@@ -298,6 +306,7 @@ export function withDefaults(raw: unknown, base: AccountPreferences = DEFAULT_PR
                   : Number.isFinite(Number(r.monthlyCapUsd)) && Number(r.monthlyCapUsd) >= 0
                     ? Math.round(Number(r.monthlyCapUsd) * 100) / 100
                     : base.monthlyCapUsd,
+        test: typeof r.test === 'boolean' ? r.test : base.test,
     };
 }
 
@@ -315,8 +324,11 @@ export interface MediaAccount {
     updatedAt: string;
 }
 
-/** "YouTube · Kitchen Science (@kitchensci)" */
-export function accountLabel(a: Pick<MediaAccount, 'platform' | 'name' | 'handle'>): string {
+/** "YouTube · Kitchen Science (@kitchensci)", or "YouTube · Market Shorts (test)" for a test channel. */
+export function accountLabel(
+    a: Pick<MediaAccount, 'platform' | 'name' | 'handle'> & { preferences?: Pick<AccountPreferences, 'test'> }
+): string {
+    if (a.preferences?.test) return `${PLATFORM_LABEL[a.platform] ?? a.platform} · ${a.name} (test)`;
     const handle = a.handle ? ` (${a.handle.startsWith('@') ? a.handle : `@${a.handle}`})` : '';
     return `${PLATFORM_LABEL[a.platform] ?? a.platform} · ${a.name}${handle}`;
 }
@@ -380,6 +392,11 @@ export function describeAccount(a: MediaAccount, timezone = 'UTC'): string {
         `  id: ${a.id}`,
         `  makes: ${p.formats.join(', ')} — ${formatsLine(p)}`,
     ];
+    if (p.test) {
+        lines.push(
+            '  TEST CHANNEL: a placeholder for trying the studio, not connected to any real account yet. Make every piece exactly as you would for a real channel. Never invent a handle, a link, follower or view counts, past performance, or anything else about the account.'
+        );
+    }
     if (video) lines.push(`  video length: ${p.durationSec.min}-${p.durationSec.max}s`);
     if (p.niche) lines.push(`  niche: ${p.niche}`);
     if (p.audience) lines.push(`  audience: ${p.audience}`);
@@ -448,13 +465,14 @@ export function validateAccountInput(
     const base = existing ?? withDefaults(platformDefaults(input.platform));
     const preferences = withDefaults(raw, base);
 
+    // A test channel belongs to nobody yet: no handle, no link.
     return {
         ok: true,
         value: {
             platform: input.platform,
             name,
-            handle,
-            url,
+            handle: preferences.test ? null : handle,
+            url: preferences.test ? null : url,
             departmentId: input.departmentId ?? null,
             status: input.status === 'paused' ? 'paused' : 'active',
             preferences,

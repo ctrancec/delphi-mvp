@@ -20,7 +20,8 @@ interface Stored {
 export interface StudioData {
     kind: 'video' | 'image';
     format?: string;
-    account: { id: string; label: string; platform: string; name: string; handle: string | null } | null;
+    /** `test`: made for a test channel, which has nowhere to publish. Absent on pieces made before test channels. */
+    account: { id: string; label: string; platform: string; name: string; handle: string | null; test?: boolean } | null;
     publish: {
         title?: string;
         description?: string;
@@ -132,7 +133,9 @@ export function StudioPanel({ artifactId, studio }: { artifactId: string; studio
                 )}
 
                 <p className="text-[11px] text-muted-foreground/60">
-                    Nothing is uploaded from here. Download the files, paste the words, and publish on the account yourself.
+                    {studio.account?.test
+                        ? 'Made for a test channel, so there is nowhere to publish it yet. Nothing is uploaded from here either way.'
+                        : 'Nothing is uploaded from here. Download the files, paste the words, and publish on the account yourself.'}
                 </p>
             </CardContent>
         </Card>
